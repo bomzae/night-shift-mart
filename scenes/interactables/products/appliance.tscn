@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[sub_resource type="BoxMesh" id="Mesh"]
+size = Vector3(0.7, 0.6, 0.5)
+[sub_resource type="BoxShape3D" id="Shape"]
+size = Vector3(0.7, 0.6, 0.5)
+[sub_resource type="PhysicsMaterial" id="Physics"]
+friction = 0.8
+bounce = 0.05
+[node name="Appliance" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+display_name = "Appliance"
+product_type = &"appliance"
+price = 500.0
+weight = 8.0
+tint = Color(0.95, 0.6, 0.2, 1)
+carry_radius = 0.55
+physics_material_override = SubResource("Physics")
+linear_damp = 0.15
+angular_damp = 0.8
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.65, 0)
+billboard = 1
+font_size = 30
+pixel_size = 0.004
+

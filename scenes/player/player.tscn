@@ -1,0 +1,91 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1_controller"]
+[ext_resource type="Script" path="res://scripts/interaction/player_interaction.gd" id="2_interaction"]
+
+[sub_resource type="CapsuleShape3D" id="Capsule_shape"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="Body_material"]
+albedo_color = Color(0.3, 0.42, 0.5, 1)
+
+[sub_resource type="CapsuleMesh" id="Capsule_mesh"]
+material = SubResource("Body_material")
+radius = 0.35
+height = 1.8
+
+[sub_resource type="StyleBoxFlat" id="Charge_background"]
+bg_color = Color(0.04, 0.05, 0.07, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.8, 0.8, 0.8, 1)
+
+[sub_resource type="StyleBoxFlat" id="Charge_fill"]
+bg_color = Color(1, 0.65, 0.12, 1)
+
+[node name="Player" type="CharacterBody3D"]
+floor_snap_length = 0.2
+script = ExtResource("1_controller")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.9, 0)
+shape = SubResource("Capsule_shape")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.9, 0)
+mesh = SubResource("Capsule_mesh")
+cast_shadow = 3
+
+[node name="Head" type="Node3D" parent="."]
+position = Vector3(0, 1.6, 0)
+
+[node name="Camera3D" type="Camera3D" parent="Head"]
+current = true
+fov = 75.0
+near = 0.05
+
+[node name="Interaction" type="Node" parent="."]
+script = ExtResource("2_interaction")
+
+[node name="Feedback" type="CanvasLayer" parent="Interaction"]
+
+[node name="Crosshair" type="Label" parent="Interaction/Feedback"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -12.0
+offset_top = -16.0
+offset_right = 12.0
+offset_bottom = 16.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 24
+text = "+"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ChargeBar" type="ProgressBar" parent="Interaction/Feedback"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -40.0
+offset_top = 24.0
+offset_right = 40.0
+offset_bottom = 32.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+max_value = 1.0
+theme_override_styles/background = SubResource("Charge_background")
+theme_override_styles/fill = SubResource("Charge_fill")
+step = 0.001
+show_percentage = false

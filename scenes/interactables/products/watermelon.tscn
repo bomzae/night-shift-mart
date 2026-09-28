@@ -1,0 +1,31 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[sub_resource type="SphereMesh" id="Mesh"]
+radius = 0.28
+height = 0.56
+[sub_resource type="SphereShape3D" id="Shape"]
+radius = 0.28
+[sub_resource type="PhysicsMaterial" id="Physics"]
+friction = 0.8
+bounce = 0.05
+[node name="Watermelon" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+display_name = "Watermelon"
+product_type = &"watermelon"
+price = 50.0
+weight = 4.0
+tint = Color(0.25, 0.8, 0.35, 1)
+carry_radius = 0.3
+physics_material_override = SubResource("Physics")
+linear_damp = 0.15
+angular_damp = 0.8
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.65, 0)
+billboard = 1
+font_size = 30
+pixel_size = 0.004
+

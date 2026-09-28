@@ -1,0 +1,33 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[sub_resource type="CylinderMesh" id="Mesh"]
+top_radius = 0.14
+bottom_radius = 0.14
+height = 0.32
+[sub_resource type="CylinderShape3D" id="Shape"]
+radius = 0.14
+height = 0.32
+[sub_resource type="PhysicsMaterial" id="Physics"]
+friction = 0.8
+bounce = 0.05
+[node name="Can" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+display_name = "Can"
+product_type = &"can"
+price = 5.0
+weight = 1.0
+tint = Color(0.2, 0.55, 0.95, 1)
+carry_radius = 0.22
+physics_material_override = SubResource("Physics")
+linear_damp = 0.15
+angular_damp = 0.8
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.65, 0)
+billboard = 1
+font_size = 30
+pixel_size = 0.004
+

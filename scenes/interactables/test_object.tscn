@@ -1,0 +1,32 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="Mesh"]
+size = Vector3(0.55, 0.55, 0.55)
+
+[sub_resource type="BoxShape3D" id="Shape"]
+size = Vector3(0.55, 0.55, 0.55)
+
+[sub_resource type="PhysicsMaterial" id="Physics"]
+friction = 0.7
+bounce = 0.1
+
+[node name="TestObject" type="RigidBody3D" groups=["grabbable"]]
+physics_material_override = SubResource("Physics")
+linear_damp = 0.1
+script = ExtResource("1")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.55, 0)
+billboard = 1
+font_size = 40
+pixel_size = 0.006
+outline_size = 8
+text = "Object"

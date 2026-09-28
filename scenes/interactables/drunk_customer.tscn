@@ -1,0 +1,23 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/systems/drunk_customer.gd" id="1"]
+[sub_resource type="CapsuleShape3D" id="Shape"]
+radius = 0.32
+height = 1.5
+[sub_resource type="CapsuleMesh" id="Mesh"]
+radius = 0.32
+height = 1.5
+[sub_resource type="StandardMaterial3D" id="Material"]
+albedo_color = Color(0.65, 0.3, 0.75, 1)
+[node name="DrunkCustomer" type="RigidBody3D"]
+mass = 6.0
+script = ExtResource("1")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+material_override = SubResource("Material")
+[node name="Mood" type="Label3D" parent="."]
+position = Vector3(0, 1.1, 0)
+billboard = 1
+text = "~_~"
+font_size = 64

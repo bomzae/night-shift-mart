@@ -1,0 +1,103 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/interactables/shopping_cart.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/test/test_damage_target.tscn" id="2"]
+
+[sub_resource type="StandardMaterial3D" id="LaneMaterial"]
+albedo_color = Color(0.3, 0.35, 0.38, 1)
+
+[sub_resource type="BoxMesh" id="LaneMesh"]
+material = SubResource("LaneMaterial")
+size = Vector3(6, 0.5, 24)
+
+[sub_resource type="BoxShape3D" id="LaneShape"]
+size = Vector3(6, 0.5, 24)
+
+[sub_resource type="BoxMesh" id="WallMesh"]
+material = SubResource("LaneMaterial")
+size = Vector3(0.3, 3, 24)
+
+[sub_resource type="BoxShape3D" id="WallShape"]
+size = Vector3(0.3, 3, 24)
+
+[sub_resource type="BoxMesh" id="EndMesh"]
+material = SubResource("LaneMaterial")
+size = Vector3(6, 3, 0.3)
+
+[sub_resource type="BoxShape3D" id="EndShape"]
+size = Vector3(6, 3, 0.3)
+
+[sub_resource type="BoxMesh" id="RampMesh"]
+material = SubResource("LaneMaterial")
+size = Vector3(3, 0.18, 6)
+
+[sub_resource type="BoxShape3D" id="RampShape"]
+size = Vector3(3, 0.18, 6)
+
+[node name="CartFixtures" type="Node3D"]
+
+[node name="Cart" parent="." instance=ExtResource("1")]
+position = Vector3(7, 0.05, 4)
+
+[node name="Lane" type="StaticBody3D" parent="."]
+position = Vector3(7, -0.25, -22)
+
+[node name="Mesh" type="MeshInstance3D" parent="Lane"]
+mesh = SubResource("LaneMesh")
+
+[node name="Shape" type="CollisionShape3D" parent="Lane"]
+shape = SubResource("LaneShape")
+
+[node name="LeftWall" type="StaticBody3D" parent="."]
+position = Vector3(4, 1.5, -22)
+
+[node name="Mesh" type="MeshInstance3D" parent="LeftWall"]
+mesh = SubResource("WallMesh")
+
+[node name="Shape" type="CollisionShape3D" parent="LeftWall"]
+shape = SubResource("WallShape")
+
+[node name="RightWall" type="StaticBody3D" parent="."]
+position = Vector3(10, 1.5, -22)
+
+[node name="Mesh" type="MeshInstance3D" parent="RightWall"]
+mesh = SubResource("WallMesh")
+
+[node name="Shape" type="CollisionShape3D" parent="RightWall"]
+shape = SubResource("WallShape")
+
+[node name="EndWall" type="StaticBody3D" parent="."]
+position = Vector3(7, 1.5, -34)
+
+[node name="Mesh" type="MeshInstance3D" parent="EndWall"]
+mesh = SubResource("EndMesh")
+
+[node name="Shape" type="CollisionShape3D" parent="EndWall"]
+shape = SubResource("EndShape")
+
+[node name="CartTarget" parent="." instance=ExtResource("2")]
+position = Vector3(7, 0.05, -4)
+receive_knockback = true
+max_hp = 1000.0
+
+[node name="Ramp" type="StaticBody3D" parent="."]
+position = Vector3(-7, 0.39, -3)
+rotation_degrees = Vector3(9, 0, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Ramp"]
+mesh = SubResource("RampMesh")
+
+[node name="Shape" type="CollisionShape3D" parent="Ramp"]
+shape = SubResource("RampShape")
+
+[node name="LaneLabel" type="Label3D" parent="."]
+position = Vector3(7, 3, -9)
+text = "CART LANE"
+font_size = 70
+pixel_size = 0.01
+
+[node name="RampLabel" type="Label3D" parent="."]
+position = Vector3(-7, 2, -5)
+text = "RAMP / FLIP"
+font_size = 40
+pixel_size = 0.01

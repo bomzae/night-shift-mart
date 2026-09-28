@@ -1,0 +1,153 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1_player"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/test_object.tscn" id="2_object"]
+[ext_resource type="PackedScene" path="res://scenes/test/test_damage_target.tscn" id="3_target"]
+[ext_resource type="PackedScene" path="res://scenes/test/cart_test_zone.tscn" id="4_cart_zone"]
+
+[sub_resource type="Environment" id="Room_environment"]
+background_mode = 1
+background_color = Color(0.12, 0.14, 0.17, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.78, 0.83, 0.92, 1)
+ambient_light_energy = 0.65
+tonemap_mode = 0
+
+[sub_resource type="StandardMaterial3D" id="Floor_material"]
+albedo_color = Color(0.38, 0.4, 0.43, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Wall_material"]
+albedo_color = Color(0.62, 0.64, 0.67, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Far_wall_material"]
+albedo_color = Color(0.42, 0.48, 0.53, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="Floor_mesh"]
+material = SubResource("Floor_material")
+size = Vector3(20, 0.5, 20)
+
+[sub_resource type="BoxShape3D" id="Floor_shape"]
+size = Vector3(20, 0.5, 20)
+
+[sub_resource type="BoxMesh" id="Wall_mesh"]
+material = SubResource("Wall_material")
+size = Vector3(20, 4, 0.5)
+
+[sub_resource type="BoxMesh" id="Far_wall_mesh"]
+material = SubResource("Far_wall_material")
+size = Vector3(20, 4, 0.5)
+
+[sub_resource type="BoxShape3D" id="Wall_shape"]
+size = Vector3(20, 4, 0.5)
+
+[node name="PrototypeTestRoom" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Room_environment")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+light_energy = 1.1
+shadow_enabled = true
+
+[node name="Floor" type="StaticBody3D" parent="."]
+position = Vector3(0, -0.25, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("Floor_mesh")
+
+[node name="Collision" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("Floor_shape")
+
+[node name="NorthWall" type="StaticBody3D" parent="."]
+position = Vector3(-3, 2, -10)
+scale = Vector3(0.7, 1, 1)
+
+[node name="Mesh" type="MeshInstance3D" parent="NorthWall"]
+mesh = SubResource("Far_wall_mesh")
+
+[node name="Collision" type="CollisionShape3D" parent="NorthWall"]
+shape = SubResource("Wall_shape")
+
+[node name="SouthWall" type="StaticBody3D" parent="."]
+position = Vector3(0, 2, 10)
+
+[node name="Mesh" type="MeshInstance3D" parent="SouthWall"]
+mesh = SubResource("Wall_mesh")
+
+[node name="Collision" type="CollisionShape3D" parent="SouthWall"]
+shape = SubResource("Wall_shape")
+
+[node name="WestWall" type="StaticBody3D" parent="."]
+position = Vector3(-10, 2, 0)
+rotation_degrees = Vector3(0, 90, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="WestWall"]
+mesh = SubResource("Wall_mesh")
+
+[node name="Collision" type="CollisionShape3D" parent="WestWall"]
+shape = SubResource("Wall_shape")
+
+[node name="EastWall" type="StaticBody3D" parent="."]
+position = Vector3(10, 2, 0)
+rotation_degrees = Vector3(0, 90, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="EastWall"]
+mesh = SubResource("Wall_mesh")
+
+[node name="Collision" type="CollisionShape3D" parent="EastWall"]
+shape = SubResource("Wall_shape")
+
+[node name="PlayerStart" type="Marker3D" parent="."]
+position = Vector3(0, 0.1, 5)
+
+[node name="Player" parent="PlayerStart" instance=ExtResource("1_player")]
+
+[node name="InteractionFixtures" type="Node3D" parent="."]
+
+[node name="ObjectA" parent="InteractionFixtures" instance=ExtResource("2_object")]
+position = Vector3(-4, 0.4, 1)
+display_name = "A"
+price = 5.0
+weight = 1.0
+tint = Color(0.3, 0.75, 0.9, 1)
+
+[node name="ObjectB" parent="InteractionFixtures" instance=ExtResource("2_object")]
+position = Vector3(-2, 0.4, 1)
+display_name = "B"
+price = 5.0
+weight = 8.0
+tint = Color(0.3, 0.8, 0.4, 1)
+
+[node name="ObjectC" parent="InteractionFixtures" instance=ExtResource("2_object")]
+position = Vector3(0, 0.4, 1)
+display_name = "C"
+price = 50.0
+weight = 4.0
+tint = Color(0.95, 0.7, 0.2, 1)
+
+[node name="ObjectD" parent="InteractionFixtures" instance=ExtResource("2_object")]
+position = Vector3(2, 0.4, 1)
+display_name = "D"
+price = 500.0
+weight = 1.0
+tint = Color(0.85, 0.35, 0.65, 1)
+
+[node name="ObjectE" parent="InteractionFixtures" instance=ExtResource("2_object")]
+position = Vector3(4, 0.4, 1)
+display_name = "E"
+price = 500.0
+weight = 8.0
+tint = Color(0.6, 0.45, 0.9, 1)
+
+[node name="TestDamageTarget" parent="InteractionFixtures" instance=ExtResource("3_target")]
+position = Vector3(-3, 0.05, -5)
+
+[node name="KnockbackTarget" parent="InteractionFixtures" instance=ExtResource("3_target")]
+position = Vector3(3, 0.05, -5)
+receive_knockback = true
+
+[node name="CartFixtures" parent="." instance=ExtResource("4_cart_zone")]
