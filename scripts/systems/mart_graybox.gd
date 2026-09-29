@@ -26,3 +26,7 @@ func _ready() -> void:
 	Graybox.box($StoreFloor, "CheckoutReserved", Vector3(3, 0.025, 2), Vector3(5, 0.015, 10), Color(0.55, 0.5, 0.25), false)
 	Graybox.box($Entrance, "DoorMarker", Vector3(3, 0.03, 0.3), Vector3(0, -1.23, 0), Color(0.25, 0.5, 0.55), false)
 	Graybox.sign($Entrance, "ENTRANCE", Vector3(0, 1.8, -0.1))
+	var families := Node3D.new()
+	families.name = "LostFamilies"
+	families.set_script(preload("res://scripts/systems/lost_family_manager.gd"))
+	add_child(families)

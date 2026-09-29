@@ -2,6 +2,203 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 6.2 — Held Object / Character Rapid Turn Stability Fix (구현·자동 검증 완료)
+
+이 절은 이전 단계의 즉시 자동 Drop 규칙을 대체한다. Prompt 6/6.1의 기존 uncommitted 작업(tracked 7개/untracked 12개)을 보존했고 새 콘텐츠는 추가하지 않았다. 아래 최종 검증 상태를 확인하고 이 작업을 다시 구현하지 않는다.
+
+### 실제 원인과 재현
+
+- `player_interaction.gd._update_hold_target()`에는 이미 카메라 원점에서 carry_radius Sphere Sweep이 있었다. 그러나 카메라 위치의 검사 구가 어떤 물리 물체와 겹치면 즉시 `drop_held()`했다. 플레이어 캡슐이 설 수 있는 벽 옆에서도 상품 0.49m/취객 0.82m/미아 0.55m 검사 구는 벽과 겹칠 수 있다.
+- 별도로 `_physics_process()`는 카메라–바디 거리 >4m이면 한 프레임 만에 해제했다. 순수 제자리 yaw만으로 이 거리가 반드시 커지는 것은 아니다. 이동·충돌·물리 지연과 함께 발생하면 복구 기회가 없다는 문제다.
+- 기존 카메라 목표는 1.7m 앞이었다. 한 tick 180도 회전 시 목표가 최대 3.4m 이동하지만 바디는 상품 8m/s, Character 7m/s 및 가속 상한으로 추종한다. 카메라→목표만 검사하고 바디의 현재 위치→새 목표 사이 모서리 경로는 검사하지 않았다.
+- 수정 전 `.godot/p62_baseline.log`: 상품/취객/미아 모두 벽 옆 90/180도 회전에서 Hold 상실(실패 3개). 해제 후 카메라와 거리는 약 1.81m로, 이 재현의 직접 원인은 거리 4m 초과가 아니라 카메라 구의 초기 겹침이었다. 두 바디 스크립트에는 별도 자동 Drop 조건이 없고 공통 PlayerInteraction이 해제를 결정한다.
+
+### 공통 Safe Hold / 거리 복귀
+
+- 실제 수정은 `PlayerInteraction`에 집중했다. `GrabbableBody`, `CarryableCharacter`, Drunk/LostChild 및 Family Exit 로직은 이번 단계에서 변경하지 않았다.
+- 기본 경로: 카메라→원래 Hold 지점에 기존 보수적 Sphere Sweep + margin을 적용해 가능한 거리를 구한다. 카메라 검사 구의 초기 겹침은 더 이상 해제하지 않는다. 이때는 전방 ray로 중심이 장애물 뒤로 가지 않게 범위를 제한하고, 아래 실제 바디 Sweep을 사용한다.
+- 원하는 거리는 장애물에서 즉시 축소하고, 공간이 열리면 초당 6m로 원래 거리까지 복귀한다. 목표 좌표는 초당 12m의 이동 상한을 둔다. 카메라 입력에는 제한/지연을 추가하지 않는다.
+- 이어서 대상의 **실제 CollisionShape3D(상품 Box / 캐릭터 Capsule)** 현재 월드 Transform에서 후보 목표까지 Shape Sweep한다. 급회전 시 진열대 모서리를 가로지르는 경로도 여기서 제한한다. 최종 좌표를 기존 `hold_target`에 전달하며 기존 물리 속도·가속/CCD/월드 충돌은 유지한다. 바디 위치를 snap하거나 freeze하지 않는다.
+- 디버그용 공개 상태는 `desired_hold_position`, `safe_hold_position`, `hold_obstructed`, `break_timer`다. 게임 화면에 새 Debug UI는 없다. 현재 공통 씬의 단일 `CollisionShape3D`를 사용하며 복잡한 복합 Collider 지원은 추가하지 않았다.
+
+### Safety Drop / Inspector 기본값
+
+| 변수 | 기본값 | 의미 |
+| --- | ---: | --- |
+| hold_distance | 1.7m | 기존 기본 운반 거리 |
+| hold_strength | 12 | 상품 추종 계수, 기존 유지 |
+| max_carry_speed / max_carry_acceleration | 8 / 45 | 상품 물리 상한, 기존 유지 |
+| break_distance | 4m | 경고/복구 거리, 즉시 해제하지 않음 |
+| hard_break_distance | 6m | 심한 이격 판정 |
+| break_grace_time | 0.5초 | 심한 이격 해제 유예 |
+| stalled_release_time | 3초 | 복구 진행이 없는 정체의 해제 시간 |
+| hold_obstruction_margin | 0.03m | Hold 경로 충돌 여유 |
+| hold_target_speed | 12m/s | 목표 좌표 이동 상한 |
+| hold_distance_return_speed | 6m/s | 장애물 해소 후 거리 복귀 속도 |
+
+- >6m에서 유예 시간을 누적하고 <4m로 회복하면 0으로 초기화한다. 4~6m 구간은 누적을 멈추고 기존 타이머를 보존하는 hysteresis다. 0.5초 도달 시 Safety Drop한다. 심한 이격 중 Charge를 취소하여 유예 중 멀리 있는 상품을 원격 발사하지 않는다.
+- 4m 밖, 또는 장애물에 막혀 카메라와 `hold_distance + carry_radius`보다 멀고 원래 목표와 1m 이상 떨어진 상태에서, 실제 이동량으로 측정한 속도가 0.25m/s 미만인 상태가 3초 이어지면 해제한다. 단순 정상 벽 접촉만으로 정체 타이머를 올리지 않는다. 속도 속성은 접촉/고정 시 남을 수 있으므로 실제 위치 변화량을 쓴다.
+- 직접 좌클릭 Drop은 즉시, 상품 Charge Throw는 기존 방식, Character Throw는 계속 차단한다. 소유권 상실/바디 삭제 시 Hold·Charge·타이머를 정리한다. Player 충돌 예외를 유지하며 Shelf/Wall 충돌은 제거하지 않는다. Cart는 기존 제어·emergency break 경로를 그대로 사용한다.
+- 취객 85%, 미아 98% 이동 배율과 Drop 인계/Family Exit/Drunk Removal은 그대로다.
+
+### 파일 / 검사 이력
+
+- 수정: `scripts/interaction/player_interaction.gd`, `tests/prompt1_1_smoke.gd`, `tests/prompt5_smoke.gd`, 이 문서. 신규: `tests/prompt6_2_smoke.gd` 및 UID. README/Agent/Skill은 새 입력이나 일반 원칙 변화가 없어 이번 단계에서 수정하지 않았다.
+- 기존 Prompt 1.1의 “멀리 이격된 상태의 대기 중 Throw보다 Safety Drop 우선” 검사는 그대로 유지한다. 새 유예 정책에 맞게 바디를 원격 위치에 고정하고 `break_grace_time` 이후 동일한 held=null/charge=0/damage=0을 검사한다. 즉시 해제를 요구하던 2 tick 대기를 변경했고 검사 삭제/피해 기준 완화는 하지 않았다.
+- `.godot/p62_first.log`: GDScript가 동적 바디 속성으로 만든 `stuck` 타입을 추론하지 못해 파싱 실패. 명시적 bool로 수정하고 오류 실행을 종료했다. `.godot/p62_second.log`: 최초 재현 전부 통과.
+- `.godot/p62_extended.log`: 보강 검사 중 장시간 고정 바디 정체 해제 1건 실패. freeze된 테스트 바디가 기존 linear_velocity를 남겼고 속도 속성만으로는 정체를 확인하지 못했다. 게임 코드의 정체 감지를 실제 위치 변화량으로 변경했다. 실패 로그는 보존한다.
+- 첫 전체 회귀 Prompt 5에서 Carry/벽/Drop/직접 제거/카트 제거/계산은 통과했으나 진열대 충돌 테스트의 “안정된 상품 준비” 1건이 실패했다(`.godot/p62_regression_first_prompt5.log`). 이 구간은 풀어놓은 취객의 랜덤 배회 중 상품을 진열하고 있었다. 당시 접촉/위치를 기록하지 않았으므로 원인을 단정하지 않는다. 별도 `.godot/p62_stock_probe.log`에서는 취객이 가까울 때 준비 상품이 (-5,1,5.5)에서 (-5.23,0.80,5.93)으로 이동하고, 멀 때는 (-5.00,0.80,5.50)에 유지되는 간섭을 확인했다. 두 진단(`p62_stock_late_contact.log` 포함)에서는 Stock 검사가 최종 통과해 최초 실패 자체가 동일하게 재현된 것은 아니다.
+- 초기 조건을 분리하기 위해 **Prompt 5의 이 준비 구간에서만** 취객을 (7,0.8,2)에 두었다. AI는 끄지 않고 진열 준비 뒤 기존 (-5,0.76,3.9) 위치에서 실제 Shelf 충돌을 그대로 시작한다. 앞선 배회/Drop 후 AI 재개와 뒤의 상품 흔들림·파손·Carry/Cart 제거·계산 검사는 모두 유지한다. Shelf 판정 기준/대기 시간/게임 취객 코드는 수정하지 않았다. 이 fixture 수정 후 해당 단계와 아직 실행하지 않은 회귀를 이어서 실행한다.
+- 최종 전체 결과는 `.godot/final62_*.log`에 기록했다. 신규 48개 검사는 상품/큰 Appliance/취객/미아의 급회전, 실제 Shelf/Wall, 정상 위치 복귀, 이동 중 회전, 월드/Player 충돌 규칙, 수동 Drop, Character Throw 차단, 일시적/지속 이격, 장기 정체, 노드 삭제를 포함한다.
+
+### 최종 자동 검사 — 2026-09-29
+
+**총 543개 통과, 최종 실패 0개**(기존 495 + 신규 48). 각 단계 완료 문구와 종료 코드 0을 확인했으며 최종 import/회귀/Main 로그의 SCRIPT ERROR/ERROR:/FAIL:는 0건이다. 최초 실패 로그는 위 별도 파일로 보존했다.
+
+| Prompt | 통과 | 실패 |
+| --- | ---: | ---: |
+| 0 | 22 | 0 |
+| 1 | 48 | 0 |
+| 1.1 | 40 | 0 |
+| 2 | 41 | 0 |
+| 2.1 | 28 | 0 |
+| 3 | 32 | 0 |
+| 3.1 | 29 | 0 |
+| 4 | 54 | 0 |
+| 5 | 33 | 0 |
+| 5.1 | 36 | 0 |
+| 5.2 | 57 | 0 |
+| 6 | 40 | 0 |
+| 6.1 | 35 | 0 |
+| 6.2 | 48 | 0 |
+
+- 실제 물리 검사에서 작은 상품/Appliance/취객/미아 모두 벽 옆 급회전 후 held=true였다. 장애물 제거 후 정상 Hold 목표 0.25m 이내 복귀, 실제 Shelf 반대편으로 관통하지 않음, 이동하면서 90/180도 회전 유지, 좌클릭 Drop 및 Character 투척 차단을 확인했다. 6.5m 단기 이격은 유지/복귀하고 0.5초 지속 시 해제, 4.5m 장기 정체는 3초 후 해제됐다.
+- 기존 상품 가격/무게/피해/넉백, Cart Bomb, 배송/진열/계산, 취객 운반·카트 제거, 미아 인계·카트 운반, 6.1 가족 교차/퇴장 검사를 모두 통과했다. 사람이 직접 장시간 플레이한 수동 확인으로 해석하지 않는다.
+- Godot 4.7.2 임포트 성공. Main은 headless fixed-fps=60, 7,200프레임(시뮬레이션 120초)으로 실행했고 배송 6개 도착/출발까지 확인했다. 신규/회귀 smoke는 창 모드에서 하나씩 순차 실행했다.
+- `git diff --check` 오류 없음. 이전 Prompt 변경 포함 tracked 수정 9개/untracked 14개이며 전부 uncommitted다. Git의 사용자 전역 ignore 권한 경고/CRLF 안내는 남지만 status/diff 종료 코드는 0이다. commit/amend/reset/push를 실행하지 않았다.
+- 재실행은 기존 실행 파일 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`에 `--path . --script res://tests/prompt6_2_smoke.gd`를 사용한다. 전체 검사 목록은 `0, 1, 1_1, 2, 2_1, 3, 3_1, 4, 5, 5_1, 5_2, 6, 6_1, 6_2`다. import/Main headless와 창 모드 회귀 절차는 아래 기존 실행 예시를 따른다.
+
+### 수동 확인 / Known Issues / 다음 작업
+
+1. 작은 상품과 Appliance를 각각 Grab하고 중앙에서 빠르게 좌우 90/180도 회전한다.
+2. Shelf/Wall 옆에서 회전·이동한다. 잠깐 닿아도 유지되고 관통하지 않으며 공간을 확보하면 정상 위치로 복귀하는지 확인한다.
+3. K 취객 Carry로 반복한다. 85% 이동·우클릭 투척 차단·카트 운반/출구 제거를 확인한다.
+4. L 미아 Carry로 반복한다. 98% 이동·투척 차단·올바른 부모 Drop·6.1 가족 퇴장을 확인한다.
+5. 테스트 환경에서 대상을 6m 이상 고정하여 0.5초 후 Safety Drop, 잠깐 초과 후 복귀는 유지되는지 확인한다.
+
+- 아주 좁은 공간이나 양쪽이 막힌 모서리에서 물리 접촉/지연은 남을 수 있다. 장애물 우회 경로 탐색이나 완전한 관절 시스템은 없으며 복구 불가능한 지속 정체는 의도적으로 해제한다. 자동 검사로 장시간 수동 조작감을 확정하지 않는다.
+- **Cart Contact Repeated Damage는 계속 유지**한다. 이전 Family Exit의 물리 장애물 봉쇄 제한도 유지한다.
+- 수동 확인 후 요청 시 Prompt 7 Accident Customer / Spill / Slippery Floor로 이어갈 수 있다. 이번 작업에서는 새 콘텐츠를 구현하지 않았다. 모든 변경은 uncommitted로 두며 commit/amend/reset/push하지 않는다.
+
+## Prompt 6.1 — Lost Family Exit / NPC Deadlock Fix (구현·자동 검증 완료)
+
+현재 구현은 아래 Prompt 6의 퇴장 설명을 대체한다. 새 콘텐츠는 추가하지 않았다. 시작 시 Prompt 6의 tracked 수정 7개와 신규 10개가 이미 uncommitted였으며 그대로 보존했다.
+
+### 원인과 수정 구조
+
+- 기존 Child는 부모 중심을 목표로 하고 거리 0.9m 안에서 멈췄다. 실제 뒤/옆 위치가 아니었고 Parent/Child 직접 충돌도 유지되어 정면 Drop 시 서로 막혔다. 퇴장 가족과 새 Basic Customer의 직접 충돌 역시 계속 활성화되어 반대 방향 이동이 정체되었다.
+- `LostChild.follow_position()`은 Parent의 현재 퇴장 waypoint 방향 기준 **뒤 0.9m + 오른쪽 0.35m**다. Inspector 변수 `follow_distance=0.9`, `lateral_offset=0.35`, `walk_speed=2.3`, `follow_correction=3`, `follow_acceleration=16`, `recovery_start_distance=2`, `recovery_speed=4.5`를 사용한다. 간격 증가 시 최대 속도를 점진적으로 높이고 매 물리 구간 수평 속도만 보정한다. 매 프레임 Transform 복사/순간이동/바디 부착은 없다. 재회 후에는 카트 지지 상태도 바닥 접촉 추종을 허용한다. 재회 전 Carry/카트 동작은 기존 그대로다.
+- `LostParent`는 퇴장 waypoint의 수평 방향을 `exit_direction`으로 제공하고 해당 방향을 바라본다. 기존 BasicCustomer 이동을 그대로 호출한다. `uses_customer_separation()` 기본값 true, 재회 Parent만 false로 재정의하여 일반 손님 거리 벌리기 보정이 부모를 다시 밀어 멈추지 않게 한다. 일반 손님끼리의 쇼핑/Queue/충돌 규칙은 바꾸지 않았다.
+- `LostFamilies.try_reunion()`은 기존 Drop ownership 해제 이후 ID/거리/차폐 검증을 통과하면 reunited/수면 해제, 상호 충돌 예외, 성공 카운트와 하트 대기 상태를 설정한다. 0.8초 후 Parent EXIT, Child는 물리 추종한다. reunited 가드가 중복 성공을 방지하고 재Grab은 계속 차단한다.
+- 충돌 예외는 **양쪽 바디**에 적용한다: 재회한 자기 가족 Parent↔Child, 재회한 가족↔기존 Basic Customer, 재회한 가족↔다른 재회한 가족. SceneTree `node_added`에서 재회 후 들어오는 새 Basic Customer에도 첫 이동 전에 적용한다. 미해결 다른 가족 및 일반 Customer↔Customer는 그대로다. Drunk, Player, Cart, 상품, 벽/진열대/지형에 대한 충돌 Layer/Mask는 바꾸지 않는다.
+- `_npc_exceptions`는 이 Manager가 추가한 방향별 예외만 WeakRef로 기록한다. 가족 완료/비정상 한쪽 소멸/Manager 종료 시 생존 바디의 예외를 해제한다. 기존 다른 소유자의 예외는 지우지 않는다.
+- **Parent가 정상 출구에 도착하면 두 바디와 이벤트를 함께 정리**한다. Child 자체의 출구 Trigger나 부모와 2m 이내 여부를 더 이상 기다리지 않는다. 아이가 뒤에 남아 출구를 점유하는 문제가 가족 완료를 막지 않는다. 통계는 재회 시에만 증가한다.
+
+### 변경 파일과 검사 이력
+
+- 이번 재개에서 수정: `scripts/systems/lost_child.gd`, `lost_parent.gd`, `lost_family_manager.gd`, `basic_customer.gd`, `PROJECT_NOTES.md`, `README.md`. 신규: `tests/prompt6_1_smoke.gd`와 UID. 기존 Prompt 0~6 검사, 공통 Carry, Drunk, Cart, 판매/예약은 수정하지 않았다. Agent/Skill도 변경하지 않았다.
+- 수정 전 `.godot/p61_baseline.log`: 실제 재회 성공 후에도 상호 충돌 예외 없음/offset 추종 API 없음 두 검사가 실패했다. `.godot/p61_first.log`: 신규 Child 코드 들여쓰기 오류로 파싱 실패, 즉시 수정했다. `.godot/p61_second.log`: 신규 검사가 실패 0으로 완료됐다. 실패 로그를 보존한다.
+- 보강한 벽 검사에서 벽을 치운 뒤 퇴장/예외 정리 2건이 실패했다(`.godot/p61_wall_fixture_failure.log`). 진단 실행 `.godot/p61_wall_diagnostic.log`에서 부모 위치 (6,0.000292,9.254052), 속도 0, 실제 접촉 바디 `/root/Main/MartGraybox/Customers/Checkout/Counter`를 확인했다. 검사 전용 직선이 기존 계산대(x=5,z=10)를 가로지른 배치 오류였다. 해당 신규 fixture만 x=7.5의 빈 동선으로 옮겼다. “벽에는 막힘 → 벽 제거 후 퇴장 → 임시 예외 정리” 계약은 유지하고 게임의 계산대/충돌/경로 코드는 변경하지 않았다. 기존 회귀 파일도 변경하지 않았다.
+- 최종 전체 회귀/임포트/Main 결과는 `.godot/final61_*.log`에 보존했다. 기존 회귀 460개 + 신규 35개 = **495개 통과, 최종 실패 0개**. 아래는 2026-09-29 실제 실행 결과다.
+
+| Prompt | 통과 | 실패 |
+| --- | ---: | ---: |
+| 0 | 22 | 0 |
+| 1 | 48 | 0 |
+| 1.1 | 40 | 0 |
+| 2 | 41 | 0 |
+| 2.1 | 28 | 0 |
+| 3 | 32 | 0 |
+| 3.1 | 29 | 0 |
+| 4 | 54 | 0 |
+| 5 | 33 | 0 |
+| 5.1 | 36 | 0 |
+| 5.2 | 57 | 0 |
+| 6 | 40 | 0 |
+| 6.1 | 35 | 0 |
+
+- Godot 4.7.2 임포트 성공. Main headless fixed-fps=60/7,200프레임(120초 시뮬레이션), 배송 도착·출발 확인, 종료 코드 0. 모든 최종 로그에 SCRIPT ERROR/ERROR:/FAIL: 0건. 입력 smoke는 창 모드 순차 실행했다.
+- 신규 검사는 정면/몸 겹침 Drop, 실제 부모·아이 이동, 뒤/옆 offset, 새 손님과 실제 정면 교차, 기존 손님 예외, 정상 손님끼리 충돌 유지, 미해결 가족 충돌 유지, 두 가족 퇴장, 비순간이동·회복 속도 상한, 실제 벽 정지/장애물 제거 후 재출발, 이벤트/예외 정리를 확인한다. 기존 미아 40개 검사가 잘못된 부모·Carry·카트 운반·통계·Drunk/Checkout/Delivery 병행을 확인한다.
+- 이번 Cart Bomb 회귀 실측: 적재 5개 중 4개 이탈, 차체와 개별 상품 모두 타깃 타격. 물리 산포가 있으므로 이탈 개수를 고정 계약으로 만들지 않는다.
+- `git diff --check` 오류 없음. 최종 상태는 이전 Prompt 6 변경을 포함해 tracked 수정 7개 + untracked 12개다. 이번 신규 파일은 Prompt 6.1 검사/UID 2개이며 자동 커밋하지 않았다. Git은 사용자 전역 ignore 읽기 권한 경고 및 CRLF 정규화 안내를 출력했으나 status/diff 검사는 종료 코드 0이다.
+
+재실행은 위에 기록한 기존 절대 경로로 import → `tests/prompt6_1_smoke.gd` → 기존 Prompt 0~6 smoke → Main 순서다. 아래 Prompt 6 PowerShell 반복 목록에 `'6_1'`을 추가하면 전체 검사에 포함된다. 게임 코드에 추가 변경 없이 신규 벽 fixture만 교정했으므로 통과한 기존 회귀 460개는 불필요하게 반복하지 않았다.
+
+### 수동 확인과 남은 제한
+
+1. L → 아이를 올바른 부모 정면 진행 경로에 Drop: 하트/found 1회, 부모 출발, 아이가 뒤/옆으로 추종.
+2. 부모 몸에 거의 겹치게 Drop: 폭주/서로 막힘 없이 퇴장. 재회 후 재Grab 불가 확인.
+3. 입구에서 새 일반 손님과 퇴장 가족이 정면 교차: 일시적 겹침은 허용하지만 영구 정체는 없어야 한다.
+4. L로 두 가족을 생성해 비슷한 시점에 인계: 각각 성공/퇴장, 총 found=2. 잘못된 부모에게는 성공하지 않아야 한다.
+5. Queue/배송/K 취객/카트 운반을 함께 실행: 가족 퇴장이 업무를 잠그지 않아야 한다. 카트/Player/벽 충돌은 계속 유지된다.
+
+- NPC 예외 통과 중 시각적 겹침은 의도적으로 허용한다. 군중 회피나 새 경로 탐색은 없다. 실제 카트/상품/Player/취객이 출구 전체를 막으면 부모는 여전히 물리적으로 막힐 수 있다. 아이가 벽/상품에 걸리면 bounded recovery만 적용하며, 부모 출구 도착 시 위치와 무관하게 정리된다. 장애물을 순간이동으로 뚫는 복구는 넣지 않았다.
+- **Cart Contact Repeated Damage**: 카트를 대상에 밀착해 비빌 때 반복 피해가 발생하는 기존 Known Issue는 그대로 유지한다. 전투 시스템 이후 재평가한다.
+- 자동 검사는 사람의 수동 조작감 검증을 대체하지 않는다. 다음은 위 수동 시나리오 확인이며, 그 뒤 사용자 요청 시 Accident Customer / Spill / Slippery Floor를 검토한다. 이번 작업에서 해당 기능은 구현하지 않았다.
+- 모든 변경은 uncommitted 유지. commit/amend/reset/push를 실행하지 않는다.
+
+## Prompt 6 — Lost Child + Parent Matching (구현·자동 검증 완료)
+
+- 이번 구현은 미아/부모 쌍만 추가한다. 아래 단계별 “Lost Child 미구현” 문장은 과거 이력이다. 다음 후보는 Accident Customer + 물/음료 미끄러운 바닥이며 아직 구현하지 않았다.
+- `LostChild extends CarryableCharacter`: 높이 1m, 반지름 0.24m 캡슐 RigidBody, mass=2kg, carry_radius=0.55m, carrier_speed_multiplier=0.98. 울음/물음표와 Family Symbol을 표시하고 제자리에서 기다린다. 타이머·쇼핑·Queue·피해·사망·ragdoll은 없다. 취객은 기존 mass=6kg/이동 배율 0.85를 유지한다.
+- `LostParent extends BasicCustomer`: 기존 캡슐 외형, 카트 접촉 반응, gravity/move_and_slide, 고정 퇴장 경로를 재사용한다. enum 끝에 EVENT_WAIT를 추가해 기존 상태 번호를 보존했다. Parent는 CustomerManager.customers/queue/예약 목록에 등록하지 않으며 EVENT_WAIT 동안 재고 검증/Patience를 실행하지 않는다. 퇴장 도착 콜백 `finish_exit()`만 가족 이벤트용으로 재정의한다.
+- `LostFamilies`는 Mart 초기화 때 추가되는 작은 Node3D Manager다. `enable_lost_child_test_spawn=true`, `max_events=2`(Inspector 1~2), `handoff_distance=1.8m`, `reunion_time=0.8초`. L 개발용 Action `debug_spawn_lost_child`로 생성하며 K 취객 입력과 분리한다. 자동 Event Director는 없다.
+- 쌍마다 증가하는 family_id와 정확한 Parent 참조를 사용한다. 활성 슬롯 0은 노란 원(●), 1은 청록 마름모(◆)이며 두 Actor에 동일 색·도형을 표시한다. 빈 슬롯은 재사용하지만 family_id는 재사용하지 않는다. Child 위치 (-6,0.55,2)/(4,0.55,2), Parent 위치 (6,0.01,8)/(-6,0.01,8.3). 두 생성 공간 중 하나라도 막히면 쌍 전체 생성을 건너뛴다.
+- 공통 Carry의 새 기본 no-op `on_player_drop()`를 미아가 재정의한다. 좌클릭 토글만 `drop_held(true)`를 호출하고, 끼임/거리/종료 등의 안전 Drop은 기존 기본 false다. 해제할 바디를 지역 변수로 보관하고 held_object를 먼저 비운 뒤 end_carry와 선택적 Drop hook을 실행한다. 상품·카트·취객의 기존 해제/Charge 동작은 유지한다. Character Throw 차단은 기존 CarryableCharacter 타입 판정을 그대로 쓴다.
+- 인계는 자발적 Drop 직후 판정한다. family_id와 Parent 참조 일치, 거리 1.8m, 부모 눈높이→아이 사이 벽/진열대 차폐 없음이 필요하다. 운반 중 올바른 부모는 체크를 표시한다. 잘못된 부모/일반 바닥 Drop/강제 안전 해제는 성공하지 않으며 아이도 유지한다. 카트 이동 자체에 전용 인계 트릭은 없다. 카트 운반 후 다시 Carry/Drop하여 인계할 수 있다.
+- 성공은 reunited를 먼저 설정해 중복을 막고 `lost_children_found += 1`, 하트를 0.8초 표시한다. 그 뒤 Parent는 기존 출구 경로로 걷고 Child는 바닥 접촉 중 부모를 약 0.9m 뒤에서 물리 속도/가속으로 따라간다(walk_speed=2.3m/s, Parent=1.5m/s). 순간이동/바디 부착/좌석은 없다. 추종 중 sleep을 끈다. Parent가 실제 출구에 도착하고 아이도 2m 안이면 두 바디를 제거하고 이벤트 슬롯을 반환한다. 재회 후 아이의 재Grab은 허용하지 않는다.
+- Drunk ExitRemovalZone은 계속 DrunkCustomer만 제거한다. 미아를 밖에 놓아도 found가 증가하거나 삭제되지 않는다. 판매·손실 카운터도 수정하지 않는다. 일반 Checkout/Delivery/Drunk는 이벤트 중 계속 동작한다.
+- 신규 씬: `scenes/interactables/lost_child.tscn`, `lost_parent.tscn`. 신규 스크립트: `scripts/systems/lost_child.gd`, `lost_parent.gd`, `lost_family_manager.gd` 및 UID. 신규 `tests/prompt6_smoke.gd`/UID. 수정: project.godot, carryable_character.gd, player_interaction.gd, basic_customer.gd, mart_graybox.gd, README, 이 문서. Agent/Skill과 기존 Prompt 0~5.2 검사 파일은 수정하지 않는다.
+- 초기 신규 검사에서 퇴장/카트/계산 병행 실패가 있었다. `.godot/p6_first.log`, `p6_second.log`, `p6_third.log` 보존. 카트와 플레이어가 겹친 fixture를 분리했고, 정지 취객이 출구(-3,11)를 막아 Parent가 z≈10.35에서 정체되는 좌표를 확인했다. 취객은 별도 구역에 두었으며 카트 탑승 검사 후 카트를 Backroom에 주차해 일반 고객 통로도 비웠다. 재회 시 물리 수면 해제와 Parent 대기 위치 경계 여유도 적용했다. 실제 장애물 봉쇄 시 정체는 알려진 제한으로 유지하며 자동 순간이동/통과를 넣지 않았다.
+- 수동 확인: L 한 번 → 같은 Symbol 확인 → Carry/일반 Drop → L 두 번의 다른 부모 인계 거부 → 올바른 부모 체크/좌클릭/하트/퇴장 → 카트 탑승·운반 → K 취객/계산/배송 병행. 미아 운반은 취객보다 덜 느려야 한다. 막힌 동선은 직접 비워 본다.
+- Known Issues: 카트 밀착 반복 Damage는 의도적으로 그대로다. 기존 고정 waypoint에 장애물이 놓이면 Parent/Customer가 정체될 수 있다. 재회한 아이가 카트 안에 계속 남거나 길이 막히면 퇴장이 지연될 수 있다. 물리 캡슐/도형 라벨은 임시 표현이며 시점에 따라 겹친다. 자동 검사와 사람이 장시간 체감한 수동 테스트는 구분한다.
+- Git: 시작 시 작업 트리는 clean이었다. 요청대로 모든 변경을 uncommitted 상태로 남기며 commit/amend/reset/push는 하지 않는다.
+
+### Prompt 6 최종 검사 — 2026-09-29
+
+**총 460개 통과, 실패 0개.** 기존 Prompt 0~5.2의 420개를 수정 없이 유지했고 신규 6의 40개를 추가했다. `.godot/final6_*.log`에 최종 결과가 있으며 모든 최종 검사/임포트/Main 로그의 SCRIPT ERROR/ERROR:/FAIL:는 0건이다.
+
+| Prompt | 통과 | 실패 |
+| --- | ---: | ---: |
+| 0 | 22 | 0 |
+| 1 | 48 | 0 |
+| 1.1 | 40 | 0 |
+| 2 | 41 | 0 |
+| 2.1 | 28 | 0 |
+| 3 | 32 | 0 |
+| 3.1 | 29 | 0 |
+| 4 | 54 | 0 |
+| 5 | 33 | 0 |
+| 5.1 | 36 | 0 |
+| 5.2 | 57 | 0 |
+| 6 | 40 | 0 |
+
+- 신규 검사는 L 생성·2쌍 제한·고유 ID/색/도형·쇼핑/Queue 제외·실제 좌클릭 Carry/Drop·이동/벽 안정성·캐릭터 투척 차단·잘못된 부모/벽/강제 Drop 거부·부모 체크·두 번의 인계 성공·중복 차단·실제 퇴장·다른 쌍 유지·취객 제거 구역 예외·실제 카트 운반·일반 매출 $5·배송을 확인했다. found=2이며 카트 위 아이 중심은 약 y=0.907m, 별도 좌석/부착 없이 supported_by_cart=true였다.
+- Godot 4.7.2 임포트와 Main fixed-fps 60/7,200프레임(시뮬레이션 120초) 실행에서 배송 도착/출발까지 확인했다. 입력 검사는 실제 창을 하나씩 순차 실행했다. `.godot/p6_reunion.png`를 열어 노란 원/청록 마름모, 작은 아이, 재회 하트와 FOUND 표시를 확인했다. 부모가 Shelf 뒤에서 가려질 수 있는 실제 배치도 확인했으며 장시간 사람이 직접 플레이한 결과로 해석하지 않는다.
+- `git diff --check` 오류 없음. 최종 Git은 tracked 수정 7개, 신규 10개(씬 2, 스크립트 3+UID 3, 검사 1+UID 1)이며 모두 uncommitted다. 기존 Agent/Skill 파일과 기존 테스트 파일은 변경하지 않았다.
+- 다음 세션은 Prompt 6을 다시 만들지 않는다. 사용자 수동 피드백에서 Carry·인계 거리·기호 가독성·막힌 퇴장 경로 문제를 먼저 확인한다. Accident Customer/물/음료/미끄러운 바닥은 다음 요청 때 설계하며 이번 단계에 선구현하지 않았다.
+
+재실행(프로젝트 루트 PowerShell, 기존 절대 경로 사용):
+
+```powershell
+$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+& $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check6_import.log
+foreach ($stage in @('6','0','1','1_1','2','2_1','3','3_1','4','5','5_1','5_2')) {
+    & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check6_prompt${stage}.log"
+}
+& $martGodot --headless --path . --fixed-fps 60 --quit-after 7200 2>&1 | Tee-Object .godot/check6_main.log
+```
+
 ## Prompt 5.2 — Customer Pickup Feedback + 자동 Godot 검사 (구현·자동 검증 완료)
 
 - 현재 데이터 흐름은 **Shelf 실물 예약 → SHOP에서 실물 제거/논리 Basket 기록 → Checkout에서 Basket 결제**다. 아래 Prompt 5.1까지의 “결제할 때 실물 제거” 기록은 과거 동작이며 이번 변경으로 대체한다. 손님은 여전히 실제 상품을 손에 들거나 몸에 붙이지 않는다.

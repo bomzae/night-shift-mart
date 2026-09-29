@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 5.2 / Customer Pickup Feedback**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 6 / Lost Child + Parent Matching**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -29,6 +29,24 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | throw | 마우스 오른쪽 | 누르는 동안 충전 → 떼면 상품 투척 또는 카트 발사 |
 | toggle_mouse_capture | Esc | 마우스 잠금 해제/복귀 |
 | debug_spawn_drunk | K | 마트 입구에 테스트 취객 생성(최대 2명) |
+| debug_spawn_lost_child | L | 개발용 미아·부모 쌍 생성(최대 2쌍) |
+
+## 미아와 부모 찾기
+
+F5 → **L**로 매장 안에 미아와 부모를 생성합니다. 생성 위치가 막혀 있으면 비우고 다시 누릅니다.
+아이와 부모의 **같은 색·도형(노란 원 / 청록 마름모)**을 찾습니다. 부모는 쇼핑이나 계산 없이 기다립니다.
+미아를 좌클릭으로 들고 부모에게 접근합니다. 맞는 부모 약 1.8m 이내에서 체크 표시가 보이면
+**다시 좌클릭해 내려놓습니다**. 하트 표시와 FOUND 증가 후 둘이 함께 출구로 이동합니다.
+
+잘못된 부모나 일반 위치에 놓아도 아이가 사라지거나 금전 손실이 발생하지 않습니다. 시간 제한도 없습니다.
+미아 운반 속도는 일반 이동의 98%(취객 85%)이며 우클릭으로 던질 수 없습니다.
+카트에 내려놓아 운반할 수 있지만 좌석 고정은 없습니다. 부모 앞에서 다시 들어 Drop하면 인계합니다.
+출구 제거 구역은 취객 전용이므로 미아를 밖으로 보내는 것은 해결이 아닙니다.
+재회한 아이는 부모의 뒤·옆을 따라갑니다. 퇴장 가족은 서로 및 일반 손님과 길을 막지 않도록 통과하며,
+부모가 출구에 도착하면 아이도 함께 정리됩니다. 카트/상품/Player 등 실제 장애물로 부모의 통로를 완전히 막으면 여전히 정체될 수 있습니다.
+
+신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt6_smoke.gd`를 전달합니다.
+퇴장 교차 검사: `--path . --script res://tests/prompt6_1_smoke.gd`.
 
 ## 취객 테스트
 
@@ -42,7 +60,7 @@ F5로 마트를 실행하고 **K**를 누릅니다. 입구가 막히면 생성�
 
 화면의 BROKEN은 취객의 강한 충돌로 파손된 상품 가격 합계입니다. 일반 접촉이 모든 상품을 파괴하지는 않습니다.
 생성은 Mart의 Drunks Inspector에서 끌 수 있습니다. 취객 처리 중에도 배송·진열·일반 손님 계산은 계속됩니다.
-Lost Child, Character Throw, ragdoll, 플레이어 피해와 멀티플레이는 구현하지 않았습니다.
+Character Throw, ragdoll, 플레이어 피해와 멀티플레이는 구현하지 않았습니다.
 
 신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt5_smoke.gd`를 전달합니다.
 
@@ -91,13 +109,13 @@ Drop·강제 놓기·Esc·포커스 상실 시 충전이 취소되고 게이지�
 - `scripts/player/`: Action 기반 로컬 이동/시점 제어.
 - `scripts/interaction/`: 입력/선택, 공통 물리 오브젝트, 테스트 타깃.
 - `scenes/interactables/`: 모든 테스트 물체가 공유하는 물리 씬.
-- `tests/`: Prompt 0~5.2 물리·마트 업무·손님·취객 회귀 검사.
+- `tests/`: Prompt 0~6 물리·마트 업무·손님·취객·미아 회귀 검사.
 
 이동/충돌은 Godot의 [CharacterBody3D](https://docs.godotengine.org/en/4.0/classes/class_characterbody3d.html)를 사용합니다.
 Hold 위치의 충돌 여유는 [PhysicsDirectSpaceState3D.cast_motion](https://docs.godotengine.org/en/stable/classes/class_physicsdirectspacestate3d.html#class-physicsdirectspacestate3d-method-cast-motion)으로 검사합니다.
 주요 조절 값은 Player 씬의 Interaction 노드에 모여 있습니다. 자세한 기본값과 제한은 PROJECT_NOTES.md를 참고하세요.
 카트는 `scenes/interactables/shopping_cart.tscn`, 확장 통로/경사로는 `scenes/test/cart_test_zone.tscn`입니다.
-입고·진열·일반 손님·계산은 마트 씬에서 검증합니다. 취객 외 특수 손님·Cart Rocket·멀티플레이는 아직 구현하지 않았습니다.
+입고·진열·일반 손님·계산은 마트 씬에서 검증합니다. 취객·미아 외 특수 손님·Cart Rocket·멀티플레이는 아직 구현하지 않았습니다.
 
 ## 일반 손님과 계산
 
@@ -113,7 +131,7 @@ Queue 진입부터 25초가 지나면 손님은 미결제로 떠납니다. 표�
 SHOP 완료 전 예약 상품도 플레이어가 자유롭게 집을 수 있으며, 그러면 손님은 품절로 처리됩니다.
 Customers Inspector에서 생성 간격·최대 수·Patience·Queue 간격을 조절합니다.
 일반 손님은 Grab/피해/사망 대상이 아니며 카트에 닿으면 제한된 물리 반응만 합니다.
-통로를 완전히 막으면 고정 waypoint 손님이 막힐 수 있습니다. 취객 외 특수 손님과 Scanner 장난 반응은 아직 없습니다.
+통로를 완전히 막으면 고정 waypoint 손님이 막힐 수 있습니다. 취객·미아 외 특수 손님과 Scanner 장난 반응은 아직 없습니다.
 
 ```powershell
 & 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt4_smoke.gd

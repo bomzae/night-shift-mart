@@ -1,7 +1,7 @@
 class_name BasicCustomer
 extends CharacterBody3D
 
-enum State { STORE, QUEUE, CHECKOUT, DISAPPOINTED, EXIT, SHOP }
+enum State { STORE, QUEUE, CHECKOUT, DISAPPOINTED, EXIT, SHOP, EVENT_WAIT }
 @export var move_speed: float = 2.2
 @export var patience_time: float = 25.0
 @export var disappointment_time: float = 2.0
@@ -141,7 +141,7 @@ func _physics_process(delta: float) -> void:
 		elif state == State.STORE:
 			continue_shopping()
 		else:
-			manager.remove_customer(self)
+			finish_exit()
 			return
 	elif state == State.QUEUE or state == State.CHECKOUT:
 		target = manager.queue_position(self)
@@ -151,7 +151,7 @@ func _physics_process(delta: float) -> void:
 	direction.y = 0
 	var walking := direction.normalized() * minf(move_speed, direction.length() * 5)
 	for other in manager.customers:
-		if other == self or not is_instance_valid(other):
+		if not uses_customer_separation() or other == self or not is_instance_valid(other):
 			continue
 		var separation: Vector3 = global_position - other.global_position
 		separation.y = 0
@@ -176,6 +176,9 @@ func _physics_process(delta: float) -> void:
 	_mesh.position.y = 0.825 + sin(Time.get_ticks_msec() * 0.012) * minf(0.035, walking.length() * 0.015)
 	update_mood()
 
+func uses_customer_separation() -> bool:
+	return true
+
 func update_mood() -> void:
 	if state == State.DISAPPOINTED:
 		_mood.text = "X  :("
@@ -192,6 +195,9 @@ func show_pickup(type: StringName) -> void:
 	for i in range(purchase_types.size()):
 		if purchase_types[i] == type:
 			_pickup_marks[i].visible = true
+
+func finish_exit() -> void:
+	manager.remove_customer(self)
 
 func disappoint() -> void:
 	state = State.DISAPPOINTED

@@ -59,6 +59,9 @@ func run_checks() -> void:
 	check(not drunk.get_collision_exceptions().has(player), "drop restores collision after separation")
 
 	# Real shelf collision: low speed shakes goods, never instant-breaks them.
+	# Keep the already-tested wandering actor clear while this fixture settles;
+	# the intentional shelf collision begins at the explicit placement below.
+	await place(drunk, Vector3(7, 0.8, 2))
 	var can := await stock("can", Vector3(0, 0, 0.5))
 	var shelf: StockShelf = mart.get_node("Shelves/CanShelf")
 	var can_start := can.global_position

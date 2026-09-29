@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/systems/lost_child.gd" id="1"]
+[sub_resource type="CapsuleShape3D" id="Shape"]
+radius = 0.24
+height = 1.0
+[sub_resource type="CapsuleMesh" id="Mesh"]
+radius = 0.24
+height = 1.0
+[sub_resource type="StandardMaterial3D" id="Material"]
+albedo_color = Color(0.95, 0.8, 0.45, 1)
+[node name="LostChild" type="RigidBody3D"]
+mass = 2.0
+script = ExtResource("1")
+carry_radius = 0.55
+carrier_speed_multiplier = 0.98
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh")
+material_override = SubResource("Material")
+[node name="Mood" type="Label3D" parent="."]
+position = Vector3(0, 1.05, 0)
+billboard = 1
+text = ":'( ?"
+font_size = 48
+pixel_size = 0.006

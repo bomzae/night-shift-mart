@@ -66,6 +66,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 func _free_motion(_state: PhysicsDirectBodyState3D) -> void:
 	pass
 
+func on_player_drop() -> void:
+	pass
+
 func _restore_collision() -> void:
 	if is_instance_valid(_carrier):
 		remove_collision_exception_with(_carrier)

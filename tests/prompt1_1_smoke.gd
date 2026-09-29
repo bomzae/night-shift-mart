@@ -87,8 +87,11 @@ func run_checks() -> void:
 	send_action("throw", true)
 	await frames(15)
 	player.global_position = Vector3(6, 0, 0)
+	# Prompt 6.2: preserve the unrecoverable-separation/queued-throw contract,
+	# now allowing the safety grace instead of requiring an immediate drop.
+	body.freeze = true
 	send_action("throw", false)
-	await frames(2)
+	await frames(ceili(interaction.break_grace_time * Engine.physics_ticks_per_second) + 3)
 	check(interaction.held_object == null and interaction.charge_ratio == 0.0 and body.throw_damage == 0.0, "break distance overrides pending charged release")
 
 	body = await prepare()
