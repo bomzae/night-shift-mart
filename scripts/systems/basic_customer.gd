@@ -1,16 +1,26 @@
 class_name BasicCustomer
 extends CharacterBody3D
 
-enum State { STORE, QUEUE, CHECKOUT, DISAPPOINTED, EXIT }
+enum State { STORE, QUEUE, CHECKOUT, DISAPPOINTED, EXIT, SHOP }
 @export var move_speed: float = 2.2
 @export var patience_time: float = 25.0
 @export var disappointment_time: float = 2.0
 @export var max_push_speed: float = 3.5
 @export var push_decay: float = 6.0
+@export_range(0.5, 1.5) var shopping_time: float = 0.8
+var shopping_types: Array[StringName] = []
+var visited_types: Array[StringName] = []
+var shopping_shelf: StockShelf
+var shopping_point_index: int = -1
+var _leaving_shelf: StockShelf
+var _shopping_left: float = 0
+var _heading_queue: bool = false
 var manager: Node
 var state: State = State.STORE
 var purchase_types: Array[StringName] = []
 var goods: Array[GrabbableBody] = []
+var picked_items: Array[Dictionary] = []
+var _pickup_marks: Array[Label3D] = []
 var scanned: int = 0
 var scan_wait: float = 0.0
 var patience_left: float
@@ -44,7 +54,13 @@ func _ready() -> void:
 	material.albedo_color = Color(0.65, 0.75, 0.85)
 	_mesh.material_override = material
 	add_child(_mesh)
-	_mood = Graybox.sign(self, ":)", Vector3(0, 2.15, 0))
+	var facing_mark := MeshInstance3D.new()
+	var mark := BoxMesh.new()
+	mark.size = Vector3(0.15, 0.1, 0.06)
+	facing_mark.mesh = mark
+	facing_mark.position = Vector3(0, 1.35, -0.32)
+	add_child(facing_mark)
+	_mood = Graybox.sign(self, ":)", Vector3(0, 2.4, 0))
 	_mood.pixel_size = 0.005
 	# Colored miniature product silhouettes: no inventory bodies or grabbed goods.
 	for i in range(purchase_types.size()):
@@ -70,6 +86,10 @@ func _ready() -> void:
 		icon.material_override = color
 		icon.position = Vector3((i - (purchase_types.size() - 1) * 0.5) * 0.25, 1.87, 0)
 		add_child(icon)
+		var picked := Graybox.sign(self, "✓", icon.position + Vector3(0, 0.23, 0), Color.LIME_GREEN)
+		picked.pixel_size = 0.005
+		picked.visible = false
+		_pickup_marks.append(picked)
 	_contact_zone = Area3D.new()
 	_contact_zone.collision_layer = 0
 	_contact_zone.collision_mask = 1
@@ -84,6 +104,8 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	scan_wait = maxf(0, scan_wait - delta)
+	if (state == State.STORE or state == State.SHOP) and not manager.valid_goods(self):
+		manager.out_of_stock(self)
 	if state == State.QUEUE or state == State.CHECKOUT:
 		patience_left = maxf(0, patience_left - delta)
 		if not manager.valid_goods(self):
@@ -95,13 +117,29 @@ func _physics_process(delta: float) -> void:
 		if _disappointment_left <= 0:
 			start_exit()
 	var target := global_position
+	if state == State.SHOP:
+		target = shopping_shelf.shopping_point(shopping_point_index)
+		var facing := shopping_shelf.global_position
+		facing.y = global_position.y
+		look_at(facing, Vector3.UP)
+		if global_position.distance_to(target) < 0.35:
+			_shopping_left -= delta
+		if _shopping_left <= 0:
+			if not manager.pickup_from_shelf(self, shopping_shelf, shopping_types[visited_types.size()]):
+				return
+			visited_types.append(shopping_types[visited_types.size()])
+			_leaving_shelf = shopping_shelf
+			shopping_shelf = null
+			# Keep the point occupied until physically clear of its approach.
+			waypoints = [Vector3(global_position.x, 0, 3.1)]
+			state = State.STORE
 	if state == State.STORE or state == State.EXIT:
 		if not waypoints.is_empty():
 			target = waypoints[0]
 			if Vector2(target.x - global_position.x, target.z - global_position.z).length() < 0.23:
 				waypoints.pop_front()
 		elif state == State.STORE:
-			manager.join_queue(self)
+			continue_shopping()
 		else:
 			manager.remove_customer(self)
 			return
@@ -132,6 +170,9 @@ func _physics_process(delta: float) -> void:
 	velocity.z = walking.z + _push.z
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 	move_and_slide()
+	if state == State.STORE and walking.length() > 0.1:
+		look_at(global_position + Vector3(walking.x, 0, walking.z), Vector3.UP)
+	_mesh.rotation.x = -0.1 * sin(PI * (1 - _shopping_left / shopping_time)) if state == State.SHOP else 0.0
 	_mesh.position.y = 0.825 + sin(Time.get_ticks_msec() * 0.012) * minf(0.035, walking.length() * 0.015)
 	update_mood()
 
@@ -147,18 +188,67 @@ func update_mood() -> void:
 		_mood.text = ":)" if ratio > 0.6 else (":|" if ratio > 0.3 else ":!")
 		_mood.modulate = Color.WHITE if ratio > 0.6 else (Color.YELLOW if ratio > 0.3 else Color.ORANGE_RED)
 
+func show_pickup(type: StringName) -> void:
+	for i in range(purchase_types.size()):
+		if purchase_types[i] == type:
+			_pickup_marks[i].visible = true
+
 func disappoint() -> void:
 	state = State.DISAPPOINTED
 	_disappointment_left = disappointment_time
 	update_mood()
 
 func start_exit() -> void:
+	release_shopping_points()
 	var waiting_at_store := state == State.DISAPPOINTED and global_position.x < -6
 	state = State.EXIT
 	if waiting_at_store:
 		waypoints = [Vector3(-6.9, 0, 10.8), manager.exit_position()]
 	elif global_position.z < 7.5:
-		waypoints = [Vector3(-7, 0, 8), Vector3(-7, 0, 10.8), manager.exit_position()]
+		waypoints = [Vector3(global_position.x, 0, 3.1), Vector3(-7, 0, 3.1), Vector3(-7, 0, 10.8), manager.exit_position()]
 	else:
 		waypoints = [Vector3(global_position.x, 0, 7.7), Vector3(-3, 0, 7.7), manager.exit_position()]
 	update_mood()
+
+func continue_shopping() -> void:
+	if is_instance_valid(_leaving_shelf):
+		_leaving_shelf.release_shopping_point(self)
+		_leaving_shelf = null
+	if is_instance_valid(shopping_shelf):
+		state = State.SHOP
+		_shopping_left = shopping_time
+		return
+	if visited_types.size() == shopping_types.size():
+		if not _heading_queue:
+			_heading_queue = true
+			waypoints = [Vector3(7.4, 0, 3.1), Vector3(7.4, 0, 7.7)]
+		else:
+			manager.join_queue(self)
+		return
+	var type := shopping_types[visited_types.size()]
+	for shelf: StockShelf in manager.get_parent().get_node("Shelves").get_children():
+		for product in goods:
+			if not is_instance_valid(product) or product.product_type != type or not shelf.has_stock(product):
+				continue
+			var point := shelf.reserve_shopping_point(self, product.global_position)
+			if point < 0:
+				waypoints = [Vector3(-6.5 + manager.customers.find(self) * 0.85, 0, 2.0)]
+				return
+			shopping_shelf = shelf
+			shopping_point_index = point
+			var destination := shelf.shopping_point(point)
+			var travel_z := 3.1 if destination.x >= global_position.x else 2.1
+			waypoints = [Vector3(global_position.x, 0, travel_z), Vector3(destination.x, 0, travel_z), destination]
+			return
+	manager.out_of_stock(self)
+
+func release_shopping_points() -> void:
+	if is_instance_valid(shopping_shelf):
+		shopping_shelf.release_shopping_point(self)
+	if is_instance_valid(_leaving_shelf):
+		_leaving_shelf.release_shopping_point(self)
+	shopping_shelf = null
+	_leaving_shelf = null
+
+func _exit_tree() -> void:
+	release_shopping_points()

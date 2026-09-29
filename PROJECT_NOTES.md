@@ -1,10 +1,122 @@
 # NIGHT SHIFT MART — 개발 메모
 
-후속 Codex/Astra 작업은 이 문서부터 읽고 현재 단계와 범위를 확인한다.
+후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
-## 다음 세션을 위한 인수인계 — 2026-09-29
+## Prompt 5.2 — Customer Pickup Feedback + 자동 Godot 검사 (구현·자동 검증 완료)
 
-**현재 기준은 Prompt 5 완료 상태다. 다음 기능 후보는 Lost Child이며 아직 구현하지 않았다.** 이 문서는 현재 구현 사실, 이전 검증 기록, 다음 작업 제안을 구분한다. 아래 과거 단계의 수치는 당시 기록이며 최신 전체 결과는 **327개 통과**다.
+- 현재 데이터 흐름은 **Shelf 실물 예약 → SHOP에서 실물 제거/논리 Basket 기록 → Checkout에서 Basket 결제**다. 아래 Prompt 5.1까지의 “결제할 때 실물 제거” 기록은 과거 동작이며 이번 변경으로 대체한다. 손님은 여전히 실제 상품을 손에 들거나 몸에 붙이지 않는다.
+- `BasicCustomer.goods`에는 아직 Shelf에 남은 예약 물체만 있고, `picked_items: Array[Dictionary]`는 픽업한 개별 수량당 `{product_type, price, source_id}` 한 건이다. price는 해당 물체의 픽업 당시 가격이며 별도 가격표/인벤토리 시스템은 없다. source_id는 예약 원본 식별용 값이며 살아 있는 Node 참조가 아니다.
+- SHOP 완료 시 `CustomerManager.pickup_from_shelf()`가 모든 예약의 현재 재고/소유를 재검증하고 해당 종류의 정확한 수량을 원자적으로 이동한다. 한 개라도 없으면 이번 종류는 하나도 제거하지 않는다. 다른 손님의 상품이나 새 재고를 검색해 대신 지우지 않는다. 중복 픽업 요청은 아무 효과가 없다.
+- 정상 픽업은 예약 ID 해제 → Basket 기록 → goods 참조 제거 → 실물 숨김/queue_free 순서다. 기존 Shelf 제외 메타 `sold`를 내부적으로 재사용하지만 이 시점에는 sales를 올리지 않는다. `StockShelf.refresh_stock(0)`로 기존 재고 판정/라벨을 즉시 재계산하며 별도 수량을 수동 차감하지 않는다.
+- `valid_goods()`는 남은 실제 예약과 Basket의 상품 종류·수량을 함께 확인한다. `finish()`는 전량 픽업·Scan 완료 후 Basket 가격만 sales에 한 번 더하고 비운다. 이미 제거된 상품을 재삭제하지 않는다. 표시 purchase_total도 픽업 가격 스냅샷에 맞춘다.
+- Patience 탈출은 이미 챙긴 Basket 가격만 unpaid_loss에 더하고 비운다. 상품은 복원하지 않는다. 전혀 챙기기 전 품절은 손실 0. 여러 종류 중 앞 Shelf에서 챙긴 뒤 뒤 Shelf가 품절되는 경우도 이미 챙긴 부분만 손실 처리한다. resolved와 Basket clear로 중복 집계를 막는다.
+- 상품 아이콘별 초록 `✓`는 해당 종류 픽업 시 표시된다. 수량별 기존 아이콘을 그대로 사용하며 텍스트 대사/3D 소지품/효과 Manager는 없다. 체크가 표정과 겹치지 않도록 표정 높이를 2.4m, 체크를 아이콘 위 0.23m로 조정했다. 단순 즉시 제거를 사용하며 별도 Tween은 없다.
+- Player Grab/Throw 또는 취객 물리 접촉으로 상품의 정상 재고 조건이 깨지면 같은 품절 경로를 탄다. 구매 예약이 실제 상호작용을 잠그지 않는다. Cart/Drunk/Carry/Delivery 물리 코드는 변경하지 않았다. 카트 밀착 반복 Damage는 계속 Known Issue로 유지한다.
+- `AGENTS.md`와 `.agents/skills/godot-testing/SKILL.md`에 사용자 Godot 테스트 사전 허가를 추가했다. 임포트, headless/창 모드 smoke, 회귀, Main, 테스트 씬, 로그 검사를 재확인 질문 없이 자동 실행한다. 정상 검증 범위 밖 작업이나 실행 환경의 명시적 승인 요구만 예외이며 샌드박스 권한/검사 기준을 우회하지 않는다.
+- 변경 파일: `basic_customer.gd`, `customer_manager.gd`, `stock_shelf.gd`, Agent/검사 Skill, README, 이 문서. 신규 `tests/prompt5_2_smoke.gd` 및 UID. 기존 Prompt 4의 실물 간섭 검증을 SHOP 직전으로 옮겼고 Prompt 5.1의 실물 유지 검증을 Basket 전환 검증으로 갱신했다. 기존 입력/Queue/금전/품절/분산 검사는 유지한다. Prompt 0~3.1 테스트는 수정하지 않았다. Prompt 5의 마지막 계산 병행 fixture는 아래 이유로 초기 조건만 안정화했다.
+- 첫 신규 검사 `.godot/p52_first.log`는 마지막 테스트에서 CharacterBody형 Queue에 RigidBody 취객을 `has()`로 조회해 타입 오류가 났다. 신규 테스트의 조회를 Queue 비어 있음/일반 손님 수 검사로 수정했다. 게임 코드 오류로 숨기거나 실패 로그를 삭제하지 않는다. 수정한 Skill 형식 검증은 통과했다.
+- 첫 전체 회귀의 Prompt 5는 Carry 이동 1개와 최종 계산 입력/매출 3개가 실패했다(`.godot/p52_regression_first_prompt5.log`). 초기 실패는 포커스 상태를 기록하지 않아 원인을 단정하지 않는다. 상태만 기록하는 `.godot/p52_focus_probe.gd` 진단 재실행에서는 포커스가 유지됐고 Carry는 통과했지만 계산 고객이 먼저 퇴장해 기존 wait_checkout의 freed 참조 오류와 매출 실패가 발생했다. 랜덤 취객이 정상 예약 재고를 방해할 수 있는 fixture였다. 마지막 계산 병행 구간에서만 취객 `wander_speed=0`, 속도 0으로 두고 실제 취객 존재도 확인하도록 했다. 앞선 실제 배회/상품 충돌/파손/Carry/카트 제거 검사는 그대로이며 신규 5.2에서 취객 접촉→품절을 별도로 검증한다. 게임 취객 로직은 바꾸지 않았고 이 진단 실패 로그도 보존했다.
+- 수동 확인: Can×2 픽업에서 정확히 두 실물/Count 감소와 두 체크 → 여러 종류 각각 픽업 → Scan/Pay 때 새로 진열한 상품 보존 → Patience 탈출 손실 → SHOP 직전 Grab/취객 간섭 품절. 정해진 목록은 기존 `Customers.spawn_customer([&"can", &"can", &"watermelon"])`로 재현한다. 별도 새 입력/콘텐츠는 없다.
+- 다음 단계: 사용자 수동 확인 뒤 Lost Child 요청 시 기존 Character Carry 재사용을 검토한다. Lost Child/부모/인계 및 다른 특수 손님/라운드/정산/멀티플레이는 아직 구현하지 않았다.
+
+### Prompt 5.2 최종 검사 — 2026-09-29
+
+**총 420개 통과, 최종 실패 0개.** Godot 4.7.2 임포트 성공. Main은 headless, fixed-fps 60, 7,200프레임(시뮬레이션 120초) 동안 배송 도착/출발까지 정상 실행했다. 최종 `.godot/final52_*.log`의 SCRIPT ERROR/ERROR:/FAIL:는 0건이다. 이전 실패 이력은 위 항목과 별도 로그에 보존했다.
+
+| Prompt | 통과 | 실패 |
+| --- | ---: | ---: |
+| 0 | 22 | 0 |
+| 1 | 48 | 0 |
+| 1.1 | 40 | 0 |
+| 2 | 41 | 0 |
+| 2.1 | 28 | 0 |
+| 3 | 32 | 0 |
+| 3.1 | 29 | 0 |
+| 4 | 54 | 0 |
+| 5 | 33 | 0 |
+| 5.1 | 36 | 0 |
+| 5.2 | 57 | 0 |
+
+- 신규 실측: Can×2+Watermelon×1은 두 Shelf에서 순차 픽업 후 $60 결제, 결제 직전 추가한 Can은 살아 있는 Stock 1개로 유지. Can×3 중 실제 물체 하나를 $7로 바꾼 경우 Basket/표시 금액 $17 유지. 미결제 Can 손실 $5, 일부 픽업 후 품절도 실제 챙긴 Can $5만 한 번 기록했다.
+- Cart Bomb 회귀는 적재 5개 중 2개 이탈, 차체/개별 상품 각각 타격을 확인했다. 취객 회귀는 직접 Carry 및 카트 발사 제거 총 2회, 취객 존재 중 정상 매출 $5를 확인했다.
+- `.godot/p52_pickup.png`를 열어 빈 Can Shelf(0/8), Can 아이콘 위 초록 체크 두 개, 아직 픽업하지 않은 Watermelon 실물(1/5)과 미완료 아이콘을 확인했다. 체크를 키우고 표정을 올린 최종 화면도 확인했다. 장시간 사람 수동 플레이 검증을 대신한다고 해석하지 않는다.
+- 수정한 godot-testing Skill은 quick_validate.py 통과, `git diff --check` 오류 없음. `project.godot`의 이전 K키 직렬화 변경은 이번 작업에서 수정하지 않았다. 커밋하지 않았다.
+- 남은 제한: 현재 마트 배치에 맞춘 waypoint, 통로 봉쇄 시 정체, 아이콘이 시점/다른 라벨에 따라 겹칠 수 있음, 초기 물리 테스트 산포 및 창 포커스 영향. 카트 밀착 반복 Damage는 요청대로 보존. 새 gameplay 오류가 최종 자동 검사에서 확인되지는 않았지만 사용자 수동 확인은 필요하다.
+
+전체 재실행 시 아래 명령을 사용한다. 테스트 실행 자체에 사용자 확인을 다시 받지 않으며, 실행 환경이 요구하는 권한 절차만 따른다. 테스트 중 다른 창 클릭/Alt+Tab은 입력 fixture에 영향을 줄 수 있다.
+
+```powershell
+$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+& $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check52_import.log
+foreach ($stage in @('5_2','0','1','1_1','2','2_1','3','3_1','4','5','5_1')) {
+    & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check52_prompt${stage}.log"
+}
+& $martGodot --headless --path . --fixed-fps 60 --quit-after 7200 2>&1 | Tee-Object .godot/check52_main.log
+```
+
+## Prompt 5.1 — Agent 지침 + 실제 구매 Shelf 방문 (구현·자동 검증 완료)
+
+- 사용자 수동 피드백: Prompt 5의 Drunk Customer/Character Carry에는 큰 문제가 없었으나 일반 손님이 실제 상품 앞을 방문하지 않았다. 이번 범위는 그 쇼핑 표현 수정과 Agent 문서 구조 추가다. Lost Child 및 다른 콘텐츠는 추가하지 않았다.
+- 새 최상위 지침 `AGENTS.md`와 `.agents/skills/gameplay-development/SKILL.md`, `godot-testing/SKILL.md`, `bug-fix/SKILL.md`를 생성했다. 세 Skill은 YAML name/description을 포함한다. 각각 조작감/시스템 상호작용, 기존 Godot·회귀 절차, 원인 확인·최소 수정·emergent behavior 보존을 담당한다. 이번 구현에서도 세 문서를 읽고 적용했다.
+- 실제 원인: `CustomerManager.spawn_customer()`가 모든 구매 목록에 동일한 왼쪽 통로 waypoint를 주었고, `BasicCustomer`는 STORE waypoint가 비면 곧바로 `join_queue()`를 호출했다. 기존 예약/실제 판매는 이미 결제 시 처리했지만, 해당 상품의 Shelf 방문 검증과 쇼핑 행동이 없었다.
+- `StockShelf`에 실제 앞면(local +Z) 기준 Shopping Point를 추가했다. 기본 3개, Inspector `shopping_point_count` 2~4, `shopping_front_distance=1.35m`, 가로 위치 -0.95~+0.95m. 현재 마트의 180도 회전 Shelf에서도 앞면은 월드 Z≈4.65가 된다. 표시용 디버그 오브젝트/Release UI는 추가하지 않았다.
+- Shelf의 `_shopping_users`는 공간 사용 예약만 담당한다. 실제 상품 예약 `_claims`와 분리한다. 해당 손님의 실제 예약 상품에 가장 가까운 빈 Point를 고르고, 모두 차면 앞 통로의 분산된 대기 위치에서 재시도한다. 정상 쇼핑 후 포인트에서 벗어날 때 반환하며 품절/퇴장/노드 삭제 때도 반환한다.
+- 손님 `shopping_types`는 구매 목록에서 중복을 제거한 종류 순서이며, `visited_types`는 완료한 종류다. Can×2+Watermelon×1은 Can 한 번/Watermelon 한 번을 방문한다. 실제 상품 참조와 수량은 그대로 유지한다.
+- 상태는 STORE(진입/실제 Shelf 접근) → SHOP → 다음 STORE/SHOP → Queue 접근 → QUEUE → CHECKOUT → EXIT다. 기존 enum 값은 유지하고 SHOP만 뒤에 추가했다. `shopping_time=0.8초`(Inspector 0.5~1.5), Point 근처에서만 시간을 줄이며 Shelf 방향으로 회전하고 몸통을 약간 기울인다. 구매 아이콘과 앞쪽 작은 방향 표시를 사용한다. 상품을 들고 가지 않는다.
+- 현 마트 배치용 간단한 waypoint로 진열대 앞 통로와 오른쪽 끝을 돌아 Queue에 진입한다. 좌우 이동 경로 높이(Z)를 구분하며 본격 Navigation/Crowd AI는 없다. Shelf 앞 품절 손님은 앞 통로→왼쪽 측면→출구로 돌아가 진열대 내부를 가로지르지 않는다.
+- 이동/SHOP 중에도 기존 `valid_goods()`를 사용한다. 상품 이동/Grab/파손이면 기존 DISAPPOINTED/Exit 및 예약 해제를 실행한다. `finish()`의 원자적 재검증·매출/손실·실물 제거 코드는 변경하지 않았다. Patience는 기존처럼 Queue 진입 후에만 감소한다.
+- 변경 코드: `scripts/systems/stock_shelf.gd`, `customer_manager.gd`, `basic_customer.gd`. 신규 검사: `tests/prompt5_1_smoke.gd`. Grab/Throw/Cart/Delivery/Drunk 코드와 기존 테스트는 이번 변경에서 그대로 유지한다. README는 사용자 실행/조작법 변경이 없어 수정하지 않는다.
+- 알려진 제한: 현재 마트 좌표에 맞춘 통로이므로 Shelf를 옮길 때 동선도 검토해야 한다. 상품/카트가 막으면 손님은 정체될 수 있으며 복잡한 회피는 없다. 쇼핑 중 카트에 밀려 Point를 벗어나면 복귀할 때까지 쇼핑 시간이 멈춘다. Queue 순서는 실제 도착 순서이며 서로 다른 쇼핑 경로에서 생성 순서와 달라질 수 있다. 카트 접촉 반복 피해는 요청대로 보존한다.
+- 수동 확인: Can만 진열→해당 손님이 앞면 Point에서 멈추는지, 2종 구매→두 Shelf 방문, 생성 간격 축소→Point 분산, 이동 중 예약 상품 Grab→품절·공간 예약 해제, 취객/카트/진열/계산 병행을 확인한다. 특정 구매 목록은 기존 `Customers.spawn_customer([&"can", &"watermelon"])` API로 재현할 수 있고 새 디버그 키/UI는 만들지 않았다.
+- 다음 후보는 Lost Child다. Character Carry 기반은 유지되며 미아/부모/인계는 아직 구현하지 않았다. 아래 Prompt 0~5 기록은 이전 단계의 이력으로 보존한다.
+
+### 연결 복구 후 확인 — 2026-09-29
+
+- 재개 시 `git status` 및 실제 diff부터 확인했다. Agent 문서 4개, 쇼핑 수정 3개 스크립트, `tests/prompt5_1_smoke.gd`와 UID는 이미 존재했다. 신규 검사 36개 통과 로그도 남아 있어 중복 구현하지 않았다. 미완료 작업은 전체 회귀 검증과 최종 기록이었다.
+- 재개 시 tracked 수정은 PROJECT_NOTES.md, project.godot, basic_customer.gd, customer_manager.gd, stock_shelf.gd였고 Agent 문서/새 검사는 untracked였다. 아래 Prompt 5 당시의 Git 상태와 구분한다. 이번 작업에서 commit/reset/clean은 하지 않는다.
+- `project.godot`에는 기존 `debug_spawn_drunk` K키 입력의 확장된 직렬화와 빈 줄 변경이 있었다. 재개 전에 존재한 변경을 그대로 보존했으며 새 입력 기능은 추가하지 않았다.
+- 이전 `final51_*` 검사에서 일부 입력 검사가 실패했다. `.godot/p51_charge_probe.log`에 우클릭 Charge 도중 `mouse_mode=2, focus=true`에서 `mouse_mode=0, focus=false`로 바뀌고 속도가 거의 0이 된 증거가 있다. 게임의 정상 포커스 해제/Charge 취소를 우회하거나 기존 검사를 약화하지 않고 실제 창을 하나씩 열어 전체를 재검사한다. 이전 실패 로그는 보존한다.
+- 재개 검사 로그는 `.godot/resumed51_import.log`, `resumed51_prompt{0,1,1_1,2,2_1,3,3_1,4,5,5_1}.log`, `resumed51_main.log`에 기록한다. `.godot`는 Git 제외이므로 다른 체크아웃에서는 아래 명령으로 재생성한다.
+
+### Prompt 5.1 최종 검증과 다음 세션 시작점
+
+재개 후 게임 코드/기존 테스트를 다시 수정하지 않고, 임포트 → 신규 5.1 → 기존 0~5 → Main 순서로 전체 검사를 완료했다. **363개 통과, 실패 0개. 최종 로그 SCRIPT ERROR/ERROR:/FAIL: 0건.** 이전 실패 기록을 삭제하거나 최종 결과로 덮지 않았다.
+
+| Prompt | 통과 | 실패 |
+| --- | ---: | ---: |
+| 0 | 22 | 0 |
+| 1 | 48 | 0 |
+| 1.1 | 40 | 0 |
+| 2 | 41 | 0 |
+| 2.1 | 28 | 0 |
+| 3 | 32 | 0 |
+| 3.1 | 29 | 0 |
+| 4 | 54 | 0 |
+| 5 | 33 | 0 |
+| 5.1 | 36 | 0 |
+
+- Godot 4.7.2 프로젝트 임포트 성공. Main은 headless/fixed-fps 60/7,200프레임(시뮬레이션 120초) 동안 배송 도착·출발까지 오류 없이 실행했다. 입력 회귀는 headless가 아닌 실제 창으로 순차 실행했다.
+- 신규 검사: Can×2+Watermelon×1이 두 Shelf를 각각 한 번 방문하고 실제 앞면 도착/바라보기/쇼핑 정지를 확인했다. 3회 Scan+Payment로 $60 매출 및 실제 상품 3개 제거를 검증했다. 다중 Point 점유·반환, 실제 상품 가까운 Point 선호, 이동 중 예약 상품 Grab→품절→실제 퇴장도 통과했다.
+- 기존 검사: 6명 모두 Queue 도착, 최소 간격 약 0.981m. Cart Bomb은 적재 5개 중 2개 이탈, 상품 타격 3회/차체 타격 1회. 취객은 직접 Carry/카트 Launch로 각각 제거되어 drunks_removed=2, 취객 존재 중 정상 계산 $5 성공. 수치는 한 번의 물리 실행 측정이며 결정적 결과를 보장하지 않는다.
+- `.godot/p51_shopping.png`를 실제로 열어 Can Shelf 앞 세 손님의 분산 배치를 확인했다. 자동 스크린샷 확인이며 장시간 사람이 직접 플레이한 손맛 검증을 대체하지 않는다.
+- Agent 문서 4개 내용 확인 및 세 Skill의 `quick_validate.py` 검사 모두 통과. `git diff --check` 오류 없음. README는 조작법 변경이 없어 그대로다.
+
+재실행 예시(프로젝트 루트 PowerShell, 입력 검사 중 다른 창 클릭/Alt+Tab 금지):
+
+```powershell
+$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+& $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check51_import.log
+foreach ($stage in @('5_1','0','1','1_1','2','2_1','3','3_1','4','5')) {
+    & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check51_prompt${stage}.log"
+}
+& $martGodot --headless --path . --fixed-fps 60 --quit-after 7200 2>&1 | Tee-Object .godot/check51_main.log
+```
+
+다음 세션은 이 Prompt를 재구현하지 않는다. 먼저 사용자 수동 테스트 결과를 확인한다: (1) 단일 종류 Shelf 앞 도착, (2) 2종 Shelf 방문, (3) 손님 증가 시 분산, (4) 예약 상품 제거 시 품절, (5) 카트/진열/취객/계산 병행. 고정 waypoint·막힌 통로 정체·Point 수 제한은 남아 있다. **카트 밀착 반복 Damage는 의도적으로 수정하지 않았다.** 그 외 새로 확인된 자동 검사 실패는 없다. 이후 Lost Child 요청이 오면 기존 Character Carry를 재사용할 수 있으나 미아/부모/인계 로직은 아직 구현하지 않았다.
+
+## 다음 세션을 위한 인수인계 — 2026-09-29 (Prompt 5 당시 기록)
+
+**아래 인수인계는 Prompt 5 완료 당시 기준이다. 최신 상태는 위 Prompt 5.1 항목을 먼저 확인한다. 다음 기능 후보는 Lost Child이며 아직 구현하지 않았다.** 이 문서는 현재 구현 사실, 이전 검증 기록, 다음 작업 제안을 구분한다. 아래 과거 단계의 수치는 당시 기록이며 Prompt 5 당시 전체 결과는 **327개 통과**다.
 
 이번 인수인계 작업에서는 실제 파일과 보관된 최종 로그를 읽어 문서만 보완했다. 게임 코드를 변경하거나 Godot 검사를 새로 실행하지 않았다. 아래 통과 결과는 직전 Prompt 5 구현 종료 시 실행한 기록이다. 자동 검사의 입력·물리 검증과 화면 확인을 사람이 장시간 직접 플레이한 결과로 해석하지 않는다.
 
@@ -427,7 +539,7 @@ GUI exe 출력을 파이프로 받아 실행 완료를 기다리는 방식이다
 | 스캐너 | 정상 계산 외 친구 스캔 시 beep/$0.99 같은 보상 없는 장난 반응 |
 
 ## 개발 원칙 / 다음 작업
-1. 실행 안정성 → 조작감 → 단순한 구조 → 수정 가능성 → 코드 미관 순으로 판단한다.
+1. 최신 우선순위는 AGENTS.md를 따른다: Gameplay feel → Toy-like interaction → 빠른 템포 → 단순 규칙의 예상 밖 상황 → 시스템 상호작용 → 테스트 안정성 → 코드 구조. 실행 오류는 해결하되 현실성 때문에 조작감을 희생하지 않는다.
 2. Prototype first. 데이터·입력·상호작용·물리·UI를 필요에 따라 분리하되 추상 계층이나 미래 기능을 미리 만들지 않는다.
 3. `scripts/player`의 이동과 `scripts/interaction`의 상호작용/물리 책임을 구분한다. 상품별로 Grab/Throw 로직을 복사하지 않는다.
 4. 마트 Graybox에서는 공통 상품·카트를 재사용하되 입고/진열 규칙을 물리/입력 스크립트에 섞지 않는다.

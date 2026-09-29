@@ -84,20 +84,29 @@ func spawn_customer(requested: Array[StringName] = []) -> BasicCustomer:
 				available.erase(body)
 				break
 	customer.position = exit_position()
-	# A short store visit uses the clear left aisle; no physical shopping AI.
-	var visit_z := _rng.randf_range(3.8, 4.3)
-	# Separate inbound/outbound lanes avoid head-on capsule deadlocks in crowds.
-	customer.waypoints = [Vector3(-7.65, 0, 9), Vector3(-7.65, 0, visit_z), Vector3(-6.9, 0, visit_z), Vector3(-6.9, 0, 8.6)]
+	# Reach the front aisle before visiting the actual reserved stock.
+	customer.waypoints = [Vector3(-7.65, 0, 9), Vector3(-7.65, 0, 3.1)]
+	for type in requested:
+		if not customer.shopping_types.has(type):
+			customer.shopping_types.append(type)
 	add_child(customer)
 	customers.append(customer)
 	return customer
 
 func valid_goods(customer: BasicCustomer) -> bool:
-	if customer.goods.size() != customer.purchase_types.size() or customer.goods.is_empty():
+	if customer.goods.size() + customer.picked_items.size() != customer.purchase_types.size() or customer.purchase_types.is_empty():
 		return false
+	var remaining := customer.purchase_types.duplicate()
+	for item in customer.picked_items:
+		if not remaining.has(item.product_type):
+			return false
+		remaining.erase(item.product_type)
 	for body in customer.goods:
 		if not is_instance_valid(body) or body.is_queued_for_deletion():
 			return false
+		if not remaining.has(body.product_type):
+			return false
+		remaining.erase(body.product_type)
 		var found := false
 		for shelf in get_parent().get_node("Shelves").get_children():
 			if shelf.has_stock(body):
@@ -106,6 +115,54 @@ func valid_goods(customer: BasicCustomer) -> bool:
 		if not found or _claims.get(body.get_instance_id()) != customer:
 			return false
 	return true
+
+func pickup_from_shelf(customer: BasicCustomer, shelf: StockShelf, type: StringName) -> bool:
+	# Validate every reserved unit before committing this shelf's pickup. No awaits.
+	if customer.resolved or customer.state != BasicCustomer.State.SHOP or customer.shopping_shelf != shelf or customer.visited_types.has(type):
+		return false
+	for item in customer.picked_items:
+		if item.product_type == type:
+			return false
+	if not valid_goods(customer):
+		out_of_stock(customer)
+		return false
+	var selected: Array[GrabbableBody] = []
+	for body in customer.goods:
+		if body.product_type == type:
+			if not shelf.has_stock(body):
+				out_of_stock(customer)
+				return false
+			selected.append(body)
+	if selected.is_empty() or selected.size() != customer.purchase_types.count(type):
+		out_of_stock(customer)
+		return false
+	for body in selected:
+		customer.picked_items.append({"product_type": body.product_type, "price": body.price, "source_id": body.get_instance_id()})
+		_claims.erase(body.get_instance_id())
+		customer.goods.erase(body)
+		body.set_meta("sold", true) # Reuse shelf exclusion; payment has not happened yet.
+		body.hide()
+		body.queue_free()
+	shelf.refresh_stock(0.0)
+	customer.purchase_total = basket_total(customer)
+	for body in customer.goods:
+		customer.purchase_total += body.price
+	customer.show_pickup(type)
+	return true
+
+func basket_total(customer: BasicCustomer) -> float:
+	var total := 0.0
+	for item in customer.picked_items:
+		total += float(item.price)
+	return total
+
+func record_unpaid_basket(customer: BasicCustomer) -> void:
+	var total := basket_total(customer)
+	if not customer.picked_items.is_empty():
+		customer.unpaid = true
+		unpaid_loss += total
+		print("UNPAID LOSS -$%.2f" % total)
+	customer.picked_items.clear()
 
 func join_queue(customer: BasicCustomer) -> void:
 	if not valid_goods(customer):
@@ -124,6 +181,7 @@ func current_customer() -> BasicCustomer:
 	return queue[0]
 
 func release_claims(customer: BasicCustomer) -> void:
+	customer.release_shopping_points()
 	for id in _claims.keys():
 		if _claims[id] == customer:
 			_claims.erase(id)
@@ -133,6 +191,8 @@ func out_of_stock(customer: BasicCustomer) -> void:
 	if customer.resolved:
 		return
 	customer.resolved = true
+	# If a later shelf runs out, only already-picked units leave unpaid.
+	record_unpaid_basket(customer)
 	release_claims(customer)
 	customer.disappoint()
 
@@ -141,27 +201,22 @@ func finish(customer: BasicCustomer, paid: bool) -> bool:
 		return false
 	if paid and (current_customer() != customer or customer.scanned != customer.purchase_types.size() or customer.scan_wait > 0):
 		return false
-	if not valid_goods(customer):
+	if not valid_goods(customer) or not customer.goods.is_empty():
 		out_of_stock(customer)
 		return false
-	# All-or-nothing commit: no awaits and no partial sales, even with several claims.
-	var total := 0.0
-	for body in customer.goods:
-		total += body.price
+	# Physical stock was consumed at SHOP; settle the price snapshot exactly once.
+	var total := basket_total(customer)
 	customer.purchase_total = total
 	customer.resolved = true
 	customer.unpaid = not paid
-	for body in customer.goods:
-		body.set_meta("sold", true)
-		body.queue_free()
 	release_claims(customer)
 	transaction_count += 1
 	if paid:
 		sales += total
+		customer.picked_items.clear()
 		print("SALES +$%.2f" % total)
 	else:
-		unpaid_loss += total
-		print("UNPAID LOSS -$%.2f" % total)
+		record_unpaid_basket(customer)
 	customer.start_exit()
 	return true
 

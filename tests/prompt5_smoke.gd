@@ -134,6 +134,10 @@ func run_checks() -> void:
 	drunk = drunks.spawn_drunk()
 	if drunk != null:
 		await place(drunk, Vector3(7, 0.8, 2))
+		# This fixture tests checkout coexistence, not random stock interference.
+		# Walking/contact are checked above; Prompt 5.2 tests contact-driven OOS.
+		drunk.wander_speed = 0
+		drunk.linear_velocity = Vector3.ZERO
 	if is_instance_valid(can):
 		can.queue_free()
 	await frames(2)
@@ -143,7 +147,7 @@ func run_checks() -> void:
 	await aim_action("scan")
 	await frames(32)
 	await aim_action("pay")
-	check(manager.sales == 5 and not is_instance_valid(sale_can), "normal checkout continues alongside drunk")
+	check(manager.sales == 5 and not is_instance_valid(sale_can) and is_instance_valid(drunk), "normal checkout continues alongside drunk")
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://.godot/p5_checkout.png")
 	print("Prompt 5 smoke checks completed; failures: ", failures)

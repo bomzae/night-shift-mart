@@ -12,6 +12,31 @@ var stocked_objects: Array[GrabbableBody] = []
 var _settled: Dictionary = {}
 var zone: Area3D
 var _label: Label3D
+@export_range(2, 4) var shopping_point_count: int = 3
+@export var shopping_front_distance: float = 1.35
+var _shopping_users: Dictionary = {}
+
+func shopping_point(index: int) -> Vector3:
+	return to_global(Vector3(lerpf(-0.95, 0.95, float(index) / (shopping_point_count - 1)), 0.01, shopping_front_distance))
+
+func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
+	var selected := -1
+	var nearest := INF
+	for i in range(shopping_point_count):
+		if _shopping_users.has(i) and is_instance_valid(_shopping_users[i]):
+			continue
+		var distance := shopping_point(i).distance_squared_to(product_position)
+		if distance < nearest:
+			nearest = distance
+			selected = i
+	if selected >= 0:
+		_shopping_users[selected] = customer
+	return selected
+
+func release_shopping_point(customer: Node) -> void:
+	for i in _shopping_users.keys():
+		if not is_instance_valid(_shopping_users[i]) or _shopping_users[i] == customer:
+			_shopping_users.erase(i)
 
 func _ready() -> void:
 	Graybox.box(self, "Deck", Vector3(2.8, 0.14, 1.4), Vector3(0, 0.58, 0), shelf_color)
@@ -32,6 +57,9 @@ func _ready() -> void:
 	_label = Graybox.sign(self, "", Vector3(0, 2.1, 0), shelf_color)
 
 func _physics_process(delta: float) -> void:
+	refresh_stock(delta)
+
+func refresh_stock(delta: float) -> void:
 	var present: Dictionary = {}
 	stocked_objects.clear()
 	for candidate in zone.get_overlapping_bodies():
@@ -55,5 +83,5 @@ func stock_eligible(body: GrabbableBody) -> bool:
 	return body.product_type == accepted_type and not is_instance_valid(body.holder) and absf(local.x) <= 1.4 and absf(local.z) <= 0.7 and local.y >= 0.65 and local.y <= 1.85 and body.linear_velocity.length() <= max_stock_speed and body.angular_velocity.length() <= max_stock_spin
 
 func has_stock(body: GrabbableBody) -> bool:
-	# Recheck live physics/ownership at payment, not just last tick's cached count.
+	# Recheck live physics/ownership at pickup, not just last tick's cached count.
 	return stock_eligible(body) and stocked_objects.has(body)

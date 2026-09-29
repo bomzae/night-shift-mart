@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.x용 3D 협동 마트 게임의 **Prompt 5 / Drunk Customer + Character Carry**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 5.2 / Customer Pickup Feedback**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -91,7 +91,7 @@ Drop·강제 놓기·Esc·포커스 상실 시 충전이 취소되고 게이지�
 - `scripts/player/`: Action 기반 로컬 이동/시점 제어.
 - `scripts/interaction/`: 입력/선택, 공통 물리 오브젝트, 테스트 타깃.
 - `scenes/interactables/`: 모든 테스트 물체가 공유하는 물리 씬.
-- `tests/`: Prompt 0·1·1.1 회귀 검사와 Prompt 2 카트 물리/입력 검사.
+- `tests/`: Prompt 0~5.2 물리·마트 업무·손님·취객 회귀 검사.
 
 이동/충돌은 Godot의 [CharacterBody3D](https://docs.godotengine.org/en/4.0/classes/class_characterbody3d.html)를 사용합니다.
 Hold 위치의 충돌 여유는 [PhysicsDirectSpaceState3D.cast_motion](https://docs.godotengine.org/en/stable/classes/class_physicsdirectspacestate3d.html#class-physicsdirectspacestate3d-method-cast-motion)으로 검사합니다.
@@ -101,21 +101,23 @@ Hold 위치의 충돌 여유는 [PhysicsDirectSpaceState3D.cast_motion](https://
 
 ## 일반 손님과 계산
 
-1. 상품을 진열합니다. 기본 6~10초마다 손님이 입장하며 최대 6명입니다.
+1. 상품을 진열합니다. 기본 6~10초마다 손님이 입장하며 최대 6명입니다. 손님은 구매 Shelf 앞에서 쇼핑한 뒤 예약 상품을 챙깁니다. 이때 실물과 Stock Count가 줄고 머리 위 해당 상품 아이콘에 초록 체크가 표시됩니다.
 2. 매장 앞 우측 계산대 **뒤쪽**으로 들어갑니다. 계산 위치에 도착한 손님의 구매 아이콘이 표시됩니다.
 3. 파란 **SCAN**을 보고 **E**를 한 번씩 누릅니다(0.5초 간격). 상품 한 개씩 체크됩니다.
-4. 모두 처리하면 초록색 **PAY** 버튼을 보고 **E**로 결제합니다. Sales가 늘고 실제 Shelf 상품이 제거됩니다.
+4. 모두 처리하면 초록색 **PAY** 버튼을 보고 **E**로 결제합니다. 이미 챙긴 상품의 가격만 Sales에 더하며 Shelf 상품을 다시 제거하지 않습니다.
 5. 자리를 떠나거나 기존 Grab/Throw/Cart 작업을 해도 조작이 잠기지 않습니다. 돌아오면 해당 손님의 스캔 진행을 이어갑니다.
 
 Queue 진입부터 25초가 지나면 손님은 미결제로 떠납니다. 표정은 :) → :| → :! → [!]로 변하고,
-유효한 구매 상품을 제거하면서 Unpaid Loss를 한 번 기록합니다. 품절은 X / :( 표시 후 퇴장하며 손실이 없습니다.
-예약된 상품도 플레이어가 집을 수 있지만, 그러면 손님은 품절로 처리됩니다.
+이미 챙긴 상품 가격만 Unpaid Loss로 한 번 기록하며 상품은 Shelf로 돌아오지 않습니다.
+픽업 전 품절은 X / :( 표시 후 퇴장하며 손실이 없습니다. 여러 Shelf 중 일부에서만 챙긴 뒤 품절되면 챙긴 부분만 미결제 손실입니다.
+SHOP 완료 전 예약 상품도 플레이어가 자유롭게 집을 수 있으며, 그러면 손님은 품절로 처리됩니다.
 Customers Inspector에서 생성 간격·최대 수·Patience·Queue 간격을 조절합니다.
 일반 손님은 Grab/피해/사망 대상이 아니며 카트에 닿으면 제한된 물리 반응만 합니다.
 통로를 완전히 막으면 고정 waypoint 손님이 막힐 수 있습니다. 취객 외 특수 손님과 Scanner 장난 반응은 아직 없습니다.
 
 ```powershell
 & 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt4_smoke.gd
+& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt5_2_smoke.gd
 ```
 
 ## 입고와 진열

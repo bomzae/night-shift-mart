@@ -85,7 +85,7 @@ func run_checks() -> void:
 	check(is_equal_approx(manager.sales, 55), "payment adds sales once")
 	check(first.state == BasicCustomer.State.EXIT and not first.unpaid, "paid customer exits")
 	check(not is_instance_valid(can) and not is_instance_valid(melon), "sold shelf bodies removed")
-	check(mart.get_node("Shelves/CanShelf").stock_count == 1 and mart.get_node("Shelves/WatermelonShelf").stock_count == 0, "stock count decreases only for purchased units")
+	check(mart.get_node("Shelves/CanShelf").stock_count == 0 and mart.get_node("Shelves/WatermelonShelf").stock_count == 0 and second.picked_items.size() == 1, "picked units leave shelves before payment including queued basket")
 	check(not manager.finish(first, true) and manager.sales == 55, "duplicate payment cannot double charge")
 	await wait_checkout(second)
 	check(manager.current_customer() == second and second.scanned == 0, "next customer advances with fresh scan progress")
@@ -118,12 +118,16 @@ func run_checks() -> void:
 	await setup_mart()
 	var removable := await stock("can")
 	var buyer := manager.spawn_customer([&"can"])
-	await wait_checkout(buyer)
-	check(station.use_station("scan"), "scan before stock is moved")
-	await frames(32)
+	# Prompt 5.2 moves physical validation from payment to pickup.
+	for tick in range(1400):
+		await frames(1)
+		if buyer.state == BasicCustomer.State.SHOP:
+			break
+	check(buyer.state == BasicCustomer.State.SHOP, "customer reaches shelf before live stock interference")
+	check(buyer.picked_items.is_empty(), "no basket before shopping completes")
 	# Same-frame removal must be caught even before Shelf's next physics tick.
 	removable.begin_carry(interaction, player)
-	check(not station.use_station("pay") and manager.sales == 0, "payment atomically revalidates live held stock")
+	check(not manager.pickup_from_shelf(buyer, buyer.shopping_shelf, &"can") and manager.sales == 0, "pickup atomically revalidates live held stock")
 	check(buyer.state == BasicCustomer.State.DISAPPOINTED, "player can take reserved goods without lock")
 	removable.end_carry()
 	check(is_instance_valid(removable), "failed transaction never deletes taken product")
