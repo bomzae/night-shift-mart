@@ -104,7 +104,15 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var desired := ((hold_target - state.transform.origin) * follow_strength).limit_length(max_carry_speed)
 		state.linear_velocity = state.linear_velocity.move_toward(desired, max_carry_acceleration * state.step)
 	# Keep pre-impact velocity: the solver may stop a body before body_entered.
-	if state.get_contact_count() == 0:
+	# Cart cargo remains in contact with its basket while travelling. Those
+	# ignored internal contacts must not leave a pre-launch zero-speed sample.
+	var external_contact := false
+	for index in range(state.get_contact_count()):
+		var other := state.get_contact_collider_object(index)
+		if not is_instance_valid(_cart_source) or (other != _cart_source and not other is GrabbableBody):
+			external_contact = true
+			break
+	if not external_contact:
 		_incoming_velocity = state.linear_velocity
 		if _armed_seconds > 0.0:
 			_recent_velocities.append(_incoming_velocity)

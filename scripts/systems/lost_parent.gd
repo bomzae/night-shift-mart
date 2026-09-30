@@ -12,7 +12,7 @@ func uses_customer_separation() -> bool:
 	return not reunited
 
 func _physics_process(delta: float) -> void:
-	if state == State.EXIT and not waypoints.is_empty():
+	if not knockdown.active() and state == State.EXIT and not waypoints.is_empty():
 		var direction := waypoints[0] - global_position
 		direction.y = 0
 		if direction.length() > 0.05:
@@ -24,6 +24,7 @@ func _ready() -> void:
 	state = State.EVENT_WAIT
 	super._ready()
 	move_speed = 1.5
+	knockdown.minimum_fall_speed = 1.3
 
 func update_mood() -> void:
 	if is_instance_valid(_mood):

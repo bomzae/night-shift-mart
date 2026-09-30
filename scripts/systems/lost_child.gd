@@ -27,6 +27,7 @@ func on_player_drop() -> void:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
+	if knockdown.active(): return
 	$Mood.text = "♥" if reunited else ":'( ?"
 	$Mood.modulate = Color.PINK if reunited else Color.WHITE
 	$Mesh.rotation.z = 0 if is_instance_valid(holder) else sin(Time.get_ticks_msec() * 0.002) * 0.035
@@ -38,6 +39,6 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 	offset.y = 0
 	var speed_limit := lerpf(walk_speed, recovery_speed, clampf((offset.length() - recovery_start_distance) / maxf(0.1, recovery_start_distance), 0, 1))
 	var desired := offset.normalized() * minf(speed_limit, offset.length() * follow_correction)
-	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z).move_toward(desired, follow_acceleration * state.step)
+	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z).move_toward(desired, follow_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z

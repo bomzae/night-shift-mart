@@ -8,6 +8,7 @@ signal product_broken(value: float)
 @export var product_push_impulse: float = 2.5
 @export var contact_cooldown: float = 1.0
 @export var break_min_speed: float = 2.7
+@export var wet_wobble_multiplier: float = 1.8
 var wander_direction := Vector3.FORWARD
 var direction_changes: int = 0
 var _direction_wait: float = 0
@@ -18,12 +19,14 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	super._ready()
+	knockdown.minimum_fall_speed = 1.2
 	can_sleep = false
 	_rng.randomize()
 	body_entered.connect(_contact)
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
+	if knockdown.active(): return
 	_contact_wait = maxf(0, _contact_wait - delta)
 	if is_instance_valid(holder) or supported_by_cart:
 		$Mood.text = "@_@"
@@ -43,14 +46,15 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 	# No seat or velocity attachment: a cart-supported character is passive cargo.
 	if not grounded or supported_by_cart:
 		return
-	var desired := wander_direction.rotated(Vector3.UP, sin(_phase * 2.1) * 0.45) * wander_speed
+	var wobble := 0.45 * (wet_wobble_multiplier if SlipState.wet(self) else 1.0)
+	var desired := wander_direction.rotated(Vector3.UP, sin(_phase * 2.1) * wobble) * wander_speed
 	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z)
-	horizontal = horizontal.move_toward(desired, wander_acceleration * state.step)
+	horizontal = horizontal.move_toward(desired, wander_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z
 
 func _contact(body: Node) -> void:
-	if is_instance_valid(holder) or supported_by_cart or _contact_wait > 0:
+	if knockdown.active() or is_instance_valid(holder) or supported_by_cart or _contact_wait > 0:
 		return
 	if body is GrabbableBody:
 		_contact_wait = contact_cooldown

@@ -11,12 +11,15 @@ extends CharacterBody3D
 @export var minimum_push_speed: float = 0.2
 
 @onready var head: Node3D = $Head
+var knockdown := KnockdownState.new()
 
 var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	knockdown.setup(self, head, true)
+	knockdown.started.connect(func(): $Interaction.drop_held())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -40,6 +43,11 @@ func _notification(what: int) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if knockdown.tick(delta):
+		velocity = knockdown.damp_motion(velocity, delta)
+		velocity.y = 0 if is_on_floor() else velocity.y - gravity * delta
+		move_and_slide()
+		return
 	var input_direction := Vector2.ZERO
 	var controls_active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if controls_active:
@@ -51,6 +59,8 @@ func _physics_process(delta: float) -> void:
 		cart = interaction.held_object
 	var speed_multiplier: float = interaction.held_object.carrier_speed_multiplier if interaction != null and is_instance_valid(interaction.held_object) and interaction.held_object is CarryableCharacter else 1.0
 	var movement_acceleration := acceleration if cart == null else cart.push_acceleration()
+	if is_on_floor():
+		movement_acceleration *= SlipState.control(self)
 	velocity.x = move_toward(velocity.x, direction.x * move_speed * speed_multiplier, movement_acceleration * delta)
 	velocity.z = move_toward(velocity.z, direction.z * move_speed * speed_multiplier, movement_acceleration * delta)
 	if cart != null:

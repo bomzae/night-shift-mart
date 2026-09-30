@@ -35,6 +35,8 @@ extends RigidBody3D
 @export var crash_torque_multiplier: float = 2.0
 @export var max_crash_torque_impulse: float = 120.0
 @export var max_spin_speed: float = 6.0
+@export var wet_drive_multiplier: float = 0.85
+@export var wet_steering_multiplier: float = 0.6
 
 var holder: Node
 var loaded_weight: float = 0.0
@@ -141,7 +143,7 @@ func refresh_load() -> void:
 
 
 func push_acceleration() -> float:
-	return push_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_control_penalty))
+	return push_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_control_penalty)) * (wet_drive_multiplier if SlipState.wet(self) else 1.0)
 
 
 func control_penalty(amount: float) -> float:
@@ -151,11 +153,11 @@ func control_penalty(amount: float) -> float:
 
 
 func braking_acceleration() -> float:
-	return braking_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_braking_penalty))
+	return braking_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_braking_penalty)) * SlipState.control(self)
 
 
 func steering_acceleration() -> float:
-	return steering_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_control_penalty))
+	return steering_strength / (maxf(0.1, cart_base_mass) * control_penalty(load_control_penalty)) * (wet_steering_multiplier if SlipState.wet(self) else 1.0)
 
 
 func launch_speed(multiplier: float) -> float:
@@ -212,7 +214,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var desired := (drive_velocity + (correction * correction_gain).limit_length(max_follow_correction)).limit_length(max_push_speed)
 		desired.y = 0
 		var acceleration := braking_acceleration() if slowing else push_acceleration()
-		horizontal = horizontal.move_toward(desired, acceleration * state.step)
+		if SlipState.wet(self):
+			var change := desired - horizontal
+			var along := _control_forward * change.dot(_control_forward)
+			horizontal += along.limit_length(acceleration * state.step) + (change - along).limit_length(acceleration * SlipState.control(self) * state.step)
+		else:
+			horizontal = horizontal.move_toward(desired, acceleration * state.step)
 		var facing := -state.transform.basis.z
 		facing.y = 0
 		var turn_error := facing.normalized().signed_angle_to(_control_forward, Vector3.UP)
@@ -225,7 +232,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 				axis = state.transform.basis.z
 			state.apply_torque(axis.normalized() * righting_torque)
 	elif grounded:
-		horizontal = horizontal.move_toward(Vector3.ZERO, rolling_resistance * cart_base_mass / effective_mass * state.step)
+		horizontal = horizontal.move_toward(Vector3.ZERO, rolling_resistance * SlipState.control(self) * cart_base_mass / effective_mass * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z
 	_recent_velocities.append(state.linear_velocity)

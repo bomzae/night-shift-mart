@@ -33,6 +33,7 @@ var _mesh: MeshInstance3D
 var _contact_zone: Area3D
 var _push: Vector3 = Vector3.ZERO
 var _disappointment_left: float
+var knockdown := KnockdownState.new()
 
 func _ready() -> void:
 	patience_left = patience_time
@@ -101,8 +102,14 @@ func _ready() -> void:
 	near_shape.position.y = 0.85
 	_contact_zone.add_child(near_shape)
 	add_child(_contact_zone)
+	knockdown.setup(self, _mesh)
 
 func _physics_process(delta: float) -> void:
+	if knockdown.tick(delta):
+		velocity = knockdown.damp_motion(velocity, delta)
+		velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
+		move_and_slide()
+		return # Keep timers, purchase state and path progress for recovery.
 	scan_wait = maxf(0, scan_wait - delta)
 	if (state == State.STORE or state == State.SHOP) and not manager.valid_goods(self):
 		manager.out_of_stock(self)
@@ -166,8 +173,13 @@ func _physics_process(delta: float) -> void:
 			var closing: float = body.linear_velocity.dot(away)
 			if closing > 0.1:
 				_push = away * minf(max_push_speed, closing * 0.8 + 0.2)
-	velocity.x = walking.x + _push.x
-	velocity.z = walking.z + _push.z
+	var motion := walking + _push
+	if SlipState.wet(self) and is_on_floor():
+		# Smooth the complete target velocity. Adding _push after smoothing would
+		# repeatedly integrate last tick's push and accelerate without a bound.
+		motion = Vector3(velocity.x, 0, velocity.z).move_toward(motion, 14.0 * SlipState.control(self) * delta)
+	velocity.x = motion.x
+	velocity.z = motion.z
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 	move_and_slide()
 	if state == State.STORE and walking.length() > 0.1:

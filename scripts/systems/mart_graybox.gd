@@ -30,3 +30,10 @@ func _ready() -> void:
 	families.name = "LostFamilies"
 	families.set_script(preload("res://scripts/systems/lost_family_manager.gd"))
 	add_child(families)
+	var accidents := Node3D.new()
+	accidents.name = "Accidents"
+	accidents.set_script(preload("res://scripts/systems/accident_manager.gd"))
+	add_child(accidents)
+	var mop := preload("res://scenes/interactables/mop.tscn").instantiate()
+	mop.position = Vector3(7.5, 0.85, -1.5)
+	add_child(mop)

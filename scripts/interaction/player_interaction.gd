@@ -49,6 +49,9 @@ var _last_hold_position: Vector3
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if KnockdownState.blocked(player):
+		cancel_charge()
+		return
 	if event.is_action_pressed("toggle_mouse_capture"):
 		cancel_charge()
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -69,7 +72,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not KnockdownState.blocked(player)
 	if not active:
 		cancel_charge()
 	if active and _grab_requested:
@@ -259,14 +262,16 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 	var candidate := _hold_goal.move_toward(origin + forward * _active_hold_distance, hold_target_speed * delta)
 	# Also test the path from the body's CURRENT position: a turn can sweep across
 	# a shelf corner even when the camera-to-target ray itself is unobstructed.
-	var shape: CollisionShape3D = held_object.get_node("CollisionShape3D")
-	query.shape = shape.shape
-	query.transform = shape.global_transform
 	query.motion = candidate - held_object.global_position
-	var body_sweep := space.cast_motion(query)
-	if body_sweep[0] < 1.0:
+	var safe_fraction := 1.0
+	for shape in held_object.get_children():
+		if shape is CollisionShape3D and not shape.disabled:
+			query.shape = shape.shape
+			query.transform = shape.global_transform
+			safe_fraction = minf(safe_fraction, space.cast_motion(query)[0])
+	if safe_fraction < 1.0:
 		hold_obstructed = true
-		candidate = held_object.global_position + query.motion * body_sweep[0]
+		candidate = held_object.global_position + query.motion * safe_fraction
 	_hold_goal = candidate
 	safe_hold_position = candidate
 	held_object.hold_target = candidate

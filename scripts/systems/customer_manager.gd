@@ -53,14 +53,15 @@ func available_goods() -> Array[GrabbableBody]:
 				available.append(body)
 	return available
 
-func spawn_customer(requested: Array[StringName] = []) -> BasicCustomer:
+func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedScene = null) -> BasicCustomer:
 	requested = requested.duplicate()
 	if customers.size() >= max_active_customers:
 		return null
 	for other in customers:
 		if other.global_position.distance_to(exit_position()) < 0.85:
 			return null # Do not stack new capsules at the door.
-	var customer: BasicCustomer = preload("res://scenes/interactables/basic_customer.tscn").instantiate()
+	var scene := customer_scene if customer_scene != null else preload("res://scenes/interactables/basic_customer.tscn")
+	var customer: BasicCustomer = scene.instantiate()
 	customer.manager = self
 	customer.patience_time = patience_time
 	var available := available_goods()

@@ -2,6 +2,364 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 7.3 — First-person Backward Fall Rework (구현·자동 검사 완료, 수동 손맛 확인 대기)
+
+2026-09-30. 사용자 수동 테스트에서 7.2 기능은 정상이지만 옆으로 쓰러지는 방향이 의도와 달랐다. `KnockdownState._player_pose()`의 주 회전을 local Z Roll에서 **local X Pitch +75°**로 바꿨다. 이동 방향에 따른 좌우 `_fall_side` 선택은 제거했다. 기존 dirty 상태(tracked 수정 15 / untracked 21)를 보존하고 추가 작업했다. 아래 이전 절은 당시 기록이며 현재 Player 연출은 이 절을 우선한다.
+
+### Camera Pose / Direction / Look
+
+- FALLING: 0.2초 smoothstep 보간, 높이 최대 1.1m 하강 + Pitch 75° 증가. 기본 Roll 0°. DOWN 0.8초 동안 유지. STANDING_UP 0.4초에 높이와 visual offset을 원래 값으로 복구한다.
+- 부호 검증: 실제 Camera `-global_basis.z`의 위쪽 성분이 0.9를 넘고, 전방 ray가 테스트용 천장에 맞는지 검사했다. `.godot/p73_backward_down.png` 실제 렌더에서 천장과 보를 위로 바라보고 화면이 옆으로 눕지 않는 것을 확인했다. 천장/보는 검사 씬에만 추가한 fixture이며 Mart에 새 에셋/구조를 넣지 않았다.
+- Player 몸 yaw / Head mouse pitch는 그대로 두고 자식 Camera에 독립적인 visual Pitch/Roll을 적용한다. 현재 Look을 초기화하거나 덮어쓰지 않으며, 기상 후 마지막 Look 방향을 유지한다. 약간의 마우스 입력으로 누운 offset이 사라지지 않는다.
+- A/D 이동으로 들어와도 동일 Backward pose다. 기존 수평 속도 방향의 slip boost 1.2m/s, 최대 수평 속도 6.5m/s, 감속 5m/s²는 그대로여서 발은 진행 방향으로 짧게 미끄러진다. 새 힘/이동 시스템을 추가하지 않았다.
+- 기존 바닥 ray / floor margin 0.18m / upright capsule 중심선 수직 하강을 재사용한다. 기본 Eye 1.6m → 약 0.5m. 카메라를 옆/뒤로 밀어 넣지 않으며 Player collider와 NPC 표현/AI/Collider도 변경하지 않았다.
+
+### 조절 값
+
+| 변수 | 기본값 |
+| --- | ---: |
+| fall_camera_pitch_degrees | 75° (신규, 뒤로 젖히는 양의 X 회전) |
+| fall_camera_roll_degrees | 0° (이전 75°) |
+| fall_camera_drop | 1.1m |
+| fall_camera_floor_margin | 0.18m |
+| fall_down_time / knockdown_duration / stand_up_time | 0.2 / 0.8 / 0.4초 |
+| slip_speed_boost / max_slip_speed / down_braking | 기존 1.2 / 6.5 / 5 |
+| slip_immunity_time | 기존 1.3초 |
+
+### 변경 파일 / 검사 계약
+
+- `scripts/interaction/knockdown_state.gd`: Player camera Pitch 추가, 큰 Roll 기본값/좌우 선택 제거. 그 외 NPC/물리/Drop 경로는 그대로.
+- `tests/prompt7_3_smoke.gd`와 UID: 정면·좌우 실제 Spill 진입, 방향/천장 ray/렌더, 낮은 시점, DOWN pose, Look/복구/반복 검사 16개.
+- `tests/prompt7_1_smoke.gd`: 기존 시각 회전 검사의 축을 Pitch로 변경하고 복구 때 모든 visual 회전이 0인지 확인한다. 기존 57개 유지.
+- `tests/prompt7_2_smoke.gd`: 사용자 요구로 폐기한 75° Side Roll/좌우 방향 assertion을 75° backward Pitch/Side Roll 없음으로 대체했다. 65° 이상, 높이, 보간, Look 독립, 반복 복구, Wall/Floor 안전의 동일 기준과 기존 26개 검사를 유지한다. 이전 렌더를 덮어쓰지 않도록 새 이미지 경로를 사용한다. 통과를 위해 threshold를 낮추지 않았다.
+- `README.md`, 이 문서: 현재 표현/검사/수동 확인 갱신. Agent/Skill이나 다른 gameplay 코드는 변경하지 않았다.
+- 신규 검사 `.godot/p73_new.log`: 16개 통과, 종료 0. 전체 회귀 결과는 아래 최종 검증 기록을 참고한다. 실제 렌더 방향은 확인했으나 사용자 수동 손맛을 대신 검증했다고 주장하지 않는다.
+
+### Prompt 7.3 최종 자동 검사 결과
+
+**기존 681개 + 신규 16개 = 총 697개 통과.** 이번 실행에서 검사 실패/재실행 없음. 모든 창 테스트는 `--fixed-fps 60`으로 순차 실행했다.
+
+| Prompt | 통과 |
+| --- | ---: |
+| 0 / 1 / 1.1 | 22 / 48 / 40 |
+| 2 / 2.1 | 41 / 28 |
+| 3 / 3.1 | 32 / 29 |
+| 4 | 54 |
+| 5 / 5.1 / 5.2 | 33 / 36 / 57 |
+| 6 / 6.1 / 6.2 | 40 / 35 / 48 |
+| 7 / 7.1 / 7.2 / 7.3 | 55 / 57 / 26 / 16 |
+
+- 기존 회귀 로그 `.godot/p73_regression_<번호>.log`(소수점 대신 `_`), 신규 `.godot/p73_new.log`: 전부 종료 코드 0, `ERROR:`/`SCRIPT ERROR`/`FAIL:` 없음.
+- 임포트 `.godot/p73_import.log` 및 Main 120초 시뮬레이션 `.godot/p73_main.log`도 종료 0/오류 없음. 기존 배송 도착/출발까지 확인했다.
+- 명령 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_3_smoke.gd --quit-after 3000`.
+- 이전 Prompt의 실패/재검사 기록은 과거 이력으로 그대로 보존한다. 현재 각종 physics/NPC 검사를 새로 실행한 결과다.
+- `git diff --check` 통과. 이전 변경을 포함한 전체 working tree는 tracked 수정 15 / untracked 23개. 이번 신규 파일은 7.3 검사와 UID이며 자동 commit/amend/reset/push는 하지 않았다.
+
+### 수동 검증 / Deferred Final Checks
+
+1. F5 → 상품 진열 → O로 사고 손님/Spill 생성. 정면 이동으로 중앙 진입: 발은 짧게 미끄러지고 시점은 낮아지며 뒤로 젖혀져 위쪽을 봐야 한다.
+2. A/D 진입에서도 같은 Backward pose인지 확인한다. 큰 좌우 Roll이 발생하면 안 된다.
+3. DOWN 중 둘러보기, 기상 후 마지막 Look 유지, 반복 넘어짐 후 잔여 offset 없음 확인. 극단적인 기존 Look pitch와 visual pitch가 합쳐지는 상황의 가독성도 수동 비교한다.
+4. Shelf/Wall/좁은 통로에서 바닥·벽 관통 없이 기상하는지 확인한다. 상품/Child/Cart 보유 중에는 기존 Drop/Release/Charge Cancel이 발생해야 한다.
+
+다음 항목은 **의도적으로 수정하지 않았으며 전체 기능 구현 이후 반드시 재검토**한다:
+
+- **NPC Knockdown Mesh / Collider mismatch:** NPC는 Mesh만 눕고 collider는 upright. Final Physics/Polish TODO.
+- **Cart Contact Repeated Damage:** 밀착 반복 피해. 전투 완성 후 Final Gameplay/Physics TODO.
+
+수동 테스트가 정상이면 Prompt 8 Dangerous Customer + Fire + Fire Extinguisher를 진행할 준비가 되어 있다. 이번에 Fire나 새 Gameplay 콘텐츠는 구현하지 않는다. 변경은 uncommitted로 유지하며 commit/amend/reset/push하지 않는다.
+
+## Prompt 7.2 — First-person Fall Presentation Polish (구현·자동 검사 완료, 수동 손맛 확인 대기)
+
+2026-09-30 작업. 사용자 수동 확인으로 Prompt 7.1 Knockdown과 NPC 표현은 정상이나 Player의 0.65m 하강/15° Roll은 앉았다 일어나는 느낌이었다. Player 카메라 표현만 강화했다. 기존 uncommitted 변경(tracked 15 / untracked 19)을 보존했다. 아래의 이전 Prompt 기록은 당시 동작이며 현재 카메라 값은 이 절을 우선한다.
+
+### Player Camera Pose / Look
+
+- 공통 `KnockdownState`의 **Player 분기만** 수정. Head는 높이와 기존 mouse pitch를 담당하고 자식 `Head/Camera3D`에는 넘어짐 local Roll만 적용한다. Player yaw와 mouse pitch를 덮어쓰지 않는다. 노드 경로/씬 구조를 바꾸지 않아 기존 Interaction 참조도 그대로다. 추가 강제 pitch 연출은 사용하지 않는다.
+- FALLING 0.2초: smoothstep 보간으로 Head를 최대 1.1m 낮추고 Camera를 75° 눕힌다. 기본 Eye 1.6m → 바닥 위 약 0.5m. DOWN 0.8초: 누운 높이/Roll 유지. STANDING_UP 0.4초: 같은 곡선으로 원래 높이/Roll 복구. 기존 기상 후 면역 1.3초 유지.
+- 진입 방향과 Player right 벡터 내적이 ±0.2m/s를 넘으면 해당 옆 방향으로 눕는다. 애매한 전진/정지 방향은 일정한 기본 방향으로 눕는다. 방향은 넘어짐 시작 때 한 번 정하며 마우스를 움직였다고 좌우가 뒤집히지 않는다.
+- 카메라는 옆/앞으로 이동시키지 않고 upright capsule의 중심선에서 수직으로만 낮춘다. 따라서 근처 벽 방향으로 카메라를 밀어 넣지 않는다. near plane은 기존 0.05m, Player 반경 0.35m 유지.
+- 정상 Eye 위치에서 바닥 방향 ray(자신 제외)로 확인해 표면 위 최소 `fall_camera_floor_margin=0.18m`를 확보한다. 하강값을 과도하게 올려도 Player 발 기준 margin으로도 제한한다. mouse pitch와 관계없이 하강은 upright body 좌표에서 적용한다. 복잡한 전역 Camera Collision 시스템은 추가하지 않았다.
+- 복구 시 Head 높이 및 Camera local 회전을 저장한 기본값으로 돌린다. 사용자가 넘어져 있는 동안 변경한 look pitch/yaw는 유지한다. 반복 넘어짐에서 offset을 누적하지 않는다.
+
+### 조절 값 / 범위
+
+`KnockdownState` 런타임 Component의 Remote Inspector 또는 스크립트 기본값:
+
+| 변수 | 기본값 |
+| --- | ---: |
+| fall_camera_drop | 1.1m |
+| fall_camera_roll_degrees | 75° |
+| fall_camera_floor_margin | 0.18m (최소 안전 제한 0.1m) |
+| fall_down_time | 0.2초 |
+| knockdown_duration | 0.8초 |
+| stand_up_time | 0.4초 |
+| slip_immunity_time | 기존 1.3초 |
+
+기존 `camera_drop`/`camera_roll_degrees`는 명확한 Player 전용 이름으로 변경했다. NPC tilt/AI pause/Collider, Spill 조건, Held Drop/Cart Release/Charge Cancel, Product/Cart Wet Physics, Mop Cleaning은 수정하지 않았다. Player 몸과 Capsule도 upright를 유지하여 floor detection과 이동/상호작용 복구를 보존한다.
+
+### 파일 / 검사
+
+- `scripts/interaction/knockdown_state.gd`: Player 전용 보간/바닥 여유/독립 Camera Roll.
+- `tests/prompt7_2_smoke.gd` 및 UID: 실제 Spill에서 강한 하강·Roll, DOWN 유지, mouse pitch/yaw 독립, 보간, 좌우 방향, 반복 복구, 과도한 하강 설정 제한, 벽 근처 안전 검사.
+- `tests/prompt7_1_smoke.gd`: 카메라 Roll의 소유자가 Head에서 Camera로 분리되어 시각적 Roll/복구 assertion 2개의 참조만 Camera로 변경했다. 기존 57개 계약과 threshold는 유지한다. 나머지 기존 테스트는 수정하지 않는다.
+- `README.md`: 새 Player 표현 및 검사 명령. Agent/Skill은 변경하지 않았다.
+- 신규 검사 `.godot/p72_new.log`: 26개 통과/종료 0. `.godot/p72_down.png` 렌더에서 낮은 시점과 약 75°의 측면 자세를 확인했다. 실제 사용자 조작감/멀미 여부는 수동 확인 대기다.
+
+### Prompt 7.2 최종 검증 결과
+
+**기존 655개 + 신규 26개 = 681개 통과.** 모든 창 검사는 순차 실행했으며 `--fixed-fps 60` 사용. 최종 통과 로그에서 `ERROR:`/`SCRIPT ERROR`/`FAIL:` 없음.
+
+| Prompt | 통과 |
+| --- | ---: |
+| 0 / 1 / 1.1 | 22 / 48 / 40 |
+| 2 / 2.1 | 41 / 28 |
+| 3 / 3.1 | 32 / 29 |
+| 4 | 54 |
+| 5 / 5.1 / 5.2 | 33 / 36 / 57 |
+| 6 / 6.1 / 6.2 | 40 / 35 / 48 |
+| 7 / 7.1 / 7.2 | 55 / 57 / 26 |
+
+- 기존 검사의 통과 로그: `.godot/p72_regression_<번호>.log` (소수점은 `_`). **7.1의 최종 통과 로그는 `.godot/p72_isolated_7_1.log`**. 신규 `.godot/p72_new.log`. 각 종료 코드 0.
+- 임포트 `.godot/p72_import.log`, Main 120초 시뮬레이션 `.godot/p72_main.log` 모두 종료 0/오류 없음. Main에서 배송 도착/출발까지 확인했다.
+- 실패 이력: 최초 전체 실행의 `.godot/p72_regression_7_1.log`는 PAY ray와 그에 따른 판매 확인 2개 실패(55개 통과). 해당 시점의 포커스/충돌 대상 기록이 없어 원인을 단정하지 않는다.
+- 조사: `.godot/p72_pay_probe.gd/.log`로 원래 7.1을 상속하고 동일 assertion을 실행하면서 focus, Head/Camera transform, 실제 ray collider를 추가 기록했다. Scan/Pay 모두 mouse capture=2, operator=true, 실제 Scanner/Payment collider에 명중했고 Player Knockdown은 UPRIGHT, Head 높이는 1.6m, 카메라 위치는 원점이었다. 잔여 Fall offset은 없었다. 진단 실행 57개 통과/종료 0. 게임 코드나 검사 기준을 더 바꾸지 않은 원래 검사 단독 실행도 57개 통과했다. 실패를 삭제하거나 최초부터 모두 통과했다고 보고하지 않는다.
+- 기존 카트/상품/진열/계산/취객/미아/가족 퇴장/Spill/Mop 회귀도 통과했다. 카메라 연출 외의 추가 gameplay 수정은 없었다.
+- 실행 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_2_smoke.gd --quit-after 3000`.
+- `git diff --check` 통과. 전체 working tree는 이전 Prompt 변경을 포함해 tracked 수정 15 / untracked 21개. 이번 신규는 Prompt 7.2 검사와 UID이며 commit/amend/reset/push하지 않았다.
+
+### 수동 확인 / Deferred Final Checks
+
+1. F5, 상품 진열 후 O로 사고 손님/Spill 생성. 중앙을 빠르게 지나 누운 화면 → 약 0.8초 유지 → 부드러운 기상을 확인한다.
+2. DOWN 중 마우스를 위아래/좌우로 움직여도 화면이 갑자기 upright가 되지 않고 바닥 내부가 보이지 않는지 확인한다.
+3. Shelf/Wall 근처에서도 반복한다. 넘어짐은 시각 효과이므로 몸의 벽 충돌은 그대로여야 한다.
+4. 상품/미아 Carry 및 Cart Grab 상태에서 각각 Fall → Drop/Release/Charge 취소 → 기상 후 재Grab을 확인한다.
+5. 면역 뒤 다시 넘어져도 높이/Roll이 쌓이지 않는지 확인한다. 75°가 실제 플레이에서 과하면 Inspector로 줄여 비교한다.
+
+**전체 기능 구현 이후 반드시 재검토할 항목:**
+
+- **NPC Knockdown Mesh ↔ Collider mismatch:** 현재 Mesh만 약 80° 눕고 실제 Collider는 upright다. 이번에는 의도적으로 유지했다. Final Physics/Polish에서 전용 shape, 회전/전환, ragdoll 또는 현 방식 유지 중 플레이 테스트로 결정한다.
+- **Cart Contact Repeated Damage:** 밀착해 비빌 때 반복 피해가 발생하는 현상을 의도적으로 유지했다. 전체 전투 구현 후 Final Gameplay/Physics 점검에서 재평가한다.
+
+수동 확인이 정상이라면 Prompt 8 Dangerous Customer + Fire + Fire Extinguisher로 진행할 준비가 되어 있다. 이번에 Fire나 새로운 gameplay 시스템을 구현하지 않았다. 변경은 uncommitted로 유지한다.
+
+## Prompt 7.1 — Character Slip Knockdown + Recovery (구현·자동 검사 완료, 수동 조작감 확인 대기)
+
+Prompt 7의 캐릭터 관성만으로 약했던 피드백을 명확한 넘어짐/기상으로 확장했다. 이전 Prompt 7의 tracked 수정 11개 / untracked 15개를 그대로 보존하고 그 위에 작업했다. 상품/카트 wet physics와 카트 밀착 반복 Damage는 수정하지 않았다. 새로운 고객 종류, 화재, 무기, 체력, ragdoll은 추가하지 않았다.
+
+### 공통 Knockdown 구조 / Trigger
+
+- `scripts/interaction/knockdown_state.gd`: 작은 Character 전용 Node. 각 Player / BasicCustomer / CarryableCharacter의 `_ready()`에서 `Knockdown` 자식으로 연결한다. Basic에서 Accident/LostParent, Carryable에서 Drunk/LostChild로 재사용한다. 상품/Cart에는 이 Component를 붙이지 않는다.
+- 상태: UPRIGHT → FALLING → DOWN → STANDING_UP → IMMUNE → UPRIGHT. 한 캐릭터에 하나만 존재하고 active/immunity 중 다시 시작할 수 없다. `try_start(direction)`는 공통 중단 시작점이며 현재 실제 gameplay 호출자는 Spill 판정뿐이다. 미래 전투를 구현한 것은 아니다.
+- 각 Character가 정상 이동/AI보다 먼저 `tick(delta)`를 호출한다. 기존 SlipState의 현재 영역 weak reference를 읽고 **바닥 접촉 + 활성화된 Spill Core 내부 + 충분한 수평 속도**를 만족하면 시작한다. 무작위 확률은 없다.
+- Spill `core_ratio=0.7`: 기본 반경 1.5m의 안쪽 1.05m. 청소로 줄어드는 실제 반경과 함께 줄어든다. Body 가장자리가 아닌 중심의 수평 위치를 비교한다. `activation_delay=0.3초` 후부터 넘어짐 판정이 켜지며, 기존 저마찰 modifier는 즉시 적용한다.
+- Carry 중 Character, 공중 Character, Cart 위에 지지된 CarryableCharacter는 별도 Spill Fall을 시작하지 않는다. 여러 Spill에서도 이미 발생한 넘어짐을 중첩하지 않는다. Spill 삭제 시 신규 Trigger는 즉시 없어지지만 이미 시작한 짧은 기상은 끝까지 진행한다.
+
+### Player / Held 대상
+
+- 넘어짐 시작 신호에서 기존 `Interaction.drop_held()`를 호출한다. Product/Character/Cart 모두 기존 소유권·충돌 예외 해제 경로를 사용하고 Charge도 취소한다. 강제 Drop이므로 미아의 명시적 Drop 인계 콜백을 실행하지 않는다.
+- Fall 중 WASD/Jump/Grab/Throw/계산 입력은 제한하지만 mouse look/Esc는 유지한다. 기존 Head의 Y와 roll만 수정하여 사용자가 보는 pitch/yaw를 덮어쓰지 않는다. 약 0.65m 낮아지고 roll 15° 뒤 원래 높이/roll로 돌아온다.
+- 진행 방향 속도 +1.2m/s(수평 상한 6.5m/s), 이후 5m/s²로 짧게 감속한다. 중력과 CharacterBody move_and_slide는 계속 사용한다. Collider를 눕히거나 Transform을 순간이동시키지 않아 Wall 충돌이 유지된다.
+- 총 Fall/Down/Stand 약 1.4초, 이어서 1.3초 재넘어짐 면역. 기상이 끝나면 이동과 상호작용은 바로 가능하다. Product/Character를 다시 잡으려면 좌클릭한다.
+
+### NPC / 상태 보존
+
+- NPC의 실제 Capsule은 그대로 두고 Mesh만 약 80° 기울인다. Capsule Mesh의 height/radius로 외형 높이를 낮춰 작은 미아도 바닥 안으로 과도하게 들어가지 않게 한다. 아이콘/Family Symbol은 계속 읽을 수 있다.
+- BasicCustomer는 넘어지는 동안 경로 진행·쇼핑 타이머·Queue Patience·Scan wait를 보존하고 AI 이동을 건너뛴다. Rigidbody Character는 중력/접촉을 유지하면서 자율 보행만 쉬고 현재 수평 속도를 감속한다.
+- Drunk의 방향 갱신/흔들림/능동 상품 파손은 잠시 쉬며 기상 후 Wander를 재개한다. LostChild Follow/LostParent Exit는 기존 목적지를 그대로 사용한다. Prompt 6.1 가족 충돌 예외는 제거하지 않는다.
+- 다운된 일반 손님에게는 Scan/Pay를 진행하지 않는다. 복구 후 기존 Basket·예약·계산 흐름을 그대로 사용한다. 사고 손님은 자기 Spill에서 당황한 뒤 움직이다 넘어질 수 있고, 복구 후 추가 사고 없이 Checkout으로 간다.
+- 다운된 CarryableCharacter도 기존 Grab으로 들 수 있다. 들 때 외형을 복구하고 면역 상태로 전환하여 Carry 도중 이중 이동 제어가 생기지 않게 한다. 기존 Drunk 85% / Child 98% 운반 배율과 Character Throw 금지는 유지한다.
+
+### 조절 값 (Knockdown Component Inspector)
+
+| 변수 | 기본값 |
+| --- | ---: |
+| minimum_fall_speed | Player/Basic/Accident/Child 1.5m/s; Drunk 1.2; Parent 1.3 |
+| fall_down_time | 0.2초 |
+| knockdown_duration | 0.8초 |
+| stand_up_time | 0.4초 |
+| slip_immunity_time | 1.3초 |
+| slip_speed_boost / max_slip_speed | 1.2 / 6.5m/s |
+| down_braking | 5m/s² |
+| camera_drop / camera_roll_degrees | 0.65m / 15° |
+| npc_tilt_degrees | 80° |
+| Spill core_ratio / activation_delay | 0.7 / 0.3초 |
+
+Parent의 기존 보행 속도 1.5m/s에서도 발생하도록 조건을 1.3으로, 취객은 더 쉽게 넘어지도록 1.2로 초기화한다. 런타임 생성 Component는 Remote Inspector 또는 스크립트 기본값에서 조정한다.
+
+### 파일 / 검사
+
+- 추가: `scripts/interaction/knockdown_state.gd`/UID, `tests/prompt7_1_smoke.gd`/UID.
+- 수정: `spill_zone.gd` Core/활성화; `player_controller.gd` 카메라·이동; `player_interaction.gd` 넘어짐 중 입력 차단; `carryable_character.gd` 공통 물리 중단; `basic_customer.gd`, `drunk_customer.gd`, `lost_child.gd`, `lost_parent.gd`, `accident_customer.gd`의 AI/외형 일시 정지; `checkout.gd` 다운된 Player/고객 처리 제한.
+- 회귀 보존 수정: `grabbable_body.gd`에서 Cart Bomb 상품의 실제 이동 속도 기록을 보정했다. 아래 진단 근거를 참고한다. 상품 물리 힘/마찰/가격/피해 공식과 Cart 본체 반복 피해는 바꾸지 않았다.
+- `tests/prompt7_smoke.gd`: 기존 저마찰/관성/밀침 수치만 분리해 검사하는 fixture Spill에 활성화 지연 60초를 지정했다. 기존 55개 assertion은 유지한다. 실제 사고 손님 시나리오는 기본 Spill로 검사한다. 신규 7.1은 기본 0.3초 활성화와 실제 넘어짐을 검사한다. 다른 기존 테스트는 변경하지 않는다.
+- 초기 `.godot/p71_first.log`: 기본 신규 흐름 오류 없이 통과. 이후 Wall 충돌, Queue/Patience 중단, 실제 Spill 위의 가족 퇴장 검사를 추가했다. 최종 전체 결과는 아래에 기록한다.
+- 회귀 `.godot/p71_final_prompt2.log`(고정 간격), `p71_verified_prompt2.log`(기존 일반 실행)에서 Cart Bomb의 차체 타격/적재물 이탈은 통과했지만 개별 상품 피해는 0건이었다. 단순 시간 간격 문제로 단정하지 않고 `.godot/p71_bomb_probe.gd/.log`로 접촉 순서와 실제 속도를 기록했다.
+- 진단에서 상품이 약 5m/s로 타깃 앞을 통과하는데 `_incoming_velocity`는 약 0.0008m/s인 사례를 확인했다. 기존 코드는 **접촉 0개일 때만** 속도를 기록하므로 계속 바구니/다른 적재물과 접촉 중인 상품은 Launch 전 정지 속도를 보존했다. 진단 실행에서는 일부 상품이 접촉에서 떨어져 기록이 갱신되어 3건 타격도 발생했다. 해당 진단 자체는 다른 적재 카트 손잡이 선택 1건과 그에 따른 Full Launch 1건이 실패했으므로 전체 통과 로그로 사용하지 않는다.
+- 최소 수정: Cart source 및 다른 Grabbable과의 기존 무시 대상 내부 접촉 중에도 최신 물리 속도/최근 3 tick을 기록한다. 실제 외부 충돌 때는 기존 기록을 유지해 CCD 속도 손실을 피한다. 일반 Throw의 접촉 규칙, 첫 외부 충돌 1회 소모, 피해 공식/상한은 유지한다. 오래된 Launch 최고 속도를 사용하거나 피해 임계치를 낮추지 않았다. 기존 Prompt 2 assertion/fixture는 변경하지 않았다.
+- 실제 렌더 `.godot/p71_player_down.png`에서 낮아진 시점과 약 15° 기울기를, `p71_npc_down.png`에서 약 80° 누운 NPC 외형을 확인했다. 수동 조작감 테스트를 수행했다고 주장하지 않는다.
+
+### 최종 자동 검사 결과 (2026-09-29)
+
+기존 598개 + 신규 57개 = **655개 통과**. 아래는 각 검사의 최종 통과 로그이며, 최초 실행부터 모두 통과했다는 뜻은 아니다. 실패/진단 로그도 `.godot`에 보존했다. 입력 검사는 실제 창에서 순차 실행했고, 3.1/7/7.1 최종 검사는 `--fixed-fps 60`을 사용했다.
+
+| Prompt | 통과 | `.godot/` 최종 로그 |
+| --- | ---: | --- |
+| 0 | 22 | p71_final_prompt0.log |
+| 1 | 48 | p71_complete_prompt1.log |
+| 1.1 | 40 | p71_complete_prompt1_1.log |
+| 2 | 41 | p71_complete_prompt2.log |
+| 2.1 | 28 | p71_complete_prompt2_1.log |
+| 3 | 32 | p71_verified_prompt3.log |
+| 3.1 | 29 | p71_isolated_prompt3_1.log |
+| 4 | 54 | p71_verified_prompt4.log |
+| 5 | 33 | p71_verified_prompt5.log |
+| 5.1 | 36 | p71_verified_prompt5_1.log |
+| 5.2 | 57 | p71_verified_prompt5_2.log |
+| 6 | 40 | p71_verified_prompt6.log |
+| 6.1 | 35 | p71_verified_prompt6_1.log |
+| 6.2 | 48 | p71_last_prompt6_2.log |
+| 7 | 55 | p71_isolated_prompt7.log |
+| 7.1 | 57 | p71_last_prompt7_1.log |
+
+- 최종 위 로그에서 `ERROR:` / `SCRIPT ERROR` / `FAIL:` 없음. 임포트 `p71_complete_import.log` 및 Main 120초 시뮬레이션 `p71_complete_main.log`도 종료 코드 0, 오류 없음. Main에서는 배송 도착/출발까지 진행했다.
+- Cart Bomb 회귀 수정 뒤 기존 Prompt 1/1.1/2/2.1, 3.1, 6.2, 7, 7.1을 재검사했다. Prompt 2에서는 적재 5개, 이탈 2개, 개별 상품 타격 3회, 차체 타격 1회를 기록했다.
+- 추가 실행 `p71_complete_prompt3_1.log`에서 적재 카트 회전/Grab 관련 6개 실패가 있었다. 진단 `p71_control_probe.log`는 창 `FOCUS EXIT`, mouse capture 0, Grab 해제, fall_count 0을 실제 기록했다. 진단 실행의 총 10개 실패 중 앞부분 회전 산포까지 모두 포커스 탓이라고 단정하지 않는다. 게임 제어/회귀 assertion은 변경하지 않고 단독 실행 `p71_isolated_prompt3_1.log`에서 29개 통과를 확인했다.
+- `p71_last_prompt7.log`는 Scan/Pay 조준 실패 3개와 그에 따른 판매/퇴장 실패 2개가 있었다. 해당 실행에는 포커스 계측이 없어 포커스 문제라고 확정하지 않는다. `aimed_action()`의 마우스 캡처/조준 조건과 실제 GUI 의존성을 확인하고, 코드/검사 조건을 바꾸지 않은 단독 실행 `p71_isolated_prompt7.log`에서 55개 통과했다. 입력 검사 중 Alt+Tab이나 실제 마우스 조작을 섞지 않는다.
+- 재실행 명령 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_1_smoke.gd --quit-after 16000`. Headless는 임포트/Main에 사용하며 실제 입력 검사를 대체하지 않는다.
+- `git diff --check` 통과. 현재 전체 작업 트리는 이전 Prompt 7 변경을 포함해 tracked 수정 15개 / untracked 19개이며 commit/amend/reset/push하지 않았다. 이 중 이번 신규 파일은 KnockdownState 및 Prompt 7.1 검사와 각각의 UID다. 기존 Prompt 7 파일 일부에도 통합 수정이 들어갔다.
+
+### 수동 확인 / Known Issues / 다음 단계
+
+1. 상품을 진열하고 O로 사고 손님 생성. Spill 가장자리를 느리게 스치기와 중앙을 빠르게 걷기를 비교한다.
+2. 중앙 진입 시 짧은 미끄러짐·낮은 카메라·기울기·이동/점프 제한과 mouse look 유지를 확인한다. 약 1.4초 후 복귀, 1.3초 면역 중 빠져나갈 수 있어야 한다.
+3. Product Charge / Cart Grab / L 미아 Carry 각각에서 넘어져 Drop·Release·Charge 취소가 되는지 확인한다. 기상 후 다시 잡고 업무를 계속한다.
+4. K 취객의 Fall/기상/Wander, 일반 손님의 쇼핑/Queue 복구, 재회 가족의 Fall 후 Follow/Exit를 확인한다.
+5. Mop을 들고 제자리에 서서 머리를 움직여 청소한다. Spill 삭제 뒤 같은 바닥에서 넘어지지 않는지 확인한다. Product/Cart는 계속 slide-only다.
+
+- **Cart Contact Repeated Damage 유지.** 이번에도 수정하지 않았다.
+- NPC는 시각적 넘어짐으로, 실제 upright Capsule은 유지된다. 외형과 피격/접촉 공간이 완전히 일치하는 ragdoll이 아니다. 통로를 잠깐 막을 수 있으며 기존 실제 장애물에 의한 경로 정체는 남는다.
+- 카메라 높이·roll·넘어짐 속도와 기간은 실제 사용자 손맛 확인이 필요하다. 입력 검사는 실제 창에서 순차 실행하며, Prompt 3.1의 기존 시간 간격 민감성 때문에 해당 검사는 `--fixed-fps 60`을 사용한다. 신규 7.1도 같은 고정 간격으로 상태 기간을 검사한다.
+- 다음 Prompt 8에서는 기존 고객/물리 도구/환경 영역 구조로 Dangerous Customer + Fire + Fire Extinguisher를 확장할 준비만 되어 있다. 이번에 화재·새 특수 손님·체력·전투·ragdoll을 추가하지 않았다.
+
+## Prompt 7 — Accident Customer / Spill / Slippery Floor / Mop (구현·자동 검증 완료)
+
+현재 구현은 아래와 같다. 이전 절은 각 Prompt 당시의 이력이며, 새 기본 동작은 이 절을 우선한다. 작업 시작 시 Git은 clean이었다. Commit/amend/reset/push는 하지 않으며 사용자가 수동 확인 후 commit한다. Agent/Skill 지침은 그대로 유지했다.
+
+### 구조와 실제 플레이 흐름
+
+- `AccidentCustomer extends BasicCustomer`: 기존 Purchase List / Shopping Points / 실제 Pickup / Basket / Queue / Scan / Pay / Patience / Exit를 상속한다. 첫 상품 종류의 SHOP 완료 후 바닥에 Spill을 한 번 만들고 `:O !` 표정으로 0.8초 당황한 뒤 계속 진행한다. 상품은 여전히 NPC에 붙이지 않는다. `accident_triggered`로 반복 사고를 막는다.
+- `AccidentManager`: Mart의 `Accidents` 노드. 개발용 **O / debug_spawn_accident**로 생성하며 동시에 최대 2명. 일반 Customers의 최대 인원 및 입구 겹침 검사도 그대로 적용한다. 별도 확률/Event Director는 없다. 먼저 재고를 진열해야 실제 쇼핑·사고가 발생한다. 재고가 없거나 Pickup 전에 상품을 빼앗으면 기존 품절 퇴장이므로 Spill도 생기지 않을 수 있다.
+- `CustomerManager.spawn_customer()`에 선택적 PackedScene 인자만 추가했다. 일반 생성 경로의 예약/가격/금전 처리는 바꾸지 않았다. 사고 이후 Checkout 검사는 실제 Scan/Pay 입력으로 확인한다.
+- `SpillZone`: 사고 위치 아래 StaticBody 바닥에 ray를 쏘고 위쪽 면을 확인한 뒤 생성한다. 파란 반투명 원판 Mesh와 바닥 접촉용 얇은 Area3D를 사용한다. 고체 충돌체/액체 시뮬레이션은 없고 자동 소멸하지 않는다. 물리 대상은 layer 1, Spill 감지는 layer 16, Mop 감지 mask 16이다.
+- `SlipState`: 진입한 Body에 하나만 붙는 공통 상태. Spill weak reference들을 추적하며 가장 강한 효과만 사용한다. 겹친 Spill의 배율을 곱하지 않는다. 하나에서 나와도 다른 영역 안이면 유지하고, 마지막 영역 이탈/청소/삭제 시 원상복구한다.
+- RigidBody에는 기존 PhysicsMaterial을 복제해 개별 마찰과 linear_damp만 낮춘다. 공유 리소스를 수정하지 않고 원래 material 참조 및 damping을 복구한다. Carry 중 상품/Character는 modifier를 잠시 끄므로 Hold 조작감을 훼손하지 않는다. 공중에서는 바닥 Area와 겹치지 않는다.
+
+### 대상별 반응
+
+| 대상 | Spill 위 변경 | 유지하는 것 |
+| --- | --- | --- |
+| Player | 바닥 위 이동 가속/감속 ×0.3; 이전 방향의 관성 증가 | 최고 속도 5m/s, WASD/Jump/Grab/계산 입력 |
+| 상품 | 마찰 최대 0.04, 기존 linear_damp ×0.2 | 실제 RigidBody, price/weight, Throw/충돌 |
+| Held Cart | 전진 가속 ×0.85, 제동 ×0.3, 조향 ×0.6, 횡방향 속도 보정 감소 | 마른 바닥의 빠른 제어값, 질량·Launch·Cart Bomb·기존 Damage |
+| Free Cart | 구름 저항 ×0.3, 바디 마찰/감쇠 감소 | 실제 물리 이동·적재·탑승 |
+| Basic Customer / Parent | 젖은 바닥에서 목표 속도까지 가속 14×0.3 | 쇼핑/가족 상태 흐름과 기존 충돌 규칙 |
+| Drunk | 방향 흔들림 ×1.8, 보행 가속 ×0.3 | Carry 85%, 카트 탑승, 파손/Removal |
+| Lost Child | 바닥 물리 마찰 및 재회 후 Follow 가속 감소 | Carry 98%, 매칭, Throw 차단, Family Exit |
+
+마른 바닥은 기존 이동 분기를 그대로 실행한다. Spill로 전체 gameplay/input을 잠그는 상태는 없다.
+젖은 NPC는 보행과 기존 Cart `_push`를 합친 목표 속도를 한 번 추종한다. 이전 속도에 `_push`를 매 프레임 다시 더해 폭주하지 않도록 했고 반복 밀침의 실제 속도 상한을 검사한다.
+
+### Mop / 청소 / Hold
+
+- Mop은 `GrabbableBody`를 상속한 실제 2kg RigidBody다. 손잡이와 머리에 각각 Box Collision이 있고 머리에 CleaningHead Area가 있다. Mart Backroom 오른쪽 `(7.5, 0.85, -1.5)`에 한 개 배치한다.
+- 기존 좌클릭 Grab/Drop, 우클릭 Charge Throw를 그대로 사용한다. `product_type`은 비어 있고 price=0이라 판매 상품이 아니며, Mop 전용 scripted combat damage도 없다. 고체 머리/손잡이는 상품·NPC·카트를 물리적으로 밀 수 있다. 자동 귀환하지 않는다.
+- CleaningHead의 **실제 수평 위치 변화 / physics delta**로 속도를 구한다(회전으로 움직인 머리도 포함). 들고 있음 + Spill과 실제 Area 겹침 + 최소 속도 이상일 때만 `clean_rate × delta`를 더한다. 정지/공중/내려놓은 도구는 자동 청소하지 않는다. 순간이동 같은 지나친 속도는 제외한다.
+- 진행에 따라 원판과 실제 감지 반경을 함께 줄인다. 완전히 닦으면 `cleaned` 신호를 한 번 보내고 삭제한다. UI 청소 모드/E 원클릭 삭제/별도 Inventory는 없다.
+- 긴 Mop에도 Prompt 6.2 Safe Hold를 적용하기 위해 PlayerInteraction의 현재 바디→후보 목표 Sweep을 모든 직접 자식 CollisionShape3D(머리+손잡이)에 적용했다. 기존 단일 Shape 상품/캐릭터는 동일하게 동작한다. Transform 순간이동/World Collision 제거 없이 기존 거리 보정, Grace, Safety Drop을 유지한다.
+- 실제 조작은 바닥을 내려다봐 머리를 닿게 하고, 줄어드는 물웅덩이 중앙을 따라 좌우로 문지른다. 걸어가 버리면 머리가 영역을 벗어나 청소가 멈춘다.
+
+### Inspector 기본값 / 통계
+
+| 스크립트 | 변수 | 기본값 |
+| --- | --- | ---: |
+| AccidentManager | enable_accident_test_spawn / max_accident_customers | true / 2 |
+| AccidentManager | spill_radius | 1.5m |
+| AccidentCustomer | embarrassment_time | 0.8초 |
+| SpillZone | radius / control_multiplier | 1.5m / 0.3 |
+| SpillZone | wet_friction / damping_multiplier | 0.04 / 0.2 |
+| Mop | weight / carry_radius | 2kg / 0.86m |
+| Mop | clean_rate | 0.6/초 |
+| Mop | minimum_clean_speed / maximum_clean_speed | 0.3 / 8m/s |
+| ShoppingCart | wet_drive_multiplier / wet_steering_multiplier | 0.85 / 0.6 |
+| DrunkCustomer | wet_wobble_multiplier | 1.8 |
+
+`AccidentManager.spills_created`는 바닥 Spill 생성 성공 시, `spills_cleaned`는 완전 청소 신호 시 +1. 화면 오른쪽 상단 O 안내 옆에 표시한다. 씬 재시작 시 초기화하며 저장/정산/Spill 자체 금전 손실은 없다. 런타임 생성 노드 설정은 해당 스크립트 기본값 또는 Remote Inspector에서 확인할 수 있다.
+
+### 생성 / 변경 파일
+
+- 새 스크립트: `scripts/interaction/slip_state.gd`, `mop.gd`; `scripts/systems/accident_customer.gd`, `accident_manager.gd`, `spill_zone.gd`.
+- 새 씬: `scenes/interactables/accident_customer.tscn`, `spill_zone.tscn`, `mop.tscn`.
+- 기존 수정: `player_controller.gd`, `basic_customer.gd`, `drunk_customer.gd`, `lost_child.gd`, `shopping_cart.gd`의 wet 이동 분기; `player_interaction.gd`의 복합 Shape Sweep; `customer_manager.gd`의 생성 씬 선택; `mart_graybox.gd`의 배치; `project.godot`의 O action.
+- 검사: `tests/prompt7_smoke.gd` 추가. 기존 Prompt 0~6.2 검사는 최종적으로 변경하지 않았다(3.1 fixture 진단 변경은 원복, 아래 근거). Godot 생성 `.gd.uid`도 함께 보존한다. 조작 안내는 README에 추가했다.
+
+### 검사 이력 / 현재 검증
+
+- 초기 `.godot/p7_first.log`: 동적 Node 호출 결과의 `second` 타입 추론 오류. 명시적 타입으로 수정했다.
+- `.godot/p7_second.log`: 동적 Node를 통해 Array[StringName]/Array[RID] 인자를 보낼 때 타입 변환 실패. AccidentManager class_name 및 타입 지정, 명시적 RID 배열로 실제 코드와 검사를 수정했다. 중단 로그를 보존했다.
+- `.godot/p7_third.log`: 좌우 보행 검사에서 관성으로 물웅덩이를 벗어나 청소 완료 실패. 청소 조건을 약화하지 않고 축소 영역 중심에서 카메라 yaw로 실제 Mop 머리를 움직이는 동작으로 검사를 수정했다.
+- `.godot/p7_fourth.log`: 실제 문지르기 청소 1.65초 통과. 자유롭게 선 Mop이 먼저 넘어져 상품을 빗나가는 충돌 fixture가 실패했다. 해당 검사에서만 회전을 잠그고 실제 머리 접촉을 재현하도록 초기 간격을 좁혔다. gameplay Mop 회전은 그대로 자유다.
+- 실제 렌더 캡처에서 새 Spill 통계와 기존 취객 HUD가 겹친 것을 확인해 신규 통계만 오른쪽 상단에 배치했다.
+- 첫 회귀 `.godot/final7_prompt3_1.log`: 적재 카트 1초 정지 속도 0.66m/s로 <0.5 기준 실패. 다른 가속/회전/Grab은 통과했다. 진단 `.godot/p7_cart_probe.log`에서 Player/Cart wet=false, 기존 제동 21.43 유지, 제어 입력 0을 확인했다. 별도 진단 실행에서는 0.43으로 통과했지만 정지 중 사용하지 않는 **ObjectD**와 충돌하여 속도가 다시 증가하는 간섭을 기록했다. 첫 실패 순간의 접촉 로그는 없어 그 원인을 동일하다고 단정하지 않는다. 제어 검사만 unused 상품을 경로 밖에 freeze하고 실제 16kg 동적 적재물 B/E·기존 모든 기준은 유지했다. gameplay Cart 제동을 변경하거나 성공할 때까지 반복하지 않았다.
+- fixture 분리 후 `.godot/final7_verified_prompt3_1.log`에서도 0.74로 실패하여 단일 원인으로 확정하지 않았다. **마지막 커밋을 `.godot/p7_baseline`에 별도 추출한 수정 전 프로젝트** 역시 동일한 검사에서 0.67로 실패했다(`.godot/p7_baseline_cart.log`). 기존 문서에 기록된 3.1 물리 검사 산포가 재현된 것으로, 원인을 고쳤다고 주장하지 않는다. 불필요한 fixture 변경을 원복하고 기존 검사 계약과 마른 카트 코드는 유지했다. 원본 프로젝트/Git 이력은 건드리지 않았다.
+- 비교 조건을 `--fixed-fps 60`으로 통제하자 **수정 전/현재 프로젝트 모두 동일하게 통과**했다(`p7_baseline_fixed_cart.log`, `final7_fixed_prompt3_1.log`). 빈/적재 카트 1초 후 속도는 두 프로젝트에서 각각 정확히 약 0.112/0.103m/s였다. 가속/회전 측정도 동일했다. 기존 3.1 검사는 render/physics 대기 타이밍에 민감하므로 이 검사 재현 시 고정 간격 옵션을 사용한다. 일반 실행의 물리 산포 원인을 완전히 제거한 것은 아니며 기존 검사를 완화하지 않았다.
+
+### 최종 자동 검사 결과
+
+**Prompt 0~7 총 598개 통과(기존 543 + 신규 55), 최종 검사 로그 오류 0건.** 아래 최종 결과와 위 초기 실패 이력을 구분한다. Prompt 3.1 최종 결과는 실제 창의 `--fixed-fps 60` 실행이며 나머지 입력 검사는 기존 실제 창 순차 실행이다. 자동 검사로 사람의 조작감 평가를 대신하지 않는다.
+
+| Prompt | 통과 |
+| --- | ---: |
+| 0 | 22 |
+| 1 / 1.1 | 48 / 40 |
+| 2 / 2.1 | 41 / 28 |
+| 3 / 3.1 | 32 / 29 |
+| 4 | 54 |
+| 5 / 5.1 / 5.2 | 33 / 36 / 57 |
+| 6 / 6.1 / 6.2 | 40 / 35 / 48 |
+| 7 | 55 |
+
+- 최종 로그: `.godot/final7_prompt{0,1,1_1,2,2_1,3}.log`, `.godot/final7_fixed_prompt3_1.log`, `.godot/final7_verified_prompt{4,5,5_1,5_2,6,6_1,6_2,7}.log`. NPC 속도 누적 방지 이후 Prompt 4 추가 검사는 `.godot/final7_npc_prompt4.log`다. 로그는 로컬 Godot 작업 자료이며 Git에 넣지 않는다.
+- 임포트 `final7_import.log` 및 최종 코드 재임포트 `final7_import_verified.log` 모두 종료 0. Main `final7_main.log`: `--headless --path . --fixed-fps 60 --quit-after 7200`로 120초 시뮬레이션 종료 0, 배송 도착/출발 및 SCRIPT ERROR/ERROR:/FAIL: 0건. NPC 수정 후 추가 Prompt 4도 54개 통과했다.
+- 신규 검사는 사고 손님의 실제 두 종류 Shelf 방문/물리 Pickup/Scan/Pay($55)/퇴장, O 입력/2명 제한, 겹친 Spill과 원본 material 복구, Player 조향/정지, 1kg 상품 마찰, 카트/취객/부모 반응, NPC 밀침 속도 누적 방지, 실제 Mop Grab/급회전/바닥 접촉/정지/문지르기/축소/청소 통계/Drop/물리 밀기/Charge Throw를 검사했다.
+- 실측(테스트 조건, 보장 거리 아님): Player 5m/s에서 0.5초 제동 이동량 마른 0.48m / 젖은 1.57m; 1kg Can 회전 잠금으로 sliding만 분리하고 같은 2.8Ns impulse 후 0.75초 이동량 0.45m / 1.83m. 실제 Hold로 바닥에 닿은 Mop을 좌우로 움직여 약 1.65초에 청소 완료했다.
+- `.godot/p7_mop.png` 실제 렌더 캡처를 확인했다. 파란 Spill 경계/흰 Mop 머리/오른쪽 상단 통계가 보이며 신규 HUD 겹침은 해소됐다. 사람의 수동 조작감 테스트를 수행했다고 주장하지 않는다.
+- 최종 `git diff --check` 통과. tracked 수정 11개 / 새 파일 15개(UID 6개 포함), 전부 uncommitted. 기존 Prompt 0~6.2 테스트 파일의 최종 diff는 없다.
+
+재실행 예(프로젝트 루트 PowerShell, 기존 ZIP 경로 유지):
+
+```powershell
+& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --headless --path . --editor --import --quit
+& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt7_smoke.gd
+& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt3_1_smoke.gd
+```
+
+전체 회귀는 위 표의 `tests/prompt*_smoke.gd`를 창 하나씩 순차 실행한다. headless는 입력 검사의 대체가 아니다. 이전 테스트를 삭제하거나 실패 로그를 덮어 통과로 만들지 않는다.
+
+### 수동 확인 / Known Issues / 다음 작업
+
+1. F5 → 배송 상품 진열 → O. 첫 Shelf Pickup 뒤 Spill·당황 표정, 이어지는 쇼핑/Scan/Pay를 확인한다.
+2. 마른/젖은 바닥에서 직진 후 놓기, 좌우 전환을 비교한다. 상품을 발로 차고 빈/적재 Cart의 제동·조향도 비교한다.
+3. K 취객을 Spill로 유도하여 흔들림을 비교한다. L 미아 Carry/매칭과 가족 퇴장도 병행한다.
+4. 뒤편 Mop을 잡아 물웅덩이를 내려다본다. 정지/공중에서는 그대로, 실제 좌우 문지르기에서 축소·삭제·CLEANED 증가를 확인한다. 머리가 작은 잔여 영역을 벗어나면 다시 중앙으로 가져간다.
+5. Mop Drop/Charge Throw, 상품 밀기, NPC/Cart 접촉, 벽 옆 빠른 시점 회전을 확인한다. 일반 계산·입고는 계속 가능해야 한다.
+
+- **Cart Contact Repeated Damage 유지:** 카트를 대상에 밀착해 비비면 반복 피해가 발생할 수 있다. 이번 작업에서 변경하지 않았다.
+- 미끄러움/젖은 카트 조작감은 수동 조율 대상이다. 큰 장애물에 끼임, 기존 NPC 경로 정체, 물리 적재 이탈은 여전히 가능하다. 군중 회피/유체 합치기를 추가하지 않았다.
+- Spill은 감지 영역 방식으로, 복잡한 요철/완전히 겹친 물체의 실제 접촉면까지 해석하지 않는다. 현 Graybox 평면 바닥을 대상으로 한다. 영역에 부분적으로 닿은 바디는 전체 마찰이 바뀐다.
+- Mop은 자동 자세 정렬/IK 없이 기존 Hold를 쓴다. 바닥을 내려다봐야 머리가 닿으며, 작은 잔여 Spill을 계속 지나치면 청소가 오래 걸린다. 실제 조작감 수동 확인은 필요하다.
+- 다음 단계 Dangerous Customer / Fire / Fire Extinguisher는 기존 Customer 생성 경로와 공통 물리 도구 기반을 재사용할 준비만 되어 있다. 해당 콘텐츠/시스템은 아직 구현하지 않았다.
+
 ## Prompt 6.2 — Held Object / Character Rapid Turn Stability Fix (구현·자동 검증 완료)
 
 이 절은 이전 단계의 즉시 자동 Drop 규칙을 대체한다. Prompt 6/6.1의 기존 uncommitted 작업(tracked 7개/untracked 12개)을 보존했고 새 콘텐츠는 추가하지 않았다. 아래 최종 검증 상태를 확인하고 이 작업을 다시 구현하지 않는다.

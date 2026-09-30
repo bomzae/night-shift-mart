@@ -13,16 +13,19 @@ var _carrier: PhysicsBody3D
 var _saved_gravity: float
 var supported_by_cart: bool = false
 var grounded: bool = false
+var knockdown := KnockdownState.new()
 
 func _ready() -> void:
 	lock_rotation = true
 	continuous_cd = true
 	contact_monitor = true
 	max_contacts_reported = 16
+	knockdown.setup(self, $Mesh)
 
 func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 	if is_instance_valid(holder):
 		return false
+	if knockdown.active(): knockdown.finish_recovery()
 	_restore_collision()
 	holder = controller
 	_carrier = player
@@ -44,6 +47,7 @@ func end_carry() -> void:
 	# Restore after separation, avoiding an overlapping capsule explosion.
 
 func _physics_process(_delta: float) -> void:
+	knockdown.tick(_delta)
 	if not is_instance_valid(holder) and is_instance_valid(_carrier):
 		var offset := global_position - (_carrier.global_position + Vector3.UP * 0.9)
 		if Vector2(offset.x, offset.z).length() > 0.8 or absf(offset.y) > 1.8:
@@ -60,6 +64,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if is_instance_valid(holder):
 		var target_velocity := ((hold_target - state.transform.origin) * carry_follow_strength).limit_length(carry_speed)
 		state.linear_velocity = state.linear_velocity.move_toward(target_velocity, carry_acceleration * state.step)
+	elif knockdown.active():
+		state.linear_velocity = knockdown.damp_motion(state.linear_velocity, state.step)
 	else:
 		_free_motion(state)
 

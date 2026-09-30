@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 6 / Lost Child + Parent Matching**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 7.3 / First-person Backward Fall**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -30,6 +30,30 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | toggle_mouse_capture | Esc | 마우스 잠금 해제/복귀 |
 | debug_spawn_drunk | K | 마트 입구에 테스트 취객 생성(최대 2명) |
 | debug_spawn_lost_child | L | 개발용 미아·부모 쌍 생성(최대 2쌍) |
+| debug_spawn_accident | O | 개발용 사고 손님 생성(최대 2명, 일반 손님 전체 인원 제한도 적용) |
+
+## 사고 손님 / 미끄러운 바닥 / Mop
+
+먼저 상품을 진열한 뒤 **O**를 누릅니다. 사고 손님은 첫 Shelf에서 상품을 챙긴 직후 한 번 물을 쏟고,
+잠깐 당황한 표정 뒤 기존 쇼핑·계산을 계속합니다. 재고가 없어 쇼핑하지 못하면 사고 없이 퇴장합니다.
+입구가 막혔거나 손님 수가 최대이면 생성을 건너뛰므로 공간을 비우고 다시 누릅니다.
+
+파란 원형 물웅덩이는 Player·손님·취객·카트·바닥 상품의 제동/마찰을 낮춥니다. 시간이 지나도 사라지지 않습니다.
+캐릭터가 중앙부를 충분한 속도로 밟으면 넘어집니다. Player 시점은 약 1.1m 낮아지고 뒤로 75° 젖혀져 위쪽을 바라보며,
+약 1.4초 동안 이동·점프·상호작용을 쉬지만 마우스로 주변을 볼 수 있습니다.
+들고 있던 상품·캐릭터·카트는 놓고 Charge는 취소됩니다. 일어난 뒤 1.3초 동안 재넘어짐을 막습니다.
+가장자리 접촉이나 정지 상태만으로 넘어지지 않습니다. 카트·상품에는 넘어짐 상태가 없습니다.
+**Mop은 뒤편 Backroom 오른쪽, 좌표 (7.5, 0.85, -1.5)**에 있습니다. 좌클릭으로 집고 물웅덩이를 내려다보며
+Mop의 흰색 머리를 바닥에 대고 좌우로 문지릅니다. 실제 머리가 움직일 때만 파란 영역이 줄어들고 없어집니다.
+줄어드는 영역의 중앙을 따라 닦아야 하며 가만히 두거나 공중에서 흔드는 것으로는 청소되지 않습니다.
+화면 오른쪽 상단 SPILLS / CLEANED로 생성·청소 횟수를 확인합니다.
+
+Mop도 좌클릭 Drop / 우클릭 Charge Throw가 가능하고 상품·NPC·카트와 물리적으로 충돌합니다.
+판매 상품이나 별도 무기는 아니며, 멀리 던지면 그곳에 남습니다.
+신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt7_smoke.gd`를 전달합니다.
+넘어짐 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_1_smoke.gd`.
+1인칭 누운 자세·시점·복구 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_2_smoke.gd`.
+Backward Fall 방향·Look 보존 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_3_smoke.gd`.
 
 ## 미아와 부모 찾기
 

@@ -1,0 +1,40 @@
+[gd_scene load_steps=7 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/mop.gd" id="1"]
+[sub_resource type="BoxShape3D" id="HandleShape"]
+size = Vector3(0.08, 1.5, 0.08)
+[sub_resource type="BoxMesh" id="HandleMesh"]
+size = Vector3(0.08, 1.5, 0.08)
+[sub_resource type="BoxShape3D" id="HeadShape"]
+size = Vector3(0.6, 0.12, 0.3)
+[sub_resource type="BoxMesh" id="HeadMesh"]
+size = Vector3(0.6, 0.12, 0.3)
+[sub_resource type="BoxShape3D" id="CleaningShape"]
+size = Vector3(0.68, 0.28, 0.38)
+[node name="Mop" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+display_name = "MOP"
+price = 0.0
+weight = 2.0
+carry_radius = 0.86
+tint = Color(0.95, 0.8, 0.2, 1)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("HandleShape")
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("HandleMesh")
+[node name="HeadCollision" type="CollisionShape3D" parent="."]
+position = Vector3(0, -0.75, 0)
+shape = SubResource("HeadShape")
+[node name="HeadMesh" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.75, 0)
+mesh = SubResource("HeadMesh")
+[node name="CleaningHead" type="Area3D" parent="."]
+position = Vector3(0, -0.75, 0)
+collision_layer = 0
+collision_mask = 16
+[node name="Shape" type="CollisionShape3D" parent="CleaningHead"]
+shape = SubResource("CleaningShape")
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 1.0, 0)
+billboard = 1
+font_size = 36
+pixel_size = 0.004
