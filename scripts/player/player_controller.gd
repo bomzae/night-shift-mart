@@ -12,6 +12,7 @@ extends CharacterBody3D
 
 @onready var head: Node3D = $Head
 var knockdown := KnockdownState.new()
+var fire_reaction := FireReaction.new()
 
 var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 
@@ -19,6 +20,7 @@ var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravi
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	knockdown.setup(self, head, true)
+	fire_reaction.setup(self, true)
 	knockdown.started.connect(func(): $Interaction.drop_held())
 
 
@@ -43,6 +45,7 @@ func _notification(what: int) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	fire_reaction.tick(delta)
 	if knockdown.tick(delta):
 		velocity = knockdown.damp_motion(velocity, delta)
 		velocity.y = 0 if is_on_floor() else velocity.y - gravity * delta
@@ -63,6 +66,9 @@ func _physics_process(delta: float) -> void:
 		movement_acceleration *= SlipState.control(self)
 	velocity.x = move_toward(velocity.x, direction.x * move_speed * speed_multiplier, movement_acceleration * delta)
 	velocity.z = move_toward(velocity.z, direction.z * move_speed * speed_multiplier, movement_acceleration * delta)
+	if fire_reaction.active():
+		# Keep input/look available; bounded outward nudge lasts only 0.3 seconds.
+		velocity += fire_reaction.direction * 30.0 * delta
 	if cart != null:
 		cart.update_control(self, $Head/Camera3D)
 		var controlled := cart.constrain_player_velocity(self, Vector3(velocity.x, 0, velocity.z), delta)

@@ -7,7 +7,7 @@ var accident_triggered: bool = false
 var _embarrassed_left: float = 0.0
 
 func _physics_process(delta: float) -> void:
-	if knockdown.active():
+	if knockdown.active() or fire_reaction.active():
 		super._physics_process(delta)
 		return
 	_embarrassed_left = maxf(0, _embarrassed_left - delta)

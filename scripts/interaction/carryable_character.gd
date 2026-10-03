@@ -14,6 +14,15 @@ var _saved_gravity: float
 var supported_by_cart: bool = false
 var grounded: bool = false
 var knockdown := KnockdownState.new()
+var fire_reaction := FireReaction.new()
+var external_push_time: float = 0.0
+@export var external_push_response: float = 1.5
+
+func apply_external_impulse(impulse: Vector3) -> void:
+	if is_instance_valid(holder): return
+	external_push_time = 0.2
+	sleeping = false
+	apply_central_impulse((impulse * external_push_response).limit_length(6.0))
 
 func _ready() -> void:
 	lock_rotation = true
@@ -21,6 +30,7 @@ func _ready() -> void:
 	contact_monitor = true
 	max_contacts_reported = 16
 	knockdown.setup(self, $Mesh)
+	fire_reaction.setup(self)
 
 func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 	if is_instance_valid(holder):
@@ -47,6 +57,8 @@ func end_carry() -> void:
 	# Restore after separation, avoiding an overlapping capsule explosion.
 
 func _physics_process(_delta: float) -> void:
+	fire_reaction.tick(_delta)
+	external_push_time = maxf(0, external_push_time - _delta)
 	knockdown.tick(_delta)
 	if not is_instance_valid(holder) and is_instance_valid(_carrier):
 		var offset := global_position - (_carrier.global_position + Vector3.UP * 0.9)
@@ -66,7 +78,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.linear_velocity = state.linear_velocity.move_toward(target_velocity, carry_acceleration * state.step)
 	elif knockdown.active():
 		state.linear_velocity = knockdown.damp_motion(state.linear_velocity, state.step)
-	else:
+	elif fire_reaction.active():
+		state.linear_velocity = fire_reaction.motion(state.linear_velocity, state.step)
+	elif external_push_time <= 0:
 		_free_motion(state)
 
 func _free_motion(_state: PhysicsDirectBodyState3D) -> void:

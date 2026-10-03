@@ -34,6 +34,7 @@ var _contact_zone: Area3D
 var _push: Vector3 = Vector3.ZERO
 var _disappointment_left: float
 var knockdown := KnockdownState.new()
+var fire_reaction := FireReaction.new()
 
 func _ready() -> void:
 	patience_left = patience_time
@@ -103,13 +104,21 @@ func _ready() -> void:
 	_contact_zone.add_child(near_shape)
 	add_child(_contact_zone)
 	knockdown.setup(self, _mesh)
+	fire_reaction.setup(self)
 
 func _physics_process(delta: float) -> void:
+	fire_reaction.tick(delta)
 	if knockdown.tick(delta):
 		velocity = knockdown.damp_motion(velocity, delta)
 		velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 		move_and_slide()
 		return # Keep timers, purchase state and path progress for recovery.
+	if fire_reaction.active():
+		velocity = fire_reaction.motion(velocity + _push * delta, delta)
+		_push = _push.move_toward(Vector3.ZERO, push_decay * delta)
+		velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
+		move_and_slide()
+		return
 	scan_wait = maxf(0, scan_wait - delta)
 	if (state == State.STORE or state == State.SHOP) and not manager.valid_goods(self):
 		manager.out_of_stock(self)
@@ -190,6 +199,10 @@ func _physics_process(delta: float) -> void:
 
 func uses_customer_separation() -> bool:
 	return true
+
+func apply_external_impulse(impulse: Vector3) -> void:
+	impulse.y = 0
+	_push = (_push + impulse * 0.4).limit_length(max_push_speed)
 
 func update_mood() -> void:
 	if state == State.DISAPPOINTED:

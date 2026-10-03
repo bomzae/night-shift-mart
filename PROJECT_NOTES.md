@@ -2,6 +2,186 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 8.1 — Fire Character Reaction / Fire LOSS Test Controls
+
+2026-10-03 시작, 2026-10-04 구현·전체 자동 검증 완료. 총 818개 통과, 상세 결과는 아래 최종 검증 기록을 확인한다. 손맛 수동 검증은 별도다. 시작 시 Prompt 8의 tracked 수정 7개 / untracked 15개가 그대로 존재했으며 보존하고 이어서 작업했다. 아래 Prompt 8 기록을 덮어쓰거나 commit/reset하지 않았다.
+
+### 실제 원인과 공통 반응 구조
+
+- 기존 FireManager는 상품 피해 tick(0.5초)에서 NPC에 작은 단발 impulse만 주었다. NPC는 원래 목적지 AI를 계속 실행하여 외력을 곧 상쇄했고 Player는 대상 목록에 없었다. 상태/업무가 잠시 중단되는 표현도 없었다.
+- 신규 `FireReaction`은 작은 공통 RefCounted helper다. Player / BasicCustomer / CarryableCharacter가 각각 한 개 보유한다. Accident/Dangerous/LostParent는 Basic 경로, Drunk/LostChild는 Carryable 경로를 상속한다. 새 이벤트나 Health 시스템을 만들지 않았다.
+- FireManager는 매 physics tick 실제 Area overlap + 기존 몸통 LOS로 접촉을 검사한다. 열 누적 tick과 분리하여 진입 반응 지연을 줄였다. 캐릭터별 active/cooldown이 모든 Fire에 공통 적용되어 겹친 Fire가 반응을 중첩하지 않는다. `_panic`은 기존 테스트에서 사용하는 최근 반응 진단 기록으로 유지한다.
+- Player: 0.3초 화면 좌우 각 3% 폭 주황 표시 + 수평 바깥 방향 가속 30m/s². 기존 이동/마우스/점프/Interaction/도구는 잠그지 않는다. 카메라 회전·Backward Fall offset은 변경하지 않는다. 바깥 방향 밀림은 기존 가속/충돌과 함께 적용되며 순간이동하지 않는다.
+- NPC: 0.65초 큰 `:O !!` Bubble과 최대 목표 속도 2.6m/s의 바깥 방향 이동, 수평 보정 가속 18m/s². CharacterBody는 move_and_slide, Carryable은 integrate_forces의 기존 물리 충돌을 유지한다. World collision이나 가족 NPC collision exception을 변경하지 않았다.
+- NPC 기존 state enum, Shopping Points, 예약/Basket, Queue 순서, waypoints는 보존한다. 반응 동안 업무 타이머·AI 진행을 잠시 쉬고 종료 후 다음 정상 tick에서 그대로 재개한다. 계산 대상이 반응 중이면 Scan/Pay도 잠시 거절하지만 Player 전체 입력은 잠그지 않는다. Drunk의 방향 선택, Child Follow도 반응 후 계속된다.
+- 캐릭터당 시작 간격 1.1초, 동시 한 반응. Carry/Knockdown 중 새 반응을 막고, 반응 도중 Carry/Knockdown이 시작되면 반응 표시를 정리한다. 따라서 Fire→Spill Knockdown은 가능하지만 Fire 자체는 Knockdown을 발생시키지 않는다. 소화기 외력과 중첩되어도 반응 시간을 반복 초기화하지 않는다.
+
+### Customer Auto Spawn / 개발용 키
+
+- `toggle_customer_spawn = U`. 기존 CustomerManager.spawning_enabled를 토글한다. `[U] CUSTOMER SPAWN: ON/OFF` 표시와 로그가 즉시 갱신된다. Inspector/코드에서 flag를 변경해도 표시가 맞도록 setter를 둔다.
+- 기본 ON과 6~10초 간격, 인원 제한은 그대로. OFF 동안 자동 생성 타이머만 정지하며 ON 시 남은 타이머부터 재개한다. 기존 손님을 삭제하거나 쇼핑을 멈추지 않는다.
+- 수동 K/L/O/P 생성은 별도 경로라 OFF에서도 동작한다. 각 기존 인원 상한/입구 점유 검사는 유지한다. P 손님도 정상 구매하므로 테스트할 상품을 여러 개 준비해야 한다.
+
+### 상품 Burn / Loss 표시
+
+- 연소 노출 중인 실제 상품 위에 `🔥 진행률%` Label3D를 표시한다. 초기 렌더에서 불꽃에 가려져, 상품의 회전과 무관하게 world up 2.2m 위치로 표시를 올렸다. 복잡한 Shader/재질 공유 변경 없이 기존 상품 물리를 유지한다.
+- 현재 노출이 없어지면 다음 피해 tick(최대 약 0.5초)에 표시를 숨긴다. Prompt 8처럼 누적 heat는 유지되고 추가 누적만 중단한다. 진압했다고 이미 누적된 열을 초기화하지 않는다.
+- threshold 도달 시 기존 실제 상품 제거/단일 price 손실은 즉시 수행한다. 위치에 `🔥 -$가격` 표시가 0.65초 위로 올라가며 사라진다. 판매/연소 구분을 위해 통계를 명시적 **FIRE LOSS: $...**로 바꿨다. 파괴 시 지연 판매 가능 상태를 남기지 않는다.
+
+### 주요 값 / 파일
+
+| 위치 | 변수 / 기본값 |
+| --- | --- |
+| FireManager Inspector | fire_reaction_cooldown 1.1초 |
+| FireManager Inspector | player_reaction_duration 0.3초 / npc_reaction_duration 0.65초 |
+| FireManager Inspector | retreat_speed 2.6m/s |
+| FireReaction motion | 수평 보정 가속 18m/s² |
+| Player reaction | 바깥쪽 가속 30m/s², 좌우 표시 각 화면 폭 3% |
+| Burn 표시 | world up 2.2m / 소실 표시 0.65초 |
+
+- 신규 `scripts/interaction/fire_reaction.gd`와 UID: active/cooldown/방향/공통 피드백/후퇴 이동.
+- 신규 `tests/prompt8_1_smoke.gd`와 UID: 실제 입력 토글·Player 반응·3종 쇼핑 NPC·Queue/결제 재개·취객·가족 퇴장·Burn/Loss 검사.
+- 수정 `scripts/player/player_controller.gd`, `scripts/systems/basic_customer.gd`, `scripts/interaction/carryable_character.gd`: 공통 반응 수명 및 이동 연결.
+- 수정 `scripts/systems/accident_customer.gd`, `dangerous_customer.gd`, `drunk_customer.gd`, `lost_child.gd`: 반응 중 파생 AI/timer 진행 중단. LostParent는 상속 처리하고 별도 스크립트를 고치지 않았다.
+- 수정 `scripts/systems/fire_manager.gd`: 즉시 Character 접촉, 설정, Burn/소실 표시, 명시적 손실 통계.
+- 수정 `scripts/systems/customer_manager.gd`, `checkout.gd`, `project.godot`: U 토글/표시, Panic 중 Scan/Pay 방지, InputMap.
+- README/PROJECT_NOTES 갱신. 기존 Prompt 0~8 테스트 파일, Hold/Cart/Spill/Knockdown/Extinguisher 코드는 이번 단계에서 변경하지 않았다. Agent/Skill도 변경하지 않았다.
+
+### 검사 이력
+
+- `.godot/p81_new.log`: BurnFeedback 노드를 Dictionary key에서 조회할 때 타입 추론 오류. Label3D 명시로 수정했다. 이 때문에 의존 스크립트가 실패한 최초 검사 실행은 중단했고 성공으로 세지 않는다.
+- `.godot/p81_new2.log`: 신규 fixture에서 무재고 고객의 정상 실망 대기를 이동 실패로 판단했고, 실제 반응 방향이 +Z인데 X 이동만 가정한 3개 검사가 실패했다. 재고 준비 및 실제 바깥 방향 dot/displacement 확인으로 수정했다. 생산 코드 기준을 완화하지 않았다. `.godot/p81_new3.log` 당시 전체 신규 검사 통과.
+- 추가 Queue 검사/상태 표시 중 setter 선언의 콜론 누락으로 `.godot/p81_final.log`와 `p81_regression_8.log` 파싱 실패. 구문 수정 후 `.godot/p81_verified.log`에서 추가 Queue fixture가 SHOP 전제 없이 Pickup을 직접 호출한 오류를 발견했다. 실제 쇼핑→Checkout을 기다리는 흐름으로 수정했다. `.godot/p81_verified_8.log` 기존 Prompt 8은 59개 통과.
+- `.godot/p81_complete.log`: 최종 신규 **62개 통과**, 종료 0/실행 오류 없음. Player 반응·조작 유지·겹친 불·cooldown·Knockdown 우선, 일반/사고/화재 손님 업무 복귀, 실제 Basket/계산 복귀, Drunk/Child/Parent, 재회 가족의 최종 Despawn, U 토글/기존 고객/수동 생성, Burn/진압 중단/단일 손실을 확인했다.
+- `.godot/p81_player_feedback.png`, `p81_burn_feedback.png` 렌더를 확인했다. 화면 가장자리와 불꽃 위 연소 아이콘이 보이는 것을 확인했지만 사용자 수동 손맛 검증을 대신하지 않는다.
+- 최종 테스트 검토에서 K/L 검사를 관리 노드의 자식 수 대신 실제 DrunkCustomer 인스턴스와 가족 pair 수로 강화했다. `.godot/p81_complete_verified.log`에서 신규 62개 모두 다시 통과했다. 초기 파싱 실패 당시의 `p81_regression_8.log` 경로는 전체 회귀 실행에서 최종 정상 로그로 갱신되었으며, 해당 파싱 오류 내용은 `p81_final.log`에 남아 있다.
+
+### Prompt 8.1 최종 자동 검증
+
+**기존 756개 + 신규 62개 = 총 818개 통과.** 기존 테스트 파일/검사 기준 변경 없음. 전체 회귀 순차 실행에서는 실패 없이 통과했다. 위 신규 개발 중 수정·재검사 이력과 구분한다.
+
+| Prompt | 통과 |
+| --- | ---: |
+| 0 / 1 / 1.1 | 22 / 48 / 40 |
+| 2 / 2.1 | 41 / 28 |
+| 3 / 3.1 | 32 / 29 |
+| 4 | 54 |
+| 5 / 5.1 / 5.2 | 33 / 36 / 57 |
+| 6 / 6.1 / 6.2 | 40 / 35 / 48 |
+| 7 / 7.1 / 7.2 / 7.3 | 55 / 57 / 26 / 16 |
+| 8 / 8.1 | 59 / 62 |
+
+- `.godot/p81_regression_<번호>.log`, `.godot/p81_complete_verified.log`: 모두 종료 0, FAIL/SCRIPT ERROR/ERROR 0건. 창 모드 fixed-fps 60으로 순차 실행했다.
+- `.godot/p81_import_verified.log`: 최종 임포트 종료 0/오류 없음. `.godot/p81_main.log`: Main headless 7200 tick / 120초 시뮬레이션 종료 0/오류 없음, 배송 도착·출발 확인.
+- 신규 검사 재실행: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_1_smoke.gd --quit-after 10000`.
+- `git diff --check` 통과. 이전 Prompt 8 변경을 포함한 working tree: tracked 수정 13개 / 신규 19개(UID 포함). 이번 단계 신규 파일은 FireReaction/Prompt 8.1 검사와 각각의 UID다. 전부 uncommitted이며 commit/amend/reset/push는 하지 않았다.
+- 로그/렌더는 `.godot` 로컬 산출물로 Git에 추가하지 않는다. Git global ignore 접근 경고 및 LF→CRLF 안내는 실행 오류와 별개다.
+
+### Fire LOSS 수동 테스트 / 다음 단계
+
+1. F5 직후 U → OFF 표시 확인. 이미 있는 손님은 정상 처리하거나 퇴장을 기다린다. 기존 고객을 지우는 기능은 없다.
+2. Can/Appliance 등 상품을 여러 개 진열하고 P로 위험 손님 한 명 생성. 고객 구매분 외 남은 상품이 불에 노출되는지 확인한다.
+3. 불 아이콘·진행률 → 상품 소실 + 짧은 손실 표시 → FIRE LOSS 증가를 확인한다. 같은 상품은 한 번만 손실 처리되어야 한다.
+4. 같은 조건에서 threshold 전에 소화기를 F로 분사하면 추가 연소/표시가 멈추고 살아남는지 확인한다. 이미 파손된 상품은 복구하지 않는다.
+5. Player로 불 접근: 양옆 주황 표시·짧은 밀림·Look/입력 유지. 일반 손님/Drunk/가족은 잠시 물러난 뒤 업무·퇴장을 계속해야 한다.
+6. U ON 복귀 후 Fire + O Spill + K Drunk + L 가족 + 계산 병행. Panic→Spill Knockdown은 가능하고 기상/가족 Follow/소화기 사용이 정상이어야 한다.
+
+Known Issues: 단순 바깥 방향 후퇴이므로 벽/상품으로 막힌 화재에서 완전한 우회 탈출을 보장하지 않는다. 공간이 막히면 cooldown 이후 다시 반응할 수 있다. 상품 연소 표시는 공중 Label이라 밀집 배치에서 겹칠 수 있으며 수동 가독성 조절 대상이다. 반응 강도/가속/시간의 손맛은 수동 확인 대기.
+**NPC Knockdown Mesh / Collider mismatch**, **Cart Contact Repeated Damage**는 의도적으로 유지하며 최종 Gameplay/Physics Polish에서 재검토한다. Player/NPC Health, Thief 등 새 이벤트는 추가하지 않았다. 수동 테스트가 정상이라면 Prompt 9 Thief + Chase + Stolen Goods로 진행할 수 있다.
+
+## Prompt 8 — Dangerous Customer / Fire / Extinguisher
+
+2026-09-30. 구현 및 신규 자동 검사 완료. 전체 회귀/Main 결과는 아래 검증 기록을 확인한다. 사용자 수동 조작감 검증은 별도다. 작업 시작 시 Git은 clean이었으며 이번 변경은 모두 uncommitted로 유지한다. 이전 절의 dirty 파일 수는 당시 이력이다. 아래 이전 Prompt 7.3의 다음 단계였던 Fire는 이제 구현되었다.
+
+### 구조와 기존 시스템 연결
+
+- `DangerousCustomer`는 `BasicCustomer` 상속. P 개발용 입력 → 기존 CustomerManager 생성/구매 목록/예약/Shopping Points/물리 Pickup/Basket을 그대로 사용한다. 첫 상품 종류 쇼핑 완료 후 `accident_triggered`로 한 번만 화재 생성을 시도하고 `:O !` 표시 및 0.8초 정지 후 쇼핑/계산을 계속한다. 재고가 없으면 기존 품절 퇴장이라 사고가 발생하지 않는다. 화재 수 제한에 막힌 사고를 반복 재시도하지 않는다.
+- `FireManager`는 Mart의 `Fires` 자식이다. 아래 방향 ray로 실제 StaticBody 표면과 위쪽 normal을 확인해 FireZone을 생성한다. 수평 Shelf 표면도 가능하다. 별도의 Round Director나 전역 게임 정지 상태가 없다.
+- FireZone은 Area3D + 원통 감지 영역 + 발광 원뿔 두 개 + 조명이다. intensity가 성장하면 시각 크기·반경이 증가한다. 자동 소멸 시간은 없으며 진압되면 Area와 Visual을 함께 제거하고 통계는 한 번 증가한다.
+- 가연성 판매 상품의 노출을 0.5초 간격으로 누적한다. 여러 불이 겹쳐도 해당 상품에는 최대 intensity 한 개만 적용한다. 누적 heat가 6에 도달하면 기존 `broken` 상태를 설정하고 실제 상품을 제거하며 실제 `price`를 손실에 한 번 더한다. 범위를 벗어나거나 진압하면 열 누적은 멈추되 기존 노출량은 남는다. 이미 sold/broken/삭제 예정인 물체는 제외한다.
+- `GrabbableBody.flammable` 기본 true: 현재 3종은 단순 포장재 가연성 프로토타입으로 동일 처리한다. false로 바꾸면 연소/확산 대상에서 제외된다. 빈 product_type인 Mop/소화기는 판매 상품 연소 대상이 아니다. Player Health는 없다.
+- intensity 0.55 이상 불 주변 2.6m 이내, 벽에 가리지 않은 가연성 상품이 3초 노출되면 2초마다 최대 한 개의 새 불을 시도한다. 최대 10개, 최소 간격 1.2m로 제한한다. 상품이 없으면 빈 바닥으로 무한 확산하지 않는다. Spread와 상품 피해는 별도 누적이다.
+- 연소 상품은 기존 Shelf 실제 Stock/Reservation 검사에서 빠진다. SHOP 이전 예약 상품이 타면 기존 Out of Stock 처리이며 새 예약/판매 시스템은 없다. 이미 Basket에 든 상품은 물리 오브젝트가 없어 화재 손실 대상이 아니다.
+- Basic/Drunk/Parent/Child에 1초 간격의 짧은 놀람 표시와 바깥 방향 힘을 적용한다. 몸통 기준 LOS를 검사해 벽 너머 반응을 막는다. Carry/Knockdown 중인 Character에는 추가 반응을 주지 않는다. Child 실패/가족 성공 통계나 NPC Health를 추가하지 않는다. 복잡한 Fire avoidance 경로는 없다.
+
+### Fire Extinguisher / 공통 힘 전달
+
+- 실제 RigidBody3D 소화기는 기존 GrabbableBody의 Grab/Carry/Drop/Charge Throw와 Safe Hold/Break Grace를 그대로 사용한다. weight 3, price 0, product_type 비어 있음, flammable false. 판매되지 않는다. 별도 Combat Damage 콜백은 비활성화하고 실제 물리 충돌은 유지한다.
+- Backroom (6.2, 0.45, -1.5), Store (8.2, 0.45, 6)에 2개 배치, `[F]` 표시. F `use_tool`을 들고 누르면 카메라가 가리키는 방향으로 소화기 위치에서 분사한다. 우클릭 Charge Throw는 그대로이며 충전 중에는 분사를 일시 중단한다.
+- Cone 범위 + 대상별 시선 ray를 사용한다. 카메라→노즐 차폐도 검사하므로 소화기가 벽 뒤에 걸려도 벽 너머 분사하지 않는다. 반투명 cone으로 분사를 표시하며 중앙 ray 장애물 거리로 표시 길이를 제한한다. 물리 대상의 실제 CollisionShape 중심도 검사하여 바닥에 있는 Cart 원점만 검사하던 누락을 방지한다. 한 tick에 한 body 한 번 힘을 적용한다.
+- F 분사 동안 capacity 100에서 초당 8 감소, 최대 약 12.5초. 남은 용량을 소화기 Label에 표시한다. 0이면 분사/진압/힘이 멈추며 빈 통도 Grab/Throw 가능하다. refill은 구현하지 않았다.
+- `PhysicsPush.apply()`가 `apply_external_impulse` 인터페이스 또는 RigidBody central impulse를 사용한다. Cart 타입 특례/boost는 없다. 힘은 `90 / (1 + 0.1 * max(mass - 1, 0)) * delta`이며 질량에 따른 가속 차이가 추가로 생긴다. BasicCustomer는 기존 `_push` 상한 3.5를 재사용한다. CarryableCharacter는 impulse에 1.5 반응 배율·최대 6 제한, 0.2초 자력 보행 보정 유예를 주어 AI가 받은 힘을 즉시 지우지 않게 한다. 평소 보행/Carry/Knockdown 경로는 유지한다.
+- Player에는 수평 반대 방향 1.5m/s²의 약한 반동만 준다. 직접 Knockdown/피해를 발생시키지 않는다. Spill로 넘어지면 기존 Drop/Charge Cancel에서 분사도 즉시 종료되며 불은 계속 존재한다. Fire와 Spill은 독립적이며 물웅덩이가 자동 소화하지 않는다.
+
+### Inspector 기본값
+
+| 위치 | 변수 / 기본값 |
+| --- | --- |
+| DangerousCustomer | panic_time 0.8초 |
+| FireManager | enable_dangerous_test_spawn true, max_dangerous_customers 2 (일반 손님 총원 제한도 적용) |
+| FireManager | max_active_fires 10, minimum_fire_spacing 1.2m |
+| FireManager | damage_interval 0.5초, burn_exposure 6 intensity·초 |
+| FireManager | spread_interval 2초, spread_exposure 3초, spread_intensity 0.55, spread_distance 2.6m |
+| FireZone | intensity 0.3, growth_rate 0.025/초, minimum_radius 0.6m, maximum_radius 1.7m |
+| FireExtinguisher | capacity 100, capacity_drain 8/초, spray_range 4m, spray_half_angle 12° |
+| FireExtinguisher | extinguish_rate 0.3/초, spray_force 90, push_weight_penalty 0.1, recoil_acceleration 1.5 |
+| CarryableCharacter | external_push_response 1.5 |
+
+기본 시작 반경 0.93m, intensity 1까지 약 28초. 다른 요인이 없으면 작은 불은 약 1.1초 집중 분사, 최대 불은 약 3.6초(성장과 동시 계산)에 꺼진다. 이는 수식상 예상이며 실제 조준/이동에 따라 달라진다.
+
+### 생성·수정 파일
+
+- 신규 `scripts/systems/dangerous_customer.gd`, `fire_zone.gd`, `fire_manager.gd`: 특수 손님·불·확산/피해/통계/디버그 생성.
+- 신규 `scripts/interaction/fire_extinguisher.gd`, `physics_push.gd`: 소화기 사용·연료·진압·범용 힘 전달.
+- 신규 `scenes/interactables/dangerous_customer.tscn`, `fire_zone.tscn`, `fire_extinguisher.tscn`: 씬 및 소화기 Mesh/Collision.
+- 수정 `scripts/interaction/grabbable_body.gd`: 가연성 flag. `carryable_character.gd`, `scripts/systems/basic_customer.gd`: 작은 외력 인터페이스.
+- 수정 `scripts/systems/mart_graybox.gd`, `project.godot`: FireManager/소화기 배치, P/F Input Map.
+- 신규 `tests/prompt8_smoke.gd` 및 스크립트 UID들. 기존 Prompt 검사는 수정하거나 삭제하지 않았다.
+- 수정 README/PROJECT_NOTES: 조작법·실제 결과·한계. AGENTS/Skill은 기존 원칙으로 충분하여 수정하지 않았다.
+
+### 검사 이력과 최종 결과
+
+- 임포트 `.godot/p8_import.log`, `p8_import2.log` 종료 0, 오류 없음.
+- 최초 `.godot/p8_first.log`: 동적 Node 호출에 Array literal을 넘겨 `Array[RID]` 타입 오류가 발생했다. 생산 코드의 명시적 RID 배열과 검사 fixture의 AccidentManager 타입을 수정했다. 오류로 coroutine이 중단된 최초 실행은 종료시켰으며 성공으로 세지 않는다.
+- `.godot/p8_second.log`: 신규 테스트 Player가 (0,3)에서 쇼핑 통로를 막아 화재 손님의 Queue 도착과 종속 결제가 실패했다. 실제 정체 위치를 확인하고 Player fixture를 계산대 쪽으로 옮겼다. 상품/Cart 분사 검사는 collider 중심 검출로 보완했고 NPC가 힘을 즉시 상쇄하던 자력 보행/마찰 문제는 공통 외력 유예와 제한된 배율로 수정했다. 기존 회귀 기준을 낮추지 않았다.
+- `.godot/p8_third.log`: 당시 신규 검사 전부 통과. 추가 통합 검사의 `.godot/p8_extended.log`에서는 BasicCustomer 화재 반응 한 항목이 실패했다. `.godot/p8_panic_probe.log`에서 고객 발 원점 Y=-0.000208m, Fire overlap은 있으나 floor가 LOS를 차단함을 확인했다. CharacterBody는 몸통으로 검사하도록 고쳐 바닥 수치 오차를 처리했고 벽 차폐 검사는 유지했다.
+- 최종 신규 `.godot/p8_final.log`: **59개 통과, 실패 0, 종료 0, 오류 0**. 단일 사고→실제 Checkout, 성장/확산 상한, 연소 단일 손실, 겹친 불 비누적, 예약 상품 연소 품절, 소화기 실제 입력/진압/고갈/투척/급회전, NPC/Product/Cart 힘, 벽 차폐, Spill Drop, Parent/Child 반응을 검사한다.
+- 실제 렌더 `.godot/p8_spray.png`에서 소화기/분사 cone/주황 불/잔량 표시를 확인했다. 이것은 사용자 손맛 수동 검증을 대체하지 않는다.
+- 최종 동일 형상 상품의 40 tick 분사 비교: 1kg 이동 3.129m, 8kg 이동 0.00231m. 취객 외력 분리 검사에서는 0.232m 이동했다. 고정 위치 결과를 보장하는 밸런스 수치가 아니라 바닥 마찰/접촉을 포함한 이번 실행 측정이며, 무거운 상품은 거의 움직이지 않는 설정이다.
+- 전체 회귀와 Main까지 완료했다. 로그는 `.godot`의 로컬 산출물이며 Git에 추가하지 않는다.
+
+### Prompt 8 최종 검증 결과
+
+**기존 697개 + 신규 59개 = 총 756개 통과.** 최종 전체 회귀 실행에서 실패/재실행 없음. 앞서 기록한 신규 개발 중 실패를 수정한 뒤 순차 실행한 결과다.
+
+| Prompt | 통과 |
+| --- | ---: |
+| 0 / 1 / 1.1 | 22 / 48 / 40 |
+| 2 / 2.1 | 41 / 28 |
+| 3 / 3.1 | 32 / 29 |
+| 4 | 54 |
+| 5 / 5.1 / 5.2 | 33 / 36 / 57 |
+| 6 / 6.1 / 6.2 | 40 / 35 / 48 |
+| 7 / 7.1 / 7.2 / 7.3 | 55 / 57 / 26 / 16 |
+| 8 | 59 |
+
+- 최종 `.godot/p8_final.log` 및 `.godot/p8_regression_<번호>.log` 전부 종료 0, `FAIL:`/`SCRIPT ERROR`/`ERROR:` 0건. 입력 검사는 창 모드 `--fixed-fps 60` 순차 실행했다.
+- `.godot/p8_main.log`: Main headless 7200 tick / 120초 시뮬레이션, 종료 0, 오류 없음. 배송 6개 도착 및 Left Behind 6개 출발 로그 확인.
+- 재실행 명령: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_smoke.gd --quit-after 16000`. 기존 검사도 같은 방식으로 번호를 바꿔 실행한다. Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`.
+- `git diff --check` 통과. tracked 수정 7개 / 신규 15개(UID 포함), 모두 uncommitted. commit/amend/reset/push는 하지 않았다. Git의 global ignore 파일 접근 경고와 LF→CRLF 안내는 Godot 실행 오류와 별개다.
+
+### 수동 확인 / Known Issues / 다음 작업
+
+1. F5 → 3종 상품 진열 → P. 첫 Pickup 후 불이 한 번 생기고 손님이 잠시 놀란 뒤 계산으로 오는지 확인한다. 품절/입구 막힘/최대 손님 수에서는 생성 또는 사고가 없을 수 있다.
+2. 불을 방치하여 크기/상품 노출/제한 확산과 LOSS를 확인한다. 같은 상품 가격이 중복 증가하면 안 된다. 실제 상품이 Shelf에서 사라져 Stock도 줄어야 한다.
+3. 빨간 소화기를 좌클릭으로 집고 F로 진압한다. 벽 뒤는 진압되지 않아야 한다. 잔량 소진 후 효과 중단, 빈 통 Drop/Charge Throw, 급회전 Hold를 확인한다.
+4. Can/Watermelon/Appliance, Drunk/일반 손님, 빈 Cart에 분사해 질량별 반응을 비교한다. 강한 공격이나 전용 Cart Rocket은 없다.
+5. O로 Spill, K 취객, L 가족과 함께 P 화재를 만들고 계산·배송·청소를 병행한다. 소화기 보유 중 넘어지면 Backward Fall+Drop+분사 중단, 기상 후 회수 가능, 화재는 계속 유지되는지 확인한다.
+6. 수동 검증 대기: 분사 조준과 원뿔 가독성, 제한 용량의 여유, 불 성장/확산 속도, 여러 손님이 막힌 공간에서의 Panic 이동은 실제 플레이로 조절할 수 있다. NPC는 짧은 밀림만 사용하며 완전한 우회 AI가 없어 불에서 항상 완벽히 탈출한다고 보장하지 않는다.
+
+의도적으로 유지한 최종 점검 항목: **NPC Knockdown Mesh / upright Collider mismatch**(Final Polish), **Cart Contact Repeated Damage**(전체 전투 이후 Final Gameplay/Physics). 이번 작업에서 수정하지 않았다.
+소화기 refill, Fire/Water 자동 상호작용, Player Health, Electrical Hazard, Cart Rocket, Thief, Tourist Bus, 무기 진행/보스/멀티플레이/정산은 미구현이다. 수동 테스트가 정상이라면 Prompt 9 Thief + Chase + Stolen Goods에 기존 Customer/Basket/외력 구조를 재사용할 준비가 된 상태이며 Thief 코드는 추가하지 않았다.
+
 ## Prompt 7.3 — First-person Backward Fall Rework (구현·자동 검사 완료, 수동 손맛 확인 대기)
 
 2026-09-30. 사용자 수동 테스트에서 7.2 기능은 정상이지만 옆으로 쓰러지는 방향이 의도와 달랐다. `KnockdownState._player_pose()`의 주 회전을 local Z Roll에서 **local X Pitch +75°**로 바꿨다. 이동 방향에 따른 좌우 `_fall_side` 선택은 제거했다. 기존 dirty 상태(tracked 수정 15 / untracked 21)를 보존하고 추가 작업했다. 아래 이전 절은 당시 기록이며 현재 Player 연출은 이 절을 우선한다.

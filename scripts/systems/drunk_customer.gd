@@ -26,7 +26,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
-	if knockdown.active(): return
+	if knockdown.active() or fire_reaction.active(): return
 	_contact_wait = maxf(0, _contact_wait - delta)
 	if is_instance_valid(holder) or supported_by_cart:
 		$Mood.text = "@_@"

@@ -37,3 +37,12 @@ func _ready() -> void:
 	var mop := preload("res://scenes/interactables/mop.tscn").instantiate()
 	mop.position = Vector3(7.5, 0.85, -1.5)
 	add_child(mop)
+	var fires := Node3D.new()
+	fires.name = "Fires"
+	fires.set_script(preload("res://scripts/systems/fire_manager.gd"))
+	add_child(fires)
+	for location in [Vector3(6.2, 0.45, -1.5), Vector3(8.2, 0.45, 6.0)]:
+		var extinguisher := preload("res://scenes/interactables/fire_extinguisher.tscn").instantiate()
+		extinguisher.position = location
+		add_child(extinguisher)
+		Graybox.sign(self, "[F]", location + Vector3.UP * 1.4, Color.ORANGE_RED)

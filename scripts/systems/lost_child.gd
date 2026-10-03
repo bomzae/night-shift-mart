@@ -27,7 +27,7 @@ func on_player_drop() -> void:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
-	if knockdown.active(): return
+	if knockdown.active() or fire_reaction.active(): return
 	$Mood.text = "♥" if reunited else ":'( ?"
 	$Mood.modulate = Color.PINK if reunited else Color.WHITE
 	$Mesh.rotation.z = 0 if is_instance_valid(holder) else sin(Time.get_ticks_msec() * 0.002) * 0.035

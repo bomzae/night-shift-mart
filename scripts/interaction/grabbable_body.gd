@@ -4,6 +4,7 @@ extends RigidBody3D
 
 @export var display_name: String = "Object"
 @export var product_type: StringName = &""
+@export var flammable: bool = true
 @export_range(0.0, 100000.0) var price: float = 5.0
 @export_range(0.1, 100.0) var weight: float = 1.0
 @export var tint: Color = Color.CORAL

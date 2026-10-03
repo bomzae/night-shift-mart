@@ -68,7 +68,7 @@ func use_station(action: String) -> bool:
 	if KnockdownState.blocked(player) or not in_operator_area() or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return false
 	var customer: BasicCustomer = manager.current_customer()
-	if customer == null or customer.knockdown.active() or customer.scan_wait > 0:
+	if customer == null or customer.knockdown.active() or customer.fire_reaction.active() or customer.scan_wait > 0:
 		return false
 	if not manager.valid_goods(customer):
 		manager.out_of_stock(customer)

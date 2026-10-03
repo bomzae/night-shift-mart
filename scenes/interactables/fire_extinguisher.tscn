@@ -1,0 +1,31 @@
+[gd_scene load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/fire_extinguisher.gd" id="1"]
+[sub_resource type="CylinderMesh" id="BodyMesh"]
+top_radius = 0.17
+bottom_radius = 0.17
+height = 0.65
+[sub_resource type="CylinderShape3D" id="Shape"]
+radius = 0.18
+height = 0.7
+[sub_resource type="BoxMesh" id="NozzleMesh"]
+size = Vector3(0.12, 0.08, 0.35)
+[node name="FireExtinguisher" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+display_name = "EXTINGUISHER"
+price = 0.0
+weight = 3.0
+flammable = false
+carry_radius = 0.42
+tint = Color(0.85, 0.055, 0.025, 1)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape")
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("BodyMesh")
+[node name="Nozzle" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.3, -0.13)
+mesh = SubResource("NozzleMesh")
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.6, 0)
+billboard = 1
+font_size = 32
+pixel_size = 0.004

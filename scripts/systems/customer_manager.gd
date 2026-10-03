@@ -7,7 +7,10 @@ extends Node3D
 @export var patience_time: float = 25.0
 @export var queue_spacing: float = 1.25
 @export_range(1, 3) var max_purchase_units: int = 3
-@export var spawning_enabled: bool = true
+@export var spawning_enabled: bool = true:
+	set(value):
+		spawning_enabled = value
+		if is_instance_valid(_spawn_label): _update_spawn_label()
 var sales: float = 0.0
 var unpaid_loss: float = 0.0
 var customers: Array[BasicCustomer] = []
@@ -18,8 +21,15 @@ var _rng := RandomNumberGenerator.new()
 var checkout: Node3D
 var exited_count: int = 0
 var transaction_count: int = 0
+var _spawn_label: Label
 
 func _ready() -> void:
+	var canvas := CanvasLayer.new()
+	add_child(canvas)
+	_spawn_label = Label.new()
+	canvas.add_child(_spawn_label)
+	_spawn_label.position = Vector2(24, 145)
+	_update_spawn_label()
 	_rng.randomize()
 	_reset_timer()
 	checkout = preload("res://scenes/interactables/checkout.tscn").instantiate()
@@ -29,6 +39,16 @@ func _ready() -> void:
 
 func _reset_timer() -> void:
 	_timer = _rng.randf_range(maxf(0.1, spawn_interval_min), maxf(maxf(0.1, spawn_interval_min), spawn_interval_max))
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("toggle_customer_spawn") and not event.is_echo() and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		spawning_enabled = not spawning_enabled
+		_update_spawn_label()
+		print(_spawn_label.text)
+		get_viewport().set_input_as_handled()
+
+func _update_spawn_label() -> void:
+	_spawn_label.text = "[U] CUSTOMER SPAWN: " + ("ON" if spawning_enabled else "OFF")
 
 func _physics_process(delta: float) -> void:
 	if not spawning_enabled:
