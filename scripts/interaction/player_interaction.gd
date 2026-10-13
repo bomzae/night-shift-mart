@@ -107,12 +107,15 @@ func _physics_process(delta: float) -> void:
 	crosshair.modulate = Color.ORANGE if is_instance_valid(held_object) else (Color.LIME_GREEN if find_candidate() != null else Color.WHITE)
 
 
-func find_candidate() -> RigidBody3D:
+func find_candidate() -> PhysicsBody3D:
 	var origin := camera.global_position
 	var query := PhysicsRayQueryParameters3D.create(origin, origin - camera.global_basis.z * grab_distance)
+	query.collision_mask = 3 # World bodies + cart handles, not fire/spill sensors.
 	query.exclude = [player.get_rid()]
 	query.collide_with_areas = true
 	var hit := camera.get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and hit.collider is ThiefCustomer and hit.collider.capturable() and player.global_position.distance_to(hit.collider.global_position) <= hit.collider.capture_distance:
+		return hit.collider
 	if not hit.is_empty() and hit.collider is CarryableCharacter and not is_instance_valid(hit.collider.holder):
 		return hit.collider
 	if not hit.is_empty() and hit.collider is GrabbableBody and not is_instance_valid(hit.collider.holder):
@@ -129,6 +132,9 @@ func toggle_grab() -> void:
 		drop_held(true)
 		return
 	var candidate := find_candidate()
+	if candidate is ThiefCustomer:
+		candidate.capture(player)
+		return
 	if candidate == null or not candidate.begin_carry(self, player):
 		return
 	held_object = candidate

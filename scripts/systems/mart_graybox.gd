@@ -41,6 +41,9 @@ func _ready() -> void:
 	fires.name = "Fires"
 	fires.set_script(preload("res://scripts/systems/fire_manager.gd"))
 	add_child(fires)
+	var thieves := ThiefManager.new()
+	thieves.name = "Thieves"
+	add_child(thieves)
 	for location in [Vector3(6.2, 0.45, -1.5), Vector3(8.2, 0.45, 6.0)]:
 		var extinguisher := preload("res://scenes/interactables/fire_extinguisher.tscn").instantiate()
 		extinguisher.position = location

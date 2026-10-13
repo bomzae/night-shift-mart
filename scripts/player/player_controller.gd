@@ -94,7 +94,7 @@ func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
 	var pushed: Array[RID] = []
 	for index in range(get_slide_collision_count()):
 		var contact := get_slide_collision(index)
-		var body := contact.get_collider() as RigidBody3D
+		var body := contact.get_collider() as PhysicsBody3D
 		if body == null or pushed.has(body.get_rid()) or absf(contact.get_normal().y) > 0.5:
 			continue # Never kick the floor of the cart we are riding.
 		if (body is GrabbableBody or body is ShoppingCart or body is CarryableCharacter) and body.holder == get_node_or_null("Interaction"):
@@ -103,7 +103,12 @@ func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
 		var direction := -contact.get_normal()
 		direction.y = 0
 		direction = direction.normalized()
-		var closing_speed := (incoming - body.linear_velocity).dot(direction)
+		if body is CharacterBody3D:
+			if body.has_method("apply_external_impulse"):
+				body.apply_external_impulse(direction * minf(max_player_push_impulse, maxf(0, incoming.dot(direction)) * player_push_strength * delta))
+			continue
+		if not body is RigidBody3D: continue
+		var closing_speed: float = (incoming - body.linear_velocity).dot(direction)
 		if closing_speed < minimum_push_speed:
 			continue
 		var body_weight: float = body.effective_mass if body is ShoppingCart else body.mass

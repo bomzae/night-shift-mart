@@ -37,6 +37,7 @@ var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
 
 func _ready() -> void:
+	add_to_group("basic_customers")
 	patience_left = patience_time
 	floor_snap_length = 0.2
 	var capsule := CapsuleShape3D.new()

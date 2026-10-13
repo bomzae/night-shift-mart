@@ -132,8 +132,10 @@ func _refresh_departing_exceptions() -> void:
 	for body in departing:
 		for other in departing:
 			_ignore_pair(body, other)
-		for customer in get_parent().get_node("Customers").customers:
-			_ignore_pair(body, customer)
+		for customer in get_tree().get_nodes_in_group("basic_customers"):
+			# Unresolved parents stay physical; reunited families are handled above.
+			if not customer is LostParent:
+				_ignore_pair(body, customer)
 
 func _on_node_added(node: Node) -> void:
 	# Covers customers spawned after reunion, before their first movement tick.

@@ -2,6 +2,80 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 9 — Thief Customer / Chase / Stolen Goods
+
+2026-10-14 구현 및 자동 검증 완료. 기존 818 + 신규 62 = 총 **880개 통과**, 임포트/Main 오류 없음. 실제 추격 조작감은 사용자 수동 확인 대상이다. 이번 시작 시 Git 변경은 `project.godot`의 기존 U 입력 직렬화 변경만 존재했으며 보존했다. 이전 Prompt의 uncommitted 파일 목록은 당시 이력이다. 이번 작업에서 commit/amend/reset/push하지 않았다.
+
+### 상태와 기존 코드 재사용
+
+- `ThiefCustomer extends BasicCustomer`. 전용 상태는 APPROACH → STEAL → ESCAPING → CAPTURED, 또는 상품이 없어진 경우 LEAVING이다. BasicCustomer의 waypoint 이동, CharacterBody 충돌, 외력, FireReaction, Knockdown을 재사용한다. 내부 Basic state EXIT는 waypoint 이동 분기를 쓰기 위한 값이며, 절도 전에도 실제 퇴장을 뜻하지 않는다. `finish_exit()`가 APPROACH 도착이면 STEAL로 전환한다.
+- `ThiefManager`는 Mart의 `Thieves` 노드다. T 개발용 생성, 최대 2명, 입구 점유 검사를 수행한다. 일반 CustomerManager의 customers/Queue에는 등록하지 않는다. U OFF에서도 T는 작동하고 기존 다른 특수 손님 및 업무를 정지시키지 않는다.
+- 실제 Shelf Stock 후보에서 `1 + 0.25 * log(1 + price)` 가중치로 하나를 선택한다. 고가에 약한 편향만 있다. 실제 상품 가까운 기존 Shopping Point를 예약해 기존 통로로 접근한다. 재고/Shopping Point가 없거나 목표가 이동·삭제·파손되면 빈손 퇴장한다. 가짜 상품/손실을 생성하지 않는다.
+- 도착 후 0.6초 동안 Shelf를 바라보고 다시 `has_stock`으로 확인한 다음 절도한다. FireReaction/Knockdown 동안 기존 이동 및 절도 타이머 진행을 쉬고 동일한 상태로 복귀한다. 넘어져 있어도 절도 후에는 포획 가능하다.
+- Escape는 3.8m/s(기본 Customer 2.2, Player 5)다. 기존 매장 통로 waypoint를 따르되 정상 손님의 내부 Exit 지점에서 끝내지 않고 Entrance보다 바깥쪽 1.75m 지점을 추가한다. 현재 실제 종료 좌표는 약 (-3, 0.01, 13.6), 판정 거리 0.5m다. 실제 출구 밖에 도달해야 손실을 기록한다.
+
+### 실제 상품 / 논리 Loot / Reservation
+
+- 훔치는 순간 원래 상품을 hide + queue_free하고 Shelf.refresh_stock(0)로 수량을 즉시 반영한다. `stolen_item`은 product_type, price, weight, source_id, 원래 scene 경로, 실제 인스턴스의 exported script 설정 및 주요 native physics 설정을 저장한다.
+- 상품 3D 오브젝트를 손에 붙이지 않는다. 머리 위에는 원래 Mesh/material을 이용한 작은 상품 표시만 생성한다. 도주 중 `!!`, 포획 후 ✓와 상품 표시 숨김을 사용한다. 실제 렌더 `.godot/p9_theft.png`에서 Appliance 표시와 빈 Shelf를 확인했다.
+- 이미 일반 손님이 예약한 상품도 훔칠 수 있다. 기존 예약은 원래 Node를 가리키므로 삭제 후 정상 Out of Stock으로 빠진다. 일반 Basket에 이미 들어간 상품은 Shelf에 없으므로 절도 후보가 아니다. Checkout/Sales/Unpaid Loss 구조는 변경하지 않는다.
+- queued node는 기존 판매/Fire 검증에서 제외된다. 회수 상품은 새 instance_id이며 원래 stolen/broken 메타데이터를 복제하지 않는다. 같은 원본을 목표로 삼은 도둑 2명 중 먼저 훔친 한 명만 Loot를 소유하고 나머지는 빈손 퇴장한다.
+
+### Capture / 실제 상품 회수 / 회계
+
+- 기존 PlayerInteraction 좌클릭에서 실제 Ray에 잡힌 `ThiefCustomer`를 구분한다. 거리 1.8m 이내, ESCAPING, Loot 보유, Player가 Knockdown 아님일 때 Capture. 들고 있던 물건이 있으면 기존대로 먼저 Drop한다. Carry 대상이나 Charge Throw 대상으로 만들지 않는다.
+- Ray mask는 기존 상품/카트용 body layer 1|2를 사용한다. Fire/Spill 등의 센서가 도둑을 가리지 않으며 실제 벽은 계속 Grab을 막는다.
+- Capture 시 원래 PackedScene을 instantiate하고 저장한 설정을 복원한다. 주변 네 방향과 중심에서 carry_radius 기반 sphere 검사로 바닥 위 회수 공간을 찾는다. Player/벽/다른 물체를 제외하지 않는다. 성공하면 Mart/Products에 실제 물리 상품을 추가하고 thieves_caught +1, Loot clear, 0.7초 ✓ 후 도둑 Despawn.
+- 주변 다섯 위치가 모두 막히면 Capture를 완료하지 않고 Loot도 보존한다. 공간을 확보하고 다시 좌클릭할 수 있다. 상품을 geometry 안에 강제 생성하거나 회수 없이 성공 처리하지 않는다.
+- 밖으로 도주하면 resolved guard를 설정하고 stolen_goods_value에 Loot.price를 한 번만 더하고 Loot clear 후 Despawn. 포획에는 stolen_goods 손실이 없다. Sales/Unpaid/Fire/Broken 통계를 따로 증가시키지 않는다. HUD `[T] CAUGHT n / STOLEN $n`으로 확인한다.
+- 회수 시 현재 상품 scene의 형상과 저장한 exported/physics 설정을 복원한다. 임의 런타임 자식 Mesh/Collider 편집까지 통째로 직렬화하는 Inventory는 만들지 않았다. 현재 3종 및 price/weight/carry_radius/flammable 인스턴스 변경을 검증했다.
+
+### Toy Interaction / 다른 가족과의 충돌
+
+- Spill Knockdown / FireReaction은 상속된 공통 처리다. 회복 후 원래 Escape waypoint와 Loot를 유지한다. Extinguisher도 기존 apply_external_impulse로 밀며 전용 Thief stun이 없다.
+- 기존 Cart contact push를 그대로 재사용한다. Mop/상품 RigidBody 접촉은 상대속도·질량에 따른 제한된 외력을 같은 NPC motor에 전달한다. Player의 기존 접촉 push 경로에도 CharacterBody의 apply_external_impulse를 연결했다. 몸/카트/소화기 접촉은 자동 Capture하지 않는다.
+- BasicCustomer에 `basic_customers` 그룹을 등록하고 LostFamilyManager의 출발 가족 exception 갱신이 이 그룹을 사용하도록 최소 수정했다. 정상 손님 명단 밖의 기존 도둑도 Departing Family와 양방향 예외를 받는다. 가족 외 NPC를 전역 ghost로 바꾸지 않는다.
+- 실제 카트/상품/벽 길막은 유지한다. 새로운 Crowd AI/우회 경로 탐색은 만들지 않았으므로 물체로 통로를 막으면 도둑이 멈출 수 있다.
+
+### Inspector 기본값 / 파일
+
+| 위치 | 변수 / 값 |
+| --- | --- |
+| ThiefCustomer | escape_speed 3.8m/s / steal_time 0.6초 |
+| ThiefCustomer | capture_distance 1.8m / capture_feedback_time 0.7초 |
+| ThiefManager | enable_thief_test_spawn true / max_active_thieves 2 |
+| ThiefManager | high_value_bias 0.25 |
+
+- 신규: `scripts/systems/thief_customer.gd`, `thief_manager.gd`, 각각의 Godot UID, `scenes/interactables/thief_customer.tscn`, `tests/prompt9_smoke.gd` 및 UID.
+- 수정: `project.godot`(T), `player_interaction.gd`(Capture Ray/input), `player_controller.gd`(NPC body push), `basic_customer.gd`(그룹), `lost_family_manager.gd`(departing exception 대상), `mart_graybox.gd`(Thieves), README, 이 문서.
+- AGENTS/Skill 및 기존 Prompt 테스트는 변경하지 않았다.
+
+### 검증 이력 / 최종 결과
+
+- 신규 테스트의 첫 실행에서 PhysicsBody로 넓힌 push 분기의 closing_speed 타입 추론 오류를 발견해 명시 float로 수정했다. 그로 인한 Player script 로드 실패 후 검사는 중단하고 재실행했다.
+- 빈손 퇴장의 불필요한 실내 역주행을 입구 근처 직접 outside route로 수정했다. 신규 테스트의 잘못된 Cart node 경로도 실제 `Cart`로 수정했다. 이후 핵심 절도/회수/도주/Spill/Fire 검사는 통과했다.
+- 물리 접촉 검사 확장 중 분사 후 Escape 재개 한 항목이 실패했다. 실제 slide collider를 조사하니 테스트 동선의 원래 Cart가 막고 있었다. 해당 접촉 fixture에서만 Cart를 옮기고, 별도 Cart 충돌 검사는 유지했다. AI 속도 기준을 약화하거나 실제 길막을 제거하지 않았다.
+- 첫 전체 회귀에서 Prompt 6.1의 `unresolved other family collision remains enabled` 1개가 실패했다. 새로운 basic_customers 그룹에 LostParent도 포함되어 미해결 부모를 예외 대상으로 확장한 실제 회귀였다. 그룹 순회에서 LostParent를 제외하여 기존 규칙을 복원했다. 재회한 가족끼리는 원래 departing 목록에서 별도 처리하며, 도둑과의 예외는 유지한다. 기존 테스트는 수정하지 않고 Prompt 6.1(35 PASS), 9(62 PASS)를 재검증해 모두 통과했다. 최초 실패 로그도 보존했다.
+- 최종 Prompt 9: **62 PASS / failures 0**. 실제 입구→Shelf→절도, 실제 밖으로 도주, U OFF T 생성, 예약 OOS, 중복 절도/손실 방지, 좌클릭 Capture, 벽으로 Capture 차단, 넘어져 있을 때 Capture, 인스턴스 설정 복원, 실제 Grab/Throw/재진열/Cart 적재, 소화기/Mop/Cart/Player push 및 Escape 복귀, 출발 가족 예외를 검사했다.
+- 최종 회귀: 0=22, 1=48, 1.1=40, 2=41, 2.1=28, 3=32, 3.1=29, 4=54, 5=33, 5.1=36, 5.2=57, 6=40, 6.1=35, 6.2=48, 7=55, 7.1=57, 7.2=26, 7.3=16, 8=59, 8.1=62, 9=62. 합계 **880 PASS**, 최종 각 실행 failures 0 / exit 0. 수정된 가족 예외 범위를 사용하는 Knockdown/Fire 회귀도 통과했다.
+- Godot 4.7.2 경로는 기존 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 임포트는 `--headless --path . --editor --import --quit`, 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`으로 순차 실행했다(소수점은 파일명에서 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`, 시뮬레이션 120초, 정상 종료 및 배송 도착/출발 확인.
+- 로그: `.godot/p9_import_final.log`, `.godot/p9_final.log`, `.godot/p9_regression_*.log`, `.godot/p9_recheck_6_1.log`, `.godot/p9_recheck_9.log`, `.godot/p9_main.log`. 최종 선택 로그에서 SCRIPT ERROR/ERROR:/FAIL: 없음. 최초 회귀 6.1 로그는 실패 이력으로 남겨둔다. `git diff --check` 통과(Windows 줄바꿈 안내만 존재).
+
+### 수동 확인 / 알려진 문제 / 다음 작업
+
+1. F5 → U OFF → 이미 있던 손님 처리 → 상품 진열 → T. 진열대 앞 절도 후 해당 상품 하나가 사라지고 상품 표시/!!와 함께 도주하는지 확인한다.
+2. 추격해 빈손으로 도둑을 바라보고 1.8m 이내 좌클릭. ✓/CAUGHT 증가/바닥 상품 회수, STOLEN 불변을 확인한다. 회수 상품 Grab/Throw/Cart/재진열도 확인한다.
+3. 다시 T로 생성하고 놓친다. 실제 문 밖에서만 사라지고 원래 가격만큼 STOLEN이 한 번 증가해야 한다.
+4. 예약 상품 절도 시 정상 Customer는 OOS, 재고 없는 도둑은 빈손 퇴장인지 확인한다.
+5. Spill을 도주 경로에 두어 넘어짐→회복→도주, 넘어진 중 좌클릭 Capture를 확인한다. Fire 및 F 분사/Mop/Cart로 물리적으로 밀어도 자동 Capture되지 않는지 확인한다.
+6. Customer/Checkout/Drunk/LostFamily/Fire/Spill/Delivery와 함께 실행하고 사건이 전체 게임을 잠그지 않는지 확인한다.
+
+자동 검사는 완료 여부와 기능을 확인하지만 추격 반응 시간/혼잡 구간/상품 표시 가독성의 최종 feel 승인은 수동 테스트로 남는다. 입구가 점유되면 Debug Spawn은 생략하므로 길을 비우고 다시 T를 누른다. 회수 공간이 완전히 없으면 Capture 재시도가 필요하다. 기존 waypoint AI는 실제 물리 장애물을 자동 우회하지 않는다.
+
+**Final Polish TODO (의도적으로 미수정):** NPC Knockdown Mesh ↔ upright Collider mismatch, Cart Contact Repeated Damage. 전체 기능/전투 구현 뒤 재검토한다.
+
+수동 검증 정상 시 다음 요청 Prompt 10 Tourist Bus / Customer Rush로 진행할 기반이 있다. 이번 단계에서 Tourist Bus, 무기, Health, Round Director, Multiplayer는 구현하지 않았다.
+
 ## Prompt 8.1 — Fire Character Reaction / Fire LOSS Test Controls
 
 2026-10-03 시작, 2026-10-04 구현·전체 자동 검증 완료. 총 818개 통과, 상세 결과는 아래 최종 검증 기록을 확인한다. 손맛 수동 검증은 별도다. 시작 시 Prompt 8의 tracked 수정 7개 / untracked 15개가 그대로 존재했으며 보존하고 이어서 작업했다. 아래 Prompt 8 기록을 덮어쓰거나 commit/reset하지 않았다.
