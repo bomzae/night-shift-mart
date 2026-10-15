@@ -4,7 +4,8 @@ extends Node3D
 @export var first_delivery_delay: float = 5.0
 @export var delivery_interval: float = 120.0
 @export var truck_wait_time: float = 60.0
-@export var max_active_products: int = 36
+@export var max_active_products: int = 96
+@export var use_catalog_rotation: bool = true
 @export var product_scenes: Array[PackedScene] = [preload("res://scenes/interactables/products/can.tscn"), preload("res://scenes/interactables/products/watermelon.tscn"), preload("res://scenes/interactables/products/appliance.tscn")]
 var truck_present: bool = false
 var delivered: int = 0
@@ -88,20 +89,30 @@ func arrive() -> void:
 	delivery_number += 1
 	_set_truck(true)
 	_timer = maxf(0.1, truck_wait_time)
+	var batch := product_scenes.duplicate()
+	# First shipment preserves the original three-product fixture. Later loads
+	# rotate three catalog types, two units each, on the same six pallet positions.
+	if use_catalog_rotation and delivery_number > 1:
+		batch.clear()
+		var catalog := ProductCatalog.ids()
+		for i in range(3):
+			var definition := ProductCatalog.find(catalog[((delivery_number - 2) * 3 + i) % catalog.size()])
+			batch.append(load(definition.scene_path))
 	for row in range(2):
-		for column in range(product_scenes.size()):
+		for column in range(mini(3, batch.size())):
 			if products.get_child_count() >= max_active_products:
 				continue
 			var point := to_global(Vector3((column - 1) * 1.05, 0.8, (row - 0.5) * 1.05))
 			# Old physical goods may obstruct the pallet: skip instead of overlapping.
 			var query := PhysicsShapeQueryParameters3D.new()
 			var bounds := BoxShape3D.new()
-			bounds.size = Vector3(0.75, 0.65, 0.75)
+			var body := batch[column].instantiate() as GrabbableBody
+			bounds.size = body.definition.size + Vector3.ONE * 0.02 if body.definition != null else Vector3(0.75, 0.65, 0.75)
 			query.shape = bounds
 			query.transform.origin = point
 			if not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty():
+				body.free()
 				continue
-			var body := product_scenes[column].instantiate() as GrabbableBody
 			products.add_child(body)
 			body.global_position = point
 			shipment.append(body)

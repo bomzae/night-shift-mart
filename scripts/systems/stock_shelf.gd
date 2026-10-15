@@ -14,10 +14,11 @@ var zone: Area3D
 var _label: Label3D
 @export_range(2, 4) var shopping_point_count: int = 3
 @export var shopping_front_distance: float = 1.35
+@export var shopping_point_span: float = 0.95
 var _shopping_users: Dictionary = {}
 
 func shopping_point(index: int) -> Vector3:
-	return to_global(Vector3(lerpf(-0.95, 0.95, float(index) / (shopping_point_count - 1)), 0.01, shopping_front_distance))
+	return to_global(Vector3(lerpf(-shopping_point_span, shopping_point_span, float(index) / (shopping_point_count - 1)), 0.01, shopping_front_distance))
 
 func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
 	var selected := -1

@@ -2,6 +2,70 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 10.1 — 확장 테스트 매장 / Product Catalog / Auto Stock
+
+2026-10-15 구현 완료. 작업 시작 Git은 clean이었다. 기존 Prompt 기록은 아래에 보존한다. 이번 변경은 commit/amend/reset/push하지 않고 사용자의 수동 검증을 위해 uncommitted로 유지한다. 신규 검사는 **113 PASS / failures 0**이며 전체 회귀 결과는 아래 검증 항목에 기록한다.
+
+### 매장 / 상품 데이터
+
+- Store 바닥은 18×12m에서 **30×12m**로 폭만 확장했다. Backroom/Delivery와 5m rear door, 중앙 진입 동선, Checkout/Entrance/Exit는 유지한다. 기존 중앙 Shelf 3개에 좌측 3개·우측 4개 섹션을 추가했다. 좌우 Shelf는 안쪽을 바라보며 각각 기존 Stock Zone과 다중 Shopping Point를 사용한다. 새 섹션의 Shopping Point span은 0.8m, 기존 것은 0.95m다.
+- `ProductDefinition` Resource와 `ProductCatalog`가 id, 표시, scene, 가격/무게/크기/가연성, Shelf 이름/배치/수량/슬롯을 공유한다. `data/products/*.tres`에서 편집한다. 상품 타입마다 새로운 Grab/Throw 시스템을 만들지 않는다.
+- **기본 카탈로그 9종 + 기존 Appliance 호환 항목 1종**이다. Appliance의 기존 500달러/8kg과 테스트 씬·회수 호환성을 보존했다. 총 10개 Shelf, 기본 최대 55개. Can 수량은 기존 overstock 계약과 슬롯 크기를 유지하기 위해 권장 10 대신 8이다.
+
+| 상품 | 가격 | kg | 크기 XYZ(m) | 형상 | 가연성 | Shelf 수량 |
+| --- | ---: | ---: | --- | --- | --- | ---: |
+| Can | 5 | 1 | 0.28×0.32×0.28 | 원기둥 | true | 8 |
+| Bread | 10 | 0.5 | 0.50×0.22×0.24 | 긴 Box | true | 8 |
+| Milk | 15 | 1.5 | 0.25×0.48×0.25 | Carton Box | false | 8 |
+| Glass Drink | 25 | 1.2 | 0.20×0.45×0.20 | 원기둥 | false | 8 |
+| Detergent | 30 | 2.5 | 0.36×0.50×0.30 | Box | true | 6 |
+| Watermelon | 50 | 4 | 0.56×0.56×0.56 | 구 | false | 5 |
+| Frying Pan | 120 | 3 | 0.85×0.12×0.48 | 넓고 얇은 Box | false | 4 |
+| Microwave | 300 | 7 | 0.68×0.50×0.45 | Box | true | 3 |
+| TV | 800 | 10 | 1.05×0.75×0.25 | 넓은 Box | true | 2 |
+| Appliance(호환) | 500 | 8 | 0.70×0.60×0.50 | Box | true | 3 |
+
+### Auto Stock / 실제 물리 진열
+
+- `debug_auto_stock = I`, Mart의 `auto_stock_on_start = false` 기본값. 시작 옵션은 물리 공간 초기화 후 같은 top_up 경로를 호출한다. HUD와 로그에 실제 추가 수를 표시한다.
+- 각 Shelf에서 해당 타입의 실제 물리 상품을 세고 Capacity 부족분만 생성한다. 정착 대기 중인 상품도 포함해 같은 프레임에 I를 반복해도 중복 보충하지 않는다. 들고 있거나 판매/삭제 예정인 상품은 제외한다. Stock 숫자를 직접 수정하지 않으며 기존 StockShelf 정착/영역 검사가 정상 등록한다.
+- Definition의 행/열 슬롯과 실제 상품 Shape query를 사용한다. 물리 서버에 아직 등록되지 않은 이번 호출의 상품도 임시 AABB 목록으로 확인한다. 슬롯이 막히면 건너뛰며 잘못 놓인 상품·플레이어가 쌓은 물체를 삭제하거나 이동하지 않는다. 따라서 장애물이 있는 Shelf는 I 한 번으로 완전히 차지 않을 수 있다. 공간 확보 후 다시 I를 누른다.
+- 예약 상품은 실제 Shelf에 남아 있는 동안 수량에 포함된다. SHOP에서 이미 Picked된 상품은 부족분으로 보충할 수 있으며 기존 Basket을 변경하지 않는다. Physical Overstock을 제한하는 새 규칙은 없다.
+
+### 기존 시스템 연결 / 파일
+
+- 신규 `scripts/systems/product_definition.gd`, `product_catalog.gd`(+UID), `data/products/` 10개 Resource: 공유 데이터와 primitive mesh/shape/slot 생성.
+- 신규 `scenes/interactables/products/`의 bread/milk/glass_drink/detergent/frying_pan/microwave/tv 씬. 기존 can/watermelon/appliance도 Definition을 참조한다. 모두 기존 GrabbableBody를 사용한다. 도구는 Definition 없이 기존대로 동작한다.
+- `grabbable_body.gd`: Definition 할당 시 기본값 적용, ready에서 mesh/shape 구성. 이후 인스턴스별 값 편집은 유지한다. `thief_manager.gd`: 회수 시 Definition을 먼저 복원하고 저장한 개별 export 값을 나중에 복원해 수정된 가격/무게를 덮어쓰지 않는다.
+- `basic_customer.gd`, `purchase_icons.gd`, `customer_manager.gd`: 아이콘/색상/카탈로그 후보를 공통 데이터에서 읽는다. 실제 구매는 기존 실제 Stock/예약 구조를 그대로 사용한다. Tourist도 같은 구매 경로이며 Thief의 실제 Stock 검색, Fire flammable/price, Cart 질량/가격 합산은 기존 구조다.
+- `stock_shelf.gd`: Shopping Point span 조절값. `mart_graybox.gd`: 폭 확장, 데이터 기반 추가 Shelf, AutoStock 연결. `auto_stock.gd`(+UID): 보충/슬롯 충돌 검사/HUD. `project.godot`: I 입력.
+- `delivery_manager.gd`: 첫 배송은 기존 3종×2개 유지, 이후 9종 카탈로그에서 3종×2개씩 순환한다. `use_catalog_rotation = true`, false이면 기존 Inspector scenes 사용. 팔레트 공간 검사는 실제 상품 크기를 사용한다. `max_active_products = 96`으로 늘려 전체 55개 진열 후에도 배송이 막히지 않게 했다. 배송 위치/카트 운반/수동 진열은 유지한다.
+- 신규 `tests/prompt10_1_smoke.gd`(+UID), 수정 `tests/prompt3_smoke.gd`, README와 이 문서. AGENTS/Skill 변경 없음.
+
+### 검증 / 재검사 이력
+
+- 신규 창 모드 검사: 9종 생성/값/전용 Shelf, 55개 실제 진열/정착, 같은 프레임 중복 I, 잘못된 상품 보존/빈 슬롯 보충, 9종 예약, 실제 Bread+TV 양쪽 Shelf 방문 및 E Scan/Pay **$810**, 보충 시 Basket 보존, Grab/Throw/Cart 적재, 주요 측면 통로 1.4m 물리 공간 검사를 포함한다.
+- TV 실제 절도 → 좌클릭 Capture → 가격800/무게10/Definition 회수, Fire로 TV 파손 시 **$800 손실 정확히 1회**, 10명 Rush의 여러 상품 구매와 Queue 진행, 4회 배송으로 9종+호환 Appliance 제공, 시작 보충 경로도 검사한다.
+- 최초 신규 실행에서 배송의 Glass Drink 2개에 대한 `mass == weight`만 실패했다. 1.2kg 물리 엔진 저장값의 부동소수 정밀도 비교를 `is_equal_approx`로 수정했다. 최종 신규 113 PASS / errors 0. 게임 무게나 배송 기준은 변경하지 않았다.
+- 기존 Prompt3의 모든 Shelf가 최초 배송으로 1개씩 채워진다는 fixture는 신규 빈 Shelf 7개 때문에 맞지 않는다. 원래 3종은 1개, 추가 7종은 0개를 검증하도록 갱신했다. 원래 검사 유지 + 신규 빈 Shelf 7건이 추가되어 Prompt3는 32→39개다.
+- 실제 매장 렌더 `.godot/p101_store.png`에서 전체 배치와 진열 상태를 확인했다. 자동 검사로 조작감/멀미/혼잡 FPS를 확정하지 않는다.
+- 최종 전체 검사 **1,058 PASS / failures 0 / errors 0**: 기존 Prompt0~10은 **945**(기존938 + Prompt3 추가7), 신규10.1은 **113**. 각 실행 exit 0. 0=22, 1=48, 1.1=40, 2=41, 2.1=28, 3=39, 3.1=29, 4=54, 5=33, 5.1=36, 5.2=57, 6=40, 6.1=35, 6.2=48, 7=55, 7.1=57, 7.2=26, 7.3=16, 8=59, 8.1=62, 9=62, 10=58, 10.1=113.
+- 문서의 기존 Godot 실행 파일로 headless import 후 신규10.1→기존0~10을 실제 창에서 순차 실행했다. 각 검사 명령은 `--path . --fixed-fps 60 --script res://tests/prompt<단계>_smoke.gd --quit-after 30000`. Main은 headless `--fixed-fps 60 --quit-after 7200`(120초 시뮬레이션)으로 exit 0. 임포트/Main/전체 최종 로그의 SCRIPT ERROR, ERROR:, FAIL: 없음. 로그: `.godot/p101_import_final.log`, `.godot/p101_verified_*.log`, `.godot/p101_main.log`. 최초 실패 로그 `.godot/p101_first.log` 보존.
+- 최종 신규 Rush 측정: 승객 10명, 선택 상품 종류 9개(호환 Appliance 포함), Queue 최대 3명. 최종 Git은 기존 파일 15개 수정 + 새 파일 25개(UID 포함), 모두 uncommitted. `git diff --check` 공백 오류 없음(LF/CRLF 안내만 존재).
+
+### 수동 확인 / 알려진 문제 / 다음 작업
+
+1. F5 → U OFF → I: 55개 진열과 물리 폭주 여부 확인. 몇 개를 Grab/Cart/Throw로 꺼내 I로 부족분만 보충. 잘못 쌓인 물체가 삭제되지 않는지 확인.
+2. Bread/Can/Watermelon/Pan/Microwave/TV의 무게별 투척 및 크기별 Cart 적재·Cart Bomb 비교. 좌우 통로 직진/회전/U턴 조작감 확인.
+3. I → 일반 손님 또는 B: 여러 Shelf 방문, Pickup, Queue, Scan/Pay, 품절/Patience 확인. U 설정은 버스 종료 후에도 보존되어야 한다.
+4. I → T: 고가 상품 절도/회수 후 재진열. I → P: Bread/Detergent/TV 등 연소, Fire LOSS 가격 및 소화기 확인. I 없이 배송 상품 직접 운반도 확인.
+5. 기존 Fire/Spill/Drunk/LostFamily/Thief/Rush를 함께 실행해 혼잡과 카트 동선을 수동 검증한다.
+
+- 슬롯이 장애물로 막혀 있으면 자동 보충을 건너뛰는 것은 의도된 동작이다. 상품은 최종 아트가 아닌 primitive이며 Pan도 넓고 얇은 Box다.
+- **NPC Knockdown Mesh / Collider mismatch**는 Final Polish TODO로 유지한다.
+- **Cart Contact Repeated Damage**는 Final Combat/Gameplay/Physics TODO로 유지한다.
+- 수동 테스트가 정상이라면 Prompt11 Combat/Mini Boss 기반 작업으로 이어갈 수 있다. 이번 작업에는 Boss/Weapon/새 Event를 구현하지 않았다.
+
 ## Prompt 10 — Tourist Bus / Customer Rush
 
 2026-10-15 구현 및 자동 검증 완료. **기존 880 + 신규 58 = 총 938 PASS**. 임포트 및 Main 실행 오류 없음. 작업 시작 Git은 clean으로 Prompt 9가 사용자에 의해 정리된 상태였다. 아래 이전 Prompt의 uncommitted 기록은 당시 이력이다. 이번 작업도 commit/amend/reset/push하지 않았다. 수동 Rush 조작감/혼잡 성능 검증은 사용자 확인 대상이다.

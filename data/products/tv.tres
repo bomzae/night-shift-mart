@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"tv"
+display_name = "TV"
+scene_path = "res://scenes/interactables/products/tv.tscn"
+shelf_name = "TVShelf"
+price = 800
+weight = 10
+flammable = true
+size = Vector3(1.05, 0.75, 0.25)
+shape_kind = 0
+tint = Color(0.12, 0.18, 0.32, 1)
+carry_radius = 0.67
+shelf_capacity = 2
+slot_columns = 2
+slot_rows = 1
+shelf_position = Vector3(11, 0, 10.65)
+shelf_yaw = -90
+legacy = false
+

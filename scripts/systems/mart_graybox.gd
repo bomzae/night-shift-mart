@@ -1,17 +1,22 @@
 extends Node3D
+@export var auto_stock_on_start: bool = false
 ## Runtime primitive geometry; the reusable product/cart/player scenes own behavior.
 
 func _ready() -> void:
 	var wall := Color(0.48, 0.51, 0.55)
-	Graybox.box($StoreFloor, "Floor", Vector3(18, 0.4, 12), Vector3(0, -0.2, 6), Color(0.4, 0.43, 0.46))
+	Graybox.box($StoreFloor, "Floor", Vector3(30, 0.4, 12), Vector3(0, -0.2, 6), Color(0.4, 0.43, 0.46))
 	Graybox.box($Backroom, "Floor", Vector3(18, 0.4, 3), Vector3(0, -0.2, -1.5), Color(0.32, 0.37, 0.4))
 	Graybox.box($LoadingArea, "Floor", Vector3(18, 0.4, 3), Vector3(0, -0.2, -4.5), Color(0.28, 0.3, 0.32))
+	for x in [-15, 15]:
+		Graybox.box(self, "Boundary", Vector3(0.25, 3, 12), Vector3(x, 1.5, 6), wall)
 	for x in [-9, 9]:
-		Graybox.box(self, "Boundary", Vector3(0.25, 3, 18), Vector3(x, 1.5, 3), wall)
+		Graybox.box(self, "RearBoundary", Vector3(0.25, 3, 6), Vector3(x, 1.5, -3), wall)
 	for z in [-6]:
 		Graybox.box(self, "Boundary", Vector3(18, 3, 0.25), Vector3(0, 1.5, z), wall)
-	Graybox.box(self, "FrontLeft", Vector3(4, 3, 0.25), Vector3(-7, 1.5, 12), wall)
-	Graybox.box(self, "FrontRight", Vector3(10, 3, 0.25), Vector3(4, 1.5, 12), wall)
+	Graybox.box(self, "FrontLeft", Vector3(10, 3, 0.25), Vector3(-10, 1.5, 12), wall)
+	Graybox.box(self, "FrontRight", Vector3(16, 3, 0.25), Vector3(7, 1.5, 12), wall)
+	for x in [-12, 12]:
+		Graybox.box(self, "WingRear", Vector3(6, 3, 0.25), Vector3(x, 1.5, 0), wall)
 	Graybox.box(self, "Outside", Vector3(6, 0.4, 4), Vector3(-3, -0.2, 14), Color(0.25, 0.35, 0.3))
 	Graybox.sign(self, "EXIT  ~_~ →", Vector3(-3, 2.5, 14), Color.LIME_GREEN)
 	# One centered 5m rear door, directly joining dispatch and the main aisle.
@@ -26,6 +31,21 @@ func _ready() -> void:
 	Graybox.box($StoreFloor, "CheckoutReserved", Vector3(3, 0.025, 2), Vector3(5, 0.015, 10), Color(0.55, 0.5, 0.25), false)
 	Graybox.box($Entrance, "DoorMarker", Vector3(3, 0.03, 0.3), Vector3(0, -1.23, 0), Color(0.25, 0.5, 0.55), false)
 	Graybox.sign($Entrance, "ENTRANCE", Vector3(0, 1.8, -0.1))
+	for definition: ProductDefinition in ProductCatalog.DEFINITIONS:
+		if $Shelves.has_node(definition.shelf_name): continue
+		var shelf: StockShelf = preload("res://scenes/interactables/stock_shelf.tscn").instantiate()
+		shelf.name = definition.shelf_name
+		shelf.accepted_type = definition.id
+		shelf.max_stock = definition.shelf_capacity
+		shelf.shelf_color = definition.tint
+		shelf.shopping_point_span = 0.8
+		shelf.position = definition.shelf_position
+		shelf.rotation_degrees.y = definition.shelf_yaw
+		$Shelves.add_child(shelf)
+	var auto_stock := AutoStock.new()
+	auto_stock.name = "AutoStock"
+	auto_stock.auto_stock_on_start = auto_stock_on_start
+	add_child(auto_stock)
 	var families := Node3D.new()
 	families.name = "LostFamilies"
 	families.set_script(preload("res://scripts/systems/lost_family_manager.gd"))

@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"microwave"
+display_name = "Microwave"
+scene_path = "res://scenes/interactables/products/microwave.tscn"
+shelf_name = "MicrowaveShelf"
+price = 300
+weight = 7
+flammable = true
+size = Vector3(0.68, 0.5, 0.45)
+shape_kind = 0
+tint = Color(0.7, 0.75, 0.8, 1)
+carry_radius = 0.5
+shelf_capacity = 3
+slot_columns = 3
+slot_rows = 1
+shelf_position = Vector3(11, 0, 7.55)
+shelf_yaw = -90
+legacy = false
+

@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 10 / Tourist Bus · Customer Rush 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 10.1 / 확장 테스트 매장 · Product Catalog · Auto Stock 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -36,6 +36,17 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | toggle_customer_spawn | U | 개발용 일반 손님 자동 생성 ON/OFF |
 | debug_spawn_thief | T | 개발용 도둑 생성(최대 2명, U OFF에서도 가능) |
 | debug_tourist_bus | B | 개발용 관광버스 호출(이벤트 진행 중 중복 호출 불가) |
+| debug_auto_stock | I | 개발용 전체 Shelf 부족분을 실제 물리 상품으로 보충 |
+
+## 빠른 테스트 준비 / Auto Stock
+**F5 → I**로 정상 Shelf를 채웁니다. 기본 9종과 호환용 Appliance까지 총 10개 Shelf, 최대 55개입니다.
+I를 다시 누르면 부족분만 보충합니다. 기존 상품이나 잘못 쌓인 물체는 삭제하지 않으며, 막힌 슬롯은 건너뜁니다.
+상품을 치우고 다시 I를 누르면 남은 공간을 보충할 수 있습니다. Stock 표시는 기존 물리 정착 판정 후 반영됩니다.
+**U OFF → I → T/P/B**로 도둑·화재·관광버스를 각각 테스트할 수 있습니다. 이미 생성된 손님은 계속 행동합니다.
+Mart의 Inspector `auto_stock_on_start`를 켜면 시작 시 자동 보충하며 기본값은 false입니다.
+상품 설정은 `data/products/*.tres`의 가격·무게·크기·가연성·Shelf 수량을 사용합니다.
+첫 배송은 기존 Can/Watermelon/Appliance 각 2개이며, 다음 배송부터 새 카탈로그의 3종씩 각 2개를 순환 제공합니다.
+Auto Stock 없이도 기존 Delivery → Cart → 수동 진열 흐름을 그대로 사용할 수 있습니다.
 
 ## 관광버스 / Customer Rush
 **U OFF → 실제 상품을 충분히 진열 → B**로 관광버스를 단독 테스트합니다.

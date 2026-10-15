@@ -80,7 +80,9 @@ func recover(thief: ThiefCustomer, _player: PhysicsBody3D) -> bool:
 	if not thief.capturable(): return false
 	var loot := thief.stolen_item
 	var product: GrabbableBody = load(loot.scene).instantiate()
-	for key in loot.settings: product.set(key, loot.settings[key])
+	if loot.settings.has("definition"): product.definition = loot.settings.definition
+	for key in loot.settings:
+		if key != "definition": product.set(key, loot.settings[key])
 	var query := PhysicsShapeQueryParameters3D.new()
 	var shape := SphereShape3D.new()
 	shape.radius = product.carry_radius

@@ -1,5 +1,6 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 [ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[ext_resource type="Resource" path="res://data/products/can.tres" id="2"]
 [sub_resource type="CylinderMesh" id="Mesh"]
 top_radius = 0.14
 bottom_radius = 0.14
@@ -12,12 +13,7 @@ friction = 0.8
 bounce = 0.05
 [node name="Can" type="RigidBody3D" groups=["grabbable"]]
 script = ExtResource("1")
-display_name = "Can"
-product_type = &"can"
-price = 5.0
-weight = 1.0
-tint = Color(0.2, 0.55, 0.95, 1)
-carry_radius = 0.22
+definition = ExtResource("2")
 physics_material_override = SubResource("Physics")
 linear_damp = 0.15
 angular_damp = 0.8

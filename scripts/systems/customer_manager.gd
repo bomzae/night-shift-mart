@@ -71,7 +71,8 @@ func exit_position() -> Vector3:
 	return Vector3(entrance.x, 0.01, entrance.z - 1.05)
 
 func product_color(type: StringName) -> Color:
-	return {&"can": Color(0.2, 0.55, 0.95), &"watermelon": Color(0.25, 0.8, 0.35), &"appliance": Color(0.95, 0.6, 0.2)}.get(type, Color.WHITE)
+	var definition := ProductCatalog.find(type)
+	return definition.tint if definition != null else Color.WHITE
 
 func available_goods() -> Array[GrabbableBody]:
 	var available: Array[GrabbableBody] = []
@@ -106,7 +107,8 @@ func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedSce
 	var available := available_goods()
 	if requested.is_empty():
 		if available.is_empty():
-			requested.append([&"can", &"watermelon", &"appliance"][_rng.randi_range(0, 2)])
+			var catalog := ProductCatalog.ids()
+			requested.append(catalog[_rng.randi_range(0, catalog.size() - 1)])
 		else:
 			var upper := mini(int(event_options.get("max_units", max_purchase_units)), available.size())
 			var lower := mini(maxi(1, int(event_options.get("min_units", 1))), upper)

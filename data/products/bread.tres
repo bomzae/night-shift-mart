@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"bread"
+display_name = "Bread"
+scene_path = "res://scenes/interactables/products/bread.tscn"
+shelf_name = "BreadShelf"
+price = 10
+weight = 0.5
+flammable = true
+size = Vector3(0.5, 0.22, 0.24)
+shape_kind = 0
+tint = Color(0.75, 0.48, 0.2, 1)
+carry_radius = 0.3
+shelf_capacity = 8
+slot_columns = 4
+slot_rows = 2
+shelf_position = Vector3(-11, 0, 2)
+shelf_yaw = 90
+legacy = false
+

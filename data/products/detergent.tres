@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"detergent"
+display_name = "Detergent"
+scene_path = "res://scenes/interactables/products/detergent.tscn"
+shelf_name = "DetergentShelf"
+price = 30
+weight = 2.5
+flammable = true
+size = Vector3(0.36, 0.5, 0.3)
+shape_kind = 0
+tint = Color(0.75, 0.25, 0.8, 1)
+carry_radius = 0.36
+shelf_capacity = 6
+slot_columns = 3
+slot_rows = 2
+shelf_position = Vector3(11, 0, 1.35)
+shelf_yaw = -90
+legacy = false
+

@@ -1,0 +1,20 @@
+[gd_scene load_steps=4 format=3]
+[ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[ext_resource type="Resource" path="res://data/products/detergent.tres" id="2"]
+[sub_resource type="PhysicsMaterial" id="Physics"]
+friction = 0.8
+bounce = 0.05
+[node name="Detergent" type="RigidBody3D" groups=["grabbable"]]
+script = ExtResource("1")
+definition = ExtResource("2")
+physics_material_override = SubResource("Physics")
+linear_damp = 0.15
+angular_damp = 0.8
+[node name="Mesh" type="MeshInstance3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="Label" type="Label3D" parent="."]
+position = Vector3(0, 0.65, 0)
+billboard = 1
+font_size = 30
+pixel_size = 0.004
+

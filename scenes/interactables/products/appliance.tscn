@@ -1,5 +1,6 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 [ext_resource type="Script" path="res://scripts/interaction/grabbable_body.gd" id="1"]
+[ext_resource type="Resource" path="res://data/products/appliance.tres" id="2"]
 [sub_resource type="BoxMesh" id="Mesh"]
 size = Vector3(0.7, 0.6, 0.5)
 [sub_resource type="BoxShape3D" id="Shape"]
@@ -9,12 +10,7 @@ friction = 0.8
 bounce = 0.05
 [node name="Appliance" type="RigidBody3D" groups=["grabbable"]]
 script = ExtResource("1")
-display_name = "Appliance"
-product_type = &"appliance"
-price = 500.0
-weight = 8.0
-tint = Color(0.95, 0.6, 0.2, 1)
-carry_radius = 0.55
+definition = ExtResource("2")
 physics_material_override = SubResource("Physics")
 linear_damp = 0.15
 angular_damp = 0.8

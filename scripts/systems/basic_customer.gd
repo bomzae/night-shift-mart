@@ -69,17 +69,10 @@ func _ready() -> void:
 	for i in range(purchase_types.size()):
 		var icon := MeshInstance3D.new()
 		var type := purchase_types[i]
-		if type == &"watermelon":
-			var sphere := SphereMesh.new()
-			sphere.radius = 0.1
-			sphere.height = 0.2
-			icon.mesh = sphere
-		elif type == &"can":
-			var cylinder := CylinderMesh.new()
-			cylinder.top_radius = 0.07
-			cylinder.bottom_radius = 0.07
-			cylinder.height = 0.2
-			icon.mesh = cylinder
+		var definition := ProductCatalog.find(type)
+		if definition != null:
+			icon.mesh = definition.mesh()
+			icon.scale = Vector3.ONE * (0.2 / maxf(definition.size.x, maxf(definition.size.y, definition.size.z)))
 		else:
 			var box := BoxMesh.new()
 			box.size = Vector3(0.2, 0.16, 0.12)

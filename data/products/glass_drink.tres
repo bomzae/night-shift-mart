@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"glass_drink"
+display_name = "GlassDrink"
+scene_path = "res://scenes/interactables/products/glass_drink.tscn"
+shelf_name = "GlassDrinkShelf"
+price = 25
+weight = 1.2
+flammable = false
+size = Vector3(0.2, 0.45, 0.2)
+shape_kind = 1
+tint = Color(0.2, 0.8, 0.75, 1)
+carry_radius = 0.26
+shelf_capacity = 8
+slot_columns = 4
+slot_rows = 2
+shelf_position = Vector3(-11, 0, 10)
+shelf_yaw = 90
+legacy = false
+

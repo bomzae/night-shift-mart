@@ -73,7 +73,8 @@ func run_checks() -> void:
 		await place(types[type], shelf.to_global(Vector3(0, 1.1, 0)))
 	await frames(180)
 	for shelf in mart.get_node("Shelves").get_children():
-		check(shelf.stock_count == 1, "correct stable stock: " + String(shelf.accepted_type))
+		var expected := 1 if types.has(shelf.accepted_type) else 0
+		check(shelf.stock_count == expected, "correct stable stock: " + String(shelf.accepted_type))
 	var can: GrabbableBody = types[&"can"]
 	var can_shelf: StockShelf = mart.get_node("Shelves/CanShelf")
 	player.global_position = Vector3(-5, 0.01, 4.2)

@@ -9,6 +9,17 @@ extends RigidBody3D
 @export_range(0.1, 100.0) var weight: float = 1.0
 @export var tint: Color = Color.CORAL
 @export_range(0.1, 3.0) var carry_radius: float = 0.49
+@export var definition: ProductDefinition:
+	set(value):
+		definition = value
+		if value != null:
+			display_name = value.display_name
+			product_type = value.id
+			price = value.price
+			weight = value.weight
+			flammable = value.flammable
+			tint = value.tint
+			carry_radius = value.carry_radius
 
 var holder: Node = null
 var hold_target: Vector3
@@ -30,6 +41,9 @@ var impact_count: int = 0
 
 
 func _ready() -> void:
+	if definition != null:
+		$Mesh.mesh = definition.mesh()
+		$CollisionShape3D.shape = definition.collision_shape()
 	mass = weight
 	contact_monitor = true
 	max_contacts_reported = 8

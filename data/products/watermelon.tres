@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"watermelon"
+display_name = "Watermelon"
+scene_path = "res://scenes/interactables/products/watermelon.tscn"
+shelf_name = "WatermelonShelf"
+price = 50
+weight = 4
+flammable = false
+size = Vector3(0.56, 0.56, 0.56)
+shape_kind = 2
+tint = Color(0.25, 0.8, 0.35, 1)
+carry_radius = 0.3
+shelf_capacity = 5
+slot_columns = 3
+slot_rows = 2
+shelf_position = Vector3(0, 0, 6)
+shelf_yaw = 180
+legacy = false
+

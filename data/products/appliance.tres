@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"appliance"
+display_name = "Appliance"
+scene_path = "res://scenes/interactables/products/appliance.tscn"
+shelf_name = "ApplianceShelf"
+price = 500
+weight = 8
+flammable = true
+size = Vector3(0.7, 0.6, 0.5)
+shape_kind = 0
+tint = Color(0.95, 0.6, 0.2, 1)
+carry_radius = 0.55
+shelf_capacity = 3
+slot_columns = 3
+slot_rows = 1
+shelf_position = Vector3(5, 0, 6)
+shelf_yaw = 180
+legacy = true
+
