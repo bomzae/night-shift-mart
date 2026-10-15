@@ -1,9 +1,16 @@
 class_name CustomerManager
 extends Node3D
 
+signal customer_paid(customer: BasicCustomer)
+
 @export var spawn_interval_min: float = 6.0
 @export var spawn_interval_max: float = 10.0
 @export var max_active_customers: int = 6
+@export var absolute_customer_cap: int = 18
+var event_spawn_paused: bool = false:
+	set(value):
+		event_spawn_paused = value
+		if is_instance_valid(_spawn_label): _update_spawn_label()
 @export var patience_time: float = 25.0
 @export var queue_spacing: float = 1.25
 @export_range(1, 3) var max_purchase_units: int = 3
@@ -49,9 +56,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _update_spawn_label() -> void:
 	_spawn_label.text = "[U] CUSTOMER SPAWN: " + ("ON" if spawning_enabled else "OFF")
+	if event_spawn_paused: _spawn_label.text += " (BUS PAUSE)"
 
 func _physics_process(delta: float) -> void:
-	if not spawning_enabled:
+	if not spawning_enabled or event_spawn_paused:
 		return
 	_timer -= delta
 	if _timer <= 0:
@@ -73,23 +81,36 @@ func available_goods() -> Array[GrabbableBody]:
 				available.append(body)
 	return available
 
-func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedScene = null) -> BasicCustomer:
+func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedScene = null, event_options: Dictionary = {}) -> BasicCustomer:
 	requested = requested.duplicate()
-	if customers.size() >= max_active_customers:
+	var tourist: bool = event_options.get("tourist", false)
+	var normal_count := customers.filter(func(c): return not c.get_meta("tourist", false)).size()
+	if customers.size() >= absolute_customer_cap or (not tourist and normal_count >= max_active_customers):
 		return null
+	var spawn_at: Vector3 = event_options.get("position", exit_position())
 	for other in customers:
-		if other.global_position.distance_to(exit_position()) < 0.85:
+		if other.global_position.distance_to(spawn_at) < 0.85:
 			return null # Do not stack new capsules at the door.
+	if tourist:
+		var query := PhysicsShapeQueryParameters3D.new()
+		var bounds := SphereShape3D.new()
+		bounds.radius = 0.4
+		query.shape = bounds
+		query.transform.origin = spawn_at + Vector3.UP * 0.85
+		if not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty(): return null
 	var scene := customer_scene if customer_scene != null else preload("res://scenes/interactables/basic_customer.tscn")
 	var customer: BasicCustomer = scene.instantiate()
 	customer.manager = self
 	customer.patience_time = patience_time
+	if tourist: customer.set_meta("tourist", true)
 	var available := available_goods()
 	if requested.is_empty():
 		if available.is_empty():
 			requested.append([&"can", &"watermelon", &"appliance"][_rng.randi_range(0, 2)])
 		else:
-			var count := _rng.randi_range(1, mini(max_purchase_units, available.size()))
+			var upper := mini(int(event_options.get("max_units", max_purchase_units)), available.size())
+			var lower := mini(maxi(1, int(event_options.get("min_units", 1))), upper)
+			var count := _rng.randi_range(lower, upper)
 			for i in range(count):
 				var index := _rng.randi_range(0, available.size() - 1)
 				requested.append(available[index].product_type)
@@ -104,9 +125,11 @@ func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedSce
 				_claims[body.get_instance_id()] = customer
 				available.erase(body)
 				break
-	customer.position = exit_position()
+	customer.position = spawn_at
 	# Reach the front aisle before visiting the actual reserved stock.
 	customer.waypoints = [Vector3(-7.65, 0, 9), Vector3(-7.65, 0, 3.1)]
+	if event_options.has("entry_waypoints"):
+		customer.waypoints.assign(event_options.entry_waypoints + customer.waypoints)
 	for type in requested:
 		if not customer.shopping_types.has(type):
 			customer.shopping_types.append(type)
@@ -236,6 +259,7 @@ func finish(customer: BasicCustomer, paid: bool) -> bool:
 		sales += total
 		customer.picked_items.clear()
 		print("SALES +$%.2f" % total)
+		customer_paid.emit(customer)
 	else:
 		record_unpaid_basket(customer)
 	customer.start_exit()

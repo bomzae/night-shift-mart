@@ -2,6 +2,76 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 10 — Tourist Bus / Customer Rush
+
+2026-10-15 구현 및 자동 검증 완료. **기존 880 + 신규 58 = 총 938 PASS**. 임포트 및 Main 실행 오류 없음. 작업 시작 Git은 clean으로 Prompt 9가 사용자에 의해 정리된 상태였다. 아래 이전 Prompt의 uncommitted 기록은 당시 이력이다. 이번 작업도 commit/amend/reset/push하지 않았다. 수동 Rush 조작감/혼잡 성능 검증은 사용자 확인 대상이다.
+
+### Event / 승객 / 시각 표현
+
+- 신규 `scripts/systems/tourist_bus.gd`의 `TouristBus`는 Mart의 TouristBus 노드로 연결되는 작은 외부 이벤트다. TouristCustomer 클래스나 별도 쇼핑/계산 AI는 없다. 개발용 `debug_tourist_bus = B`, IDLE에서만 시작한다.
+- IDLE → ARRIVING(2초) → UNLOADING → RUSH_ACTIVE → DEPARTING(2초) → IDLE. 노란 Box 차체, 푸른 창문, 바퀴 표시, 이동하는 문, BUS 표식을 사용한다. 외부 (16,0,15)에서 주차 위치 (2,0,15)로 단순 이동하고 같은 방향으로 떠난다. 차량 물리/운전/피해는 없다. 차체 StaticBody collision은 유지한다.
+- 기존 외부 입구 바닥을 덮지 않고 좌/우/뒤의 3개 바닥 조각으로 버스 앞 공간을 확장했다. 최초 렌더에서 같은 높이의 바닥 중첩으로 보인 줄무늬를 제거하기 위한 분할이다. 내부 마트·배송 동선은 바꾸지 않았다.
+- 승객은 실제 PassengerDoor 앞 (-1.4,0.01,13.0)에서 생성한다. (-4.15,0.01,13) → (-4.15,0.01,10.8)로 입구의 한쪽을 사용한 뒤 기존 매장 waypoint에 합류한다. 기본 0.4초 간격이며 같은 physics tick에 여러 명을 생성하지 않는다. 문 앞 고객과 최소 0.85m 거리 및 radius 0.4 물리 공간을 확인해 겹치면 다음 기회에 retry한다. 순간이동/전역 collision ghost/crowd avoidance는 추가하지 않았다.
+- 기본 10명, 2~4개 구매. 가능한 실제 비예약 재고에서 기존 Purchase List를 생성한다. 남은 재고가 1개라면 1개를 요청하며, 재고가 없으면 기존 OOS 요청/퇴장 흐름이다. 기존 Reservation → Shopping Point → SHOP → 실제 상품 제거/Basket → Queue → Scan/Pay → Exit를 모두 재사용한다.
+- 승객은 `tourist` 메타데이터만 가진 원래 BasicCustomer다. Patience는 기존 CustomerManager 값 25초 그대로이며 tourist 전용 값이 없다. Shopping Point 점유/retry, FireReaction, Knockdown, 외력은 기존 코드다.
+
+### Customer 제한 / U 설정 보존 / 완료 조건
+
+- `CustomerManager.max_active_customers = 6` 유지. 정상/Accident/Dangerous 등 비관광 Customer 수를 이 제한으로 센다. 관광 승객은 별도 생성 요청으로 이 제한을 넘을 수 있으며 기존 관광 손님이 남아 있어도 정상 손님 제한을 영구 변경하지 않는다.
+- 신규 `absolute_customer_cap = 18`은 CustomerManager 관리 목록 전체(정상/Accident/Dangerous/관광)에 적용한다. 버스 목표 인원은 1~absolute cap으로 clamp한다. Thief/Drunk/LostFamily는 원래 독립 매니저/자체 상한을 유지하며 이 18명에는 포함하지 않는다. 전체 월드 NPC를 하나의 전역 Manager로 통합하지 않았다.
+- 사용자 `spawning_enabled`와 신규 `event_spawn_paused`를 분리했다. 버스 중에는 자동 생성 타이머만 멈춘다. 표시에는 `(BUS PAUSE)`가 붙는다. 버스 종료 시 pause만 해제하므로 ON은 재개, OFF는 유지된다. 버스 도중 사용자가 U를 변경해도 가장 최근 선택을 존중한다. Event Manager가 제거될 때도 pause를 해제한다.
+- 모든 승객을 생성하면 RUSH_ACTIVE. 기본 80%가 resolved(정상 결제/OOS/미결제 처리) 또는 이미 제거되면 출발한다. 한 명이 끼어도 기다리지 않는다. `max_rush_duration = 100초`는 ARRIVING부터 UNLOADING까지 포함하는 안전 타이머이므로 문/상한 때문에 마지막 승객을 생성하지 못해도 이벤트가 종료된다.
+- 이미 생성된 손님은 버스 출발 시 강제로 삭제하지 않는다. 기존 구매/Queue/Patience/퇴장을 계속한다. 중단된 하차의 미생성 인원은 강제로 추가 생성하지 않는다. 다음 B 이벤트는 IDLE에서 가능하며 기존 남은 승객까지 absolute cap에 포함된다.
+
+### Stats / 기존 업무 압박
+
+- `tourist_buses_arrived`: 실제 정차 완료 시 +1.
+- `tourist_customers_served`: CustomerManager의 성공적인 정상 결제 후 `customer_paid` signal을 받아 관광 승객만 +1. 기존 resolved guard와 결제 instance_id 중복 방지로 이중 집계하지 않는다. OOS/Patience Escape는 served가 아니다. 버스 출발/다음 이벤트 후 늦은 정상 결제도 누적 통계에 포함할 수 있도록 현재 passenger 배열에 한정하지 않는다.
+- Sales/Unpaid Loss는 원래 회계 그대로이며 별도 Tourist Revenue/Stock Penalty는 없다. 상품 감소와 Queue 압박은 실제 쇼핑의 결과다. HUD의 ACTIVE는 아직 해결되지 않은 이번 버스 승객 수이며 월드에 남아 있는 전체 NPC 수가 아니다.
+- 기존 K/L/O/P/T/F 및 계산/카트/배송 입력은 막지 않는다. 수동 특수 손님은 원래 자체 제한·입구 점유 규칙을 계속 따른다. 관광 인원만으로 비관광 손님 6명 제한을 채우지 않으므로 Rush 중 O/P도 생성 가능하다(absolute cap 미만일 때).
+
+### 실제 Inspector 기본값
+
+| 위치 | 변수 | 기본값 |
+| --- | --- | --- |
+| TouristBus | tourist_count | 10 |
+| TouristBus | passenger_spawn_interval | 0.4초 (최저 0.1초) |
+| TouristBus | min_purchase_units / max_purchase_units | 2 / 4 |
+| TouristBus | arrival_time / departure_time | 2 / 2초 |
+| TouristBus | max_rush_duration | 100초 |
+| TouristBus | completion_ratio | 0.8 |
+| CustomerManager | max_active_customers / absolute_customer_cap | 6 / 18 |
+
+### 파일 / 검사 이력
+
+- 신규 `scripts/systems/tourist_bus.gd`(+UID): 이벤트, 버스 Graybox, 순차 생성, 타임아웃, HUD, 도착/served 통계.
+- 수정 `scripts/systems/customer_manager.gd`: 선택적인 event_options로 기존 생성 경로 재사용, 비관광/전체 cap, 사용자 설정과 event pause 분리, 정상 결제 signal.
+- 수정 `scripts/systems/mart_graybox.gd`: TouristBus 연결. `project.godot`: B 입력.
+- 신규 `tests/prompt10_smoke.gd`(+UID): 실제 창에서 입구→Shelf→Pickup→Queue→결제, 10명 순차 생성/상한/설정/품절/타임아웃/다른 이벤트 검증.
+- README와 이 문서에 조작/구조/한계 기록. AGENTS/Skill/기존 Prompt 테스트는 변경하지 않았다.
+- 첫 신규 통합 검사 failures 0: 실제 재고 14개, 승객 10명, 활성 Customer 최대 9명, Queue 최대 5명 측정. 한 명은 실제 E Scan/Pay로 결제하고 나머지는 기존 Patience/OOS를 진행했다. 서로 같은 상품을 예약하지 않는 것도 매 tick 검사했다.
+- 검사를 보강하면서 `get_node()` 반환값의 `accident :=` 타입 추론으로 신규 테스트가 parse 실패했다. 명시 `AccidentCustomer` 타입으로 수정했다. 그 다음 실행에서 생성 간격 검사 1개가 실패했다. 계산 입력 await 동안 물리 시간이 흐르는데 테스트 루프 반복 횟수만 세던 측정 오류였다. 물리 프레임 번호로 바꿔도 관측 자체가 계산 입력 await 뒤에 이루어져 같은 항목이 다시 실패했다. 최종적으로 `CustomerManager.child_entered_tree` signal에서 실제 생성 순간을 기록하도록 수정했다. 게임 spawn_interval은 그대로이며 검사 하한은 정확한 24 physics ticks(0.4초)로 강화했다. 최초 로그는 보존한다.
+- 실제 버스 렌더 `.godot/p10_bus.png`를 확인하고 바닥 Z-fighting 제거 및 HUD를 계산 패널 아래 y=260으로 이동했다. 수정 후 렌더도 확인했다. 외부 바닥 수정 후 가족 퇴장(6.1)/도둑(9)/버스(10)/Main 추가 검증도 통과했다.
+- 기존 전체 회귀: 0=22, 1=48, 1.1=40, 2=41, 2.1=28, 3=32, 3.1=29, 4=54, 5=33, 5.1=36, 5.2=57, 6=40, 6.1=35, 6.2=48, 7=55, 7.1=57, 7.2=26, 7.3=16, 8=59, 8.1=62, 9=62 → **880 PASS**, 각 exit 0 / errors 0.
+- 최종 Prompt 10 **58 PASS / failures 0 / exit 0**. 생성 순간 physics frames = [303,328,353,378,403,428,453,603,753,903]: 최소 25 ticks, 입구 점유 시 더 오래 기다렸다. 총 10명, peak active 9, peak queue 5. 정상 결제 1명, 재고 감소/Patience 손실/중복 Reservation 없음, U 상태 보존, OOS 입구 퇴장, 절대 cap/하차 타임아웃, Fire/Spill 상태 복구, K/L/O/P/T 수동 생성 모두 통과.
+- 외부 바닥 수정 후 6.1=35 PASS, 9=62 PASS 추가 확인. 기존 880개에 중복 재실행 수는 더하지 않는다. 합계 **938 PASS**.
+- 기존 Godot 경로 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe` 사용. 임포트는 `--headless --path . --editor --import --quit`; 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`로 순차 실행(파일명의 소수점은 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`로 120초 시뮬레이션, exit 0.
+- 최종 로그: `.godot/p10_import_final.log`, `.godot/p10_regression_*.log`, `.godot/p10_verified_6_1.log`, `.godot/p10_verified_9.log`, `.godot/p10_spawn_verified.log`, `.godot/p10_main_final.log`. 최종 선택 로그에 SCRIPT ERROR/ERROR:/FAIL: 없음. `p10_final.log`(테스트 parse), `p10_recheck.log` 및 `p10_verified_10.log`(간격 측정 실패)은 진단 이력으로 보존한다. `git diff --check` 통과.
+
+### 수동 테스트 / 알려진 한계 / 다음 단계
+
+1. F5 → U OFF → 충분한 실제 상품 진열 → B. 외부 버스 도착/문 이동/승객 순차 입장, 다른 자동 손님 없음 확인.
+2. 진열 재고 소비/여러 Shopping Point 분산/Queue 증가 확인. Scan/Pay로 정상 결제할 때만 SERVED와 Sales 증가 확인. 재고가 적으면 품절 손님이 많으므로 입고 상품을 계속 보충한다.
+3. U ON/OFF 각각 버스 종료 후 설정 유지 확인. 이벤트 중 U 변경도 확인한다. 기존 손님이 많은 상태에서도 cap과 타임아웃이 작동해야 한다.
+4. Rush 중 K/L/O/P/T로 특수 손님 생성. Spill Recover/FireReaction 후 구매 상태 유지, Thief 추격/포획, 가족 퇴장과 계산/카트/배송 병행 확인.
+5. 버스 출발 후 남은 손님 계속 진행/늦은 결제 집계/다음 B 호출 확인.
+
+생성 간격은 최소 재시도 간격이며 입구 공간이 막히면 실제 하차가 더 느릴 수 있다. 100초 만료 시 전원을 생성하지 못한 채 출발할 수 있다. 기본 Shelf 권장 재고 합계는 16개라 10명이 2~4개씩 모두 구매하려면 재진열이 필요하다. 기존 waypoint NPC는 실제 물리 장애물을 우회하는 완전한 Crowd AI가 아니며, 극단적 혼잡의 수동 feel/성능 검증은 남는다. 일반 손님 수만 늘렸으며 게임을 잠그는 모드나 새 관광 전용 규칙은 없다.
+
+**Final Polish TODO 유지:** NPC Knockdown Mesh ↔ upright Collider mismatch / Cart Contact Repeated Damage. 이번 단계에서 수정하지 않았다.
+
+수동 검증 정상 후 Prompt 11 Combat / Boss progression으로 확장할 기반이 된다. 무기/Boss/Random Event Director/Round Director/Result Screen/Multiplayer는 구현하지 않았다.
+
 ## Prompt 9 — Thief Customer / Chase / Stolen Goods
 
 2026-10-14 구현 및 자동 검증 완료. 기존 818 + 신규 62 = 총 **880개 통과**, 임포트/Main 오류 없음. 실제 추격 조작감은 사용자 수동 확인 대상이다. 이번 시작 시 Git 변경은 `project.godot`의 기존 U 입력 직렬화 변경만 존재했으며 보존했다. 이전 Prompt의 uncommitted 파일 목록은 당시 이력이다. 이번 작업에서 commit/amend/reset/push하지 않았다.
