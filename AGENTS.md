@@ -47,3 +47,23 @@ Git commits are controlled by the user.
 - Do not push to a remote repository unless the user explicitly requests it.  
 - When a Prompt is complete, report the current Git status and summarize the changed files if useful.
 
+
+
+## Communication Language
+
+Use Korean for all user-facing communication in this project.
+
+This includes:
+
+- progress updates
+- completion reports
+- questions
+- approval reasons
+- warnings
+- test summaries
+- explanations of errors
+
+Do not switch to Japanese, Chinese, or another language unless the user explicitly requests it.
+
+Code, file names, command lines, identifiers, and technical terms may remain in English when appropriate.
+
