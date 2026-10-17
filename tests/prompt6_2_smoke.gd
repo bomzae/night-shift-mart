@@ -45,7 +45,7 @@ func run_checks() -> void:
 		await frames(45)
 		check(interaction.held_object == body and interaction.hold_obstructed, kind + " shelf shortens safe hold without dropping")
 		check(body.global_position.z < 0.65, kind + " stays on near side of solid shelf back")
-		check(body.collision_mask == 1 and body.get_collision_exceptions().has(player), kind + " keeps world mask and player exception")
+		check((body.collision_mask & 1) == 1 and body.get_collision_exceptions().has(player), kind + " keeps world mask and player exception")
 		shelf.queue_free()
 		player.rotation.y = 0
 		player.set_physics_process(true)

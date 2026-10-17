@@ -117,6 +117,15 @@ debug_auto_stock={
 ]
 }
 
+[layer_names]
+
+3d_physics/layer_1="World Player Physics"
+3d_physics/layer_2="Cart Handle"
+3d_physics/layer_5="Spill Sensor"
+3d_physics/layer_6="Fire Sensor"
+3d_physics/layer_7="Human NPC"
+3d_physics/layer_8="Future Monster"
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"

@@ -49,7 +49,7 @@ func _physics_process(delta: float) -> void:
 		_spray.visible = false
 		_update_label()
 		return
-	var ray := PhysicsRayQueryParameters3D.create(origin, origin + direction * spray_range, 1, exclusions)
+	var ray := PhysicsRayQueryParameters3D.create(origin, origin + direction * spray_range, 1 | HumanSeparation.HUMAN_LAYER, exclusions)
 	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
 	var visible_length := spray_range if hit.is_empty() else origin.distance_to(hit.position)
 	_spray.global_transform = Transform3D(Basis(Quaternion(Vector3.UP, direction)).scaled(Vector3(1, maxf(0.02, visible_length), 1)), origin + direction * visible_length * 0.5)
@@ -95,7 +95,7 @@ func in_spray(origin: Vector3, direction: Vector3, target: Vector3) -> bool:
 	return forward >= 0 and forward <= spray_range and (offset - direction * forward).length() <= 0.15 + forward * tan(deg_to_rad(spray_half_angle))
 
 func clear_path(from: Vector3, to: Vector3, excluded: Array[RID]) -> bool:
-	return get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1, excluded)).is_empty()
+	return get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1 | HumanSeparation.HUMAN_LAYER, excluded)).is_empty()
 
 func _update_label() -> void:
 	$Label.text = "[F]  %.0f%%" % capacity

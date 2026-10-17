@@ -10,7 +10,7 @@ func drive_trial(heavy: bool) -> float:
 	await press("grab")
 	await frames(30)
 	check(cart.get_collision_exceptions().has(player) and player.get_collision_exceptions().has(cart), "held pair collision exception")
-	check(cart.collision_mask == 1, "world collision mask preserved")
+	check(cart.collision_mask == (1 | HumanSeparation.HUMAN_LAYER), "world collision mask preserved")
 	player.set_physics_process(true)
 	Input.action_press("move_forward")
 	await frames(1)

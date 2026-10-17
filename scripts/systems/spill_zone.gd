@@ -24,7 +24,7 @@ func contains_core(point: Vector3) -> bool:
 
 func _ready() -> void:
 	collision_layer = 16 # Mop head sensing only; no solid liquid collider.
-	collision_mask = 1
+	collision_mask = 1 | HumanSeparation.HUMAN_LAYER
 	_shape = CylinderShape3D.new()
 	_shape.radius = radius
 	_shape.height = 0.2

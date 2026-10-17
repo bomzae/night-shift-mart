@@ -16,6 +16,7 @@ var _capture_left: float = 0
 var loot_icon: MeshInstance3D
 
 func _ready() -> void:
+	separation_multiplier = 0.4
 	state = State.EXIT # Reuse waypoint walking without purchase/queue logic.
 	super._ready()
 	_mesh.material_override.albedo_color = Color(0.42, 0.46, 0.53)

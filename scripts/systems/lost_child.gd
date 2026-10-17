@@ -33,12 +33,19 @@ func _physics_process(delta: float) -> void:
 	$Mesh.rotation.z = 0 if is_instance_valid(holder) else sin(Time.get_ticks_msec() * 0.002) * 0.035
 
 func _free_motion(state: PhysicsDirectBodyState3D) -> void:
-	if not reunited or not is_instance_valid(parent_npc) or not grounded:
+	if not grounded or supported_by_cart:
+		return
+	if not reunited or not is_instance_valid(parent_npc):
+		var spacing := human_separation.correction(self, Vector3.ZERO, 0.25)
+		var idle := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z).move_toward(spacing, follow_acceleration * state.step)
+		state.linear_velocity.x = idle.x
+		state.linear_velocity.z = idle.z
 		return
 	var offset := follow_position() - state.transform.origin
 	offset.y = 0
 	var speed_limit := lerpf(walk_speed, recovery_speed, clampf((offset.length() - recovery_start_distance) / maxf(0.1, recovery_start_distance), 0, 1))
 	var desired := offset.normalized() * minf(speed_limit, offset.length() * follow_correction)
+	desired += human_separation.correction(self, desired, 0.25 * minf(1, offset.length()))
 	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z).move_toward(desired, follow_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z

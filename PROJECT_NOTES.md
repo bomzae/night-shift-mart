@@ -2,6 +2,54 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 10.2 — Human NPC Soft Separation / Crowd Flow
+
+2026-10-17 구현 및 자동 검증 완료. **기존1,058 + 신규31 = 총1,089 PASS**, 최종 실패/실행 오류0. 시작 Git은 clean(Prompt10.1은 사용자에 의해 정리된 상태)이었다. 변경은 uncommitted이며 commit/amend/reset/push하지 않았다. 실제 군중 조작감은 아래 수동 절차로 확인한다.
+
+### 재현 원인 / 충돌 정책
+
+- 기존 BasicCustomer/CarryableCharacter와 모든 World/Player/상품/Cart가 기본 layer 1을 공유했다. BasicCustomer의 move_and_slide가 NPC Capsule에 막히고, 목표 이동을 매 tick 다시 시도했다. 기존 분리는 manager.customers만 대상으로 0.85m 이내 반발을 제한 없이 합산해 Human 전체를 다루지 못했다.
+- 수정 전 실물 교차 재현에서 두 손님은 x=-0.317701/+0.317701에서 정지하고 180 physics ticks 후에도 지나가지 못했다. `.godot/p102_baseline.log`에 실패 기록을 보존한다.
+- 기존 레이어를 전면 재배치하지 않고 **layer7(bit64)=Human NPC**, **layer8(bit128)=Future Monster**를 추가했다. Human body는 layer64/mask129(기존 물리1 + 미래Monster128)다. Human↔Human은 양쪽 mask 모두 제외한다. Player/Cart/Product/Tool은 기존 layer1을 유지하고 mask에64를 더한다. Monster는 구현하지 않았으며 향후 layer128/body mask64로 상호 충돌 가능하다.
+- Grab Ray, Fire/Spill Area, Drunk ExitRemoval 영역, 소화기/화재 LOS도 Human 감지를 보존한다. Shelf Stock/Cart cargo 감지는 상품 대상이므로 기존 mask1을 유지한다. 바닥 생성 Ray는 기존 World 대상으로 유지한다.
+- 가족의 기존 재회 시 쌍방 예외는 호환성을 위해 그대로 두었다. 이제 일반 Human 정책상 중복이지만 새 NPC마다 예외를 추가하는 구조로 Crowd 정책을 구현한 것은 아니다. Follow Offset/퇴장 정리/재회 판정은 유지한다.
+
+### 공통 Soft Separation / 상태별 적용
+
+- 신규 `scripts/systems/human_separation.gd` Resource. `human_npcs` 그룹 중 자기 자신·삭제 예정·Carry 중 NPC를 제외하고 수평 근거리만 계산한다. 높이 차 1.5m 이상은 제외한다. 10~20명 규모의 단순 그룹 거리 검사이며 Navigation/RVO/ORCA를 추가하지 않는다.
+- 기본값: radius1.1m, personal_space0.8m, strength1.5, max_separation_speed0.65m/s, side_bias0.35. 거리 감소에 따라 반발이 커지고 최종 속도 벡터를 clamp한다. 반대 방향 보정은 목표 속도의15%까지만 허용해 전진 의도를 보존한다. 물리적 겹침을 막기 위한 강제 위치 이동은 없다.
+- 정면 상대에는 자기 진행 방향의 오른쪽 보정을 사용한다. 서로 반대 방향으로 걷는 두 NPC는 반대 월드 방향으로 비킨다. 매 frame random 선택 없음. 정확히 같은 위치의 반발 방향은 instance_id 순서로 고정한다.
+- Basic/Tourist/Accident/Dangerous 이동1.0, Queue/Checkout0.35, SHOP/EVENT_WAIT0. 목표 0.5m 이내에서는 거리 비례로 보정을 줄여 waypoint/Queue 도착을 방해하지 않는다. Shopping Point 예약·해제·retry와 논리 Queue spacing은 기존 그대로다.
+- Thief0.4, Drunk0.6. LostParent0.35(Queue 보정과 별도), LostChild 대기/Follow0.25이며 Follow 목표에 가까울수록 감소한다. Drunk의 wobble은 유지한다.
+- Carry/Cart 지지 상태의 캐릭터에는 분리 이동을 적용하지 않는다. FireReaction/Knockdown 중에는 기존 조기 반환/물리 적분 경로를 우선한다. Basic의 external push는 AI+separation 뒤에 합산하고, Carryable의 외부 impulse 반응 시간은 기존 우선순위를 유지한다.
+
+### 변경 파일 / 검사 계약
+
+- `human_separation.gd`(+UID): 공통 레이어 및 Steering 설정.
+- `basic_customer.gd`, `carryable_character.gd`, `drunk_customer.gd`, `lost_child.gd`, `lost_parent.gd`, `thief_customer.gd`: 기존 motor에 공통 보정 연결.
+- Player/Grabbable/ShoppingCart/Interaction: Human 충돌·선택 마스크. Fire/Spill/Drunk 제거 영역 및 Fire/Extinguisher Ray: 감지 유지. `project.godot`: 레이어 이름.
+- `tests/prompt10_2_smoke.gd`(+UID): 재현·모든 Human 타입 매트릭스·반경/반발/clamp/진행 보장/교차/Carry 제외/World·Player 충돌/실제12명 Rush 검사.
+- 기존 2.1/6.1/6.2의 mask==1 검사는 확장 마스크 또는 World bit 유지로 변경했다. 6.1의 예외 없음 설명을 이제 충돌 있음으로 오해하지 않도록 갱신했다. 물리 World 및 Player/Cart 검사는 유지한다. 기존 검사를 삭제하지 않았다.
+- Store Layout/AutoStock/Catalog/새 Event는 변경하지 않는다.
+
+### 검증 결과
+
+- 수정 전 교차 재현은 예상대로 1 FAIL. 수정 후 같은 180tick에서 x=+5.000001/-5.000001까지 지나갔다. Steering을 켠 별도 정면 교차·반경 밖0·근거리 반발·18명 밀집 clamp·방향 진행 보장·모든8종 Human 매트릭스·World/Player 양방향 test_move도 통과했다.
+- 신규 첫 통합 실행 및 최종 재검사 모두 **31 PASS / failures0**. 실제 버스12명 모두 Shelf 방문 및 Queue 진입, 방문9종, 최대Queue12명. 중복 실제 상품 예약 없음, 이벤트 IDLE 복귀. 기존 Prompt4의 6명 Queue 최소 간격은 약0.894m로 기존 계약 통과.
+- 기존 Prompt0~10.1 **1,058 PASS**, 신규10.2 **31 PASS**, 총 **1,089 PASS**. 기존 단계별 수는 Prompt10.1 기록과 동일하다. 임포트 → 신규10.2 → 기존0~10.1 창 모드 순차 검사 → headless Main 7,200tick(120초 시뮬레이션)을 수행했다. 모두 exit0, 최종 로그에서 SCRIPT ERROR/ERROR:/FAIL: 없음. 입력 검사는 동시에 여러 창을 실행하지 않았다.
+- 문서의 기존 Godot 실행 파일 사용. 검사 인수 `--path . --fixed-fps 60 --script res://tests/prompt<단계>_smoke.gd --quit-after 30000 --log-file .godot/p102_verified_<단계>.log`. 최종 로그 `.godot/p102_import_final.log`, `.godot/p102_verified_*.log`, `.godot/p102_main.log`. 최초 재현/신규 로그도 보존했다. 연결 중단 후 실제 파일/실행 상태를 확인하고 신규 검사를 이어서 작성했으며 구현을 중복 적용하지 않았다.
+- 최종 Git: 기존20파일 수정, 신규4파일(스크립트2+UID2), 모두 uncommitted. README 입력 변경 없음, AGENTS/Skill 불필요한 변경 없음. 공통 Human 원칙은 이 문서와 helper에 기록했다. `git diff --check` 공백 오류 없음.
+
+### 수동 확인 / Known Issues / 다음 단계
+
+1. F5 → I → U OFF → B: 승객이 입구에서 뭉쳐 정지하지 않고 여러 Shelf/Queue로 진행하는지 확인한다.
+2. 정면 교차·Shelf 통로 교차·같은 Shelf 방문을 확인한다. 좁은 곳의 잠깐 겹침은 허용하지만 영구 정체는 안 된다. SHOP 위치와 Queue spacing이 흐트러지지 않는지 확인한다.
+3. Player 몸 밀기, Cart 충돌, 상품 투척, Mop 접촉, 소화기 분사를 확인한다. Human끼리만 비충돌이며 이 대상들은 계속 실제 물리 상호작용해야 한다.
+4. Rush 중 K/L/T/O/P로 Drunk·가족·Thief·Spill·Fire를 함께 테스트한다. Carry→Drop, Knockdown/Fire 후 원래 목적지 재개, 가족 퇴장을 확인한다.
+- Soft Separation은 완벽한 군중 회피가 아니다. 극단적 밀집에서는 겹쳐 통과하며 World/Cart/Player가 막은 길은 여전히 실제 장애물이다.
+- **NPC Knockdown Mesh / Collider mismatch**, **Cart Contact Repeated Damage**는 최종 Polish/Combat Physics 재검토 항목으로 유지한다.
+- 수동 테스트 정상 후 Prompt11 Combat/Mini Boss 기반 작업으로 이어갈 준비 여부를 판단한다. Monster/Boss/Weapon은 추가하지 않는다.
+
 ## Prompt 10.1 — 확장 테스트 매장 / Product Catalog / Auto Stock
 
 2026-10-15 구현 완료. 작업 시작 Git은 clean이었다. 기존 Prompt 기록은 아래에 보존한다. 이번 변경은 commit/amend/reset/push하지 않고 사용자의 수동 검증을 위해 uncommitted로 유지한다. 신규 검사는 **113 PASS / failures 0**이며 전체 회귀 결과는 아래 검증 항목에 기록한다.

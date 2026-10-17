@@ -17,6 +17,8 @@ var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
 var external_push_time: float = 0.0
 @export var external_push_response: float = 1.5
+@export var human_separation := HumanSeparation.new()
+@export var separation_multiplier: float = 0.6
 
 func apply_external_impulse(impulse: Vector3) -> void:
 	if is_instance_valid(holder): return
@@ -25,6 +27,7 @@ func apply_external_impulse(impulse: Vector3) -> void:
 	apply_central_impulse((impulse * external_push_response).limit_length(6.0))
 
 func _ready() -> void:
+	human_separation.setup(self)
 	lock_rotation = true
 	continuous_cd = true
 	contact_monitor = true

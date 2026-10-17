@@ -41,6 +41,7 @@ var impact_count: int = 0
 
 
 func _ready() -> void:
+	collision_mask |= HumanSeparation.HUMAN_LAYER
 	if definition != null:
 		$Mesh.mesh = definition.mesh()
 		$CollisionShape3D.shape = definition.collision_shape()

@@ -35,8 +35,12 @@ var _push: Vector3 = Vector3.ZERO
 var _disappointment_left: float
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
+@export var human_separation := HumanSeparation.new()
+@export var separation_multiplier: float = 1.0
+@export var queue_separation_multiplier: float = 0.35
 
 func _ready() -> void:
+	human_separation.setup(self)
 	add_to_group("basic_customers")
 	patience_left = patience_time
 	floor_snap_length = 0.2
@@ -160,13 +164,10 @@ func _physics_process(delta: float) -> void:
 	var direction := target - global_position
 	direction.y = 0
 	var walking := direction.normalized() * minf(move_speed, direction.length() * 5)
-	for other in manager.customers:
-		if not uses_customer_separation() or other == self or not is_instance_valid(other):
-			continue
-		var separation: Vector3 = global_position - other.global_position
-		separation.y = 0
-		if separation.length() > 0.01 and separation.length() < 0.85:
-			walking += separation.normalized() * (0.85 - separation.length()) * 4
+	var spacing_weight := separation_multiplier * minf(1.0, direction.length() / 0.5)
+	if state == State.QUEUE or state == State.CHECKOUT: spacing_weight *= queue_separation_multiplier
+	if state == State.SHOP or state == State.EVENT_WAIT or not uses_customer_separation(): spacing_weight = 0
+	walking += human_separation.correction(self, walking, spacing_weight)
 	_push = _push.move_toward(Vector3.ZERO, push_decay * delta)
 	for body in _contact_zone.get_overlapping_bodies():
 		if body is ShoppingCart:

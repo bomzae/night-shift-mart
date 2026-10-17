@@ -16,7 +16,7 @@ func run_checks() -> void:
 	var families: Node = mart.get_node("LostFamilies")
 	var child: LostChild = families.spawn_pair()
 	var parent: LostParent = child.parent_npc
-	check(not bilateral(child, parent), "family collision enabled before reunion")
+	check(not bilateral(child, parent), "no family-specific exception before reunion; human layer policy applies")
 	check(await reunite_at(child, Vector3(0, 0.6, -0.5)), "reunion with child immediately in parent's path")
 	check(bilateral(child, parent), "reunion installs bilateral parent-child exception")
 	# Baseline reproduction can run before the new follow API exists.
@@ -35,7 +35,7 @@ func run_checks() -> void:
 	var offset := target - parent.global_position
 	check(is_equal_approx(offset.dot(parent.exit_direction), -child.follow_distance), "follow target behind parent's departure direction")
 	check(is_equal_approx(offset.dot(parent.exit_direction.cross(Vector3.UP)), child.lateral_offset), "follow target has lateral offset")
-	check(child.collision_mask == 1 and parent.collision_mask == 1, "world collision masks unchanged")
+	check(child.collision_mask == (1 | HumanSeparation.MONSTER_LAYER) and parent.collision_mask == (1 | HumanSeparation.MONSTER_LAYER), "world collision masks unchanged")
 	check(not child.get_collision_exceptions().has(player) and not parent.get_collision_exceptions().has(player), "player collision retained after carry separation")
 	var cart: ShoppingCart = mart.get_node("Cart")
 	check(not child.get_collision_exceptions().has(cart) and not parent.get_collision_exceptions().has(cart), "cart collision retained")
@@ -54,7 +54,7 @@ func run_checks() -> void:
 	if another == null:
 		await frames(25)
 		another = manager.spawn_customer([&"can"])
-	check(another != null and not bilateral(incoming, another), "normal customers keep mutual collision")
+	check(another != null and not bilateral(incoming, another), "normal customers need no pair exceptions")
 	var crossed := false
 	for tick in range(300):
 		await frames(1)
@@ -73,9 +73,9 @@ func run_checks() -> void:
 	var other: LostChild = families.spawn_pair()
 	parent = child.parent_npc
 	var other_parent: LostParent = other.parent_npc
-	check(not bilateral(parent, other_parent), "unresolved families remain physical")
+	check(not bilateral(parent, other_parent), "unresolved families need no pair exceptions")
 	check(await reunite_at(child, Vector3(0, 0.65, 0)), "overlapping child drop reunites safely")
-	check(not bilateral(child, other_parent) and not bilateral(parent, other), "unresolved other family collision remains enabled")
+	check(not bilateral(child, other_parent) and not bilateral(parent, other), "unresolved other family needs no pair exceptions")
 	check(await reunite_at(other, Vector3(0.2, 0.65, 0.3)), "second family reunites nearby")
 	check(bilateral(parent, other_parent) and bilateral(child, other_parent) and bilateral(child, other), "all departing family bodies have bilateral exceptions")
 	await place(child, Vector3(6, 0.55, 2))
@@ -99,7 +99,7 @@ func run_checks() -> void:
 	parent = child.parent_npc
 	# Keep this isolated wall test east of the real checkout counter (x=5,z=10).
 	parent.global_position = Vector3(7.5, 0.01, 8)
-	check(not bilateral(child, existing) and not bilateral(parent, existing), "waiting family retains customer collision")
+	check(not bilateral(child, existing) and not bilateral(parent, existing), "waiting family needs no customer exceptions")
 	check(await reunite_at(child, Vector3(0, 0.65, 0)), "reunion with customer already in scene")
 	check(bilateral(child, existing) and bilateral(parent, existing), "existing customer receives reciprocal exceptions")
 	check(not child.get_collision_exceptions().has(product) and not parent.get_collision_exceptions().has(product), "physical product collision retained")

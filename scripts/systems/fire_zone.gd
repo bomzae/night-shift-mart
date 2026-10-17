@@ -16,7 +16,7 @@ var _ended: bool = false
 func _ready() -> void:
 	add_to_group("fires")
 	collision_layer = 32
-	collision_mask = 1
+	collision_mask = 1 | HumanSeparation.HUMAN_LAYER
 	var collision := CollisionShape3D.new()
 	_shape = CylinderShape3D.new()
 	_shape.height = 2.6

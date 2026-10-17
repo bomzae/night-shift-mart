@@ -11,6 +11,7 @@ func _ready() -> void:
 	zone.name = "ExitRemovalZone"
 	zone.position = Vector3(-3, 1.5, 14)
 	zone.collision_layer = 0
+	zone.collision_mask = 1 | HumanSeparation.HUMAN_LAYER
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(4, 3, 2)

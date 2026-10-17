@@ -9,7 +9,7 @@ var exit_arrived: bool = false
 var exit_direction: Vector3 = Vector3.FORWARD
 
 func uses_customer_separation() -> bool:
-	return not reunited
+	return true
 
 func _physics_process(delta: float) -> void:
 	if not knockdown.active() and state == State.EXIT and not waypoints.is_empty():
@@ -24,6 +24,7 @@ func _ready() -> void:
 	state = State.EVENT_WAIT
 	super._ready()
 	move_speed = 1.5
+	separation_multiplier = 0.35
 	knockdown.minimum_fall_speed = 1.3
 
 func update_mood() -> void:
