@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 10.1 / 확장 테스트 매장 · Product Catalog · Auto Stock 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 11 / KING RAT · 기존 물리 도구 기반 Combat 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -37,6 +37,16 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | debug_spawn_thief | T | 개발용 도둑 생성(최대 2명, U OFF에서도 가능) |
 | debug_tourist_bus | B | 개발용 관광버스 호출(이벤트 진행 중 중복 호출 불가) |
 | debug_auto_stock | I | 개발용 전체 Shelf 부족분을 실제 물리 상품으로 보충 |
+| spawn_king_rat | R | 개발용 KING RAT 생성(동시에 1마리, 안전한 후면 공간 필요) |
+
+## KING RAT 테스트
+**F5 → I → U OFF → R**로 단독 보스 테스트를 시작합니다. U OFF는 선택 사항이며 기존 손님은 계속 행동합니다.
+KING RAT는 실제 진열·바닥 상품을 먹어 BOSS LOSS를 증가시킵니다. 상품을 먼저 집으면 다른 대상을 찾습니다.
+상품 우클릭 Charge Throw, Cart Launch/Cart Bomb의 기존 피해가 그대로 적용됩니다. 고가 상품일수록 강하지만 무거운 상품은 투척 거리가 짧습니다.
+주황색 `!` 준비 동작 후 고정 방향으로 돌진하므로 옆으로 피할 수 있습니다. 맞으면 기존 Knockdown/Backward Fall 후 회복하며 HP는 없습니다.
+소화기는 **F 분사로 Push**, Mop은 물리 접촉 도구로 사용할 수 있습니다. 전용 근접무기는 아직 없습니다.
+보스 HP는 등장 중에만 표시하며, 처치 후 약 1.5초 뒤 제거됩니다. B로 Rush나 다른 사건을 함께 실행할 수 있습니다.
+Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유지합니다. 실제 전투에서의 재미/악용 여부는 수동 관찰 대상입니다.
 
 ## 빠른 테스트 준비 / Auto Stock
 **F5 → I**로 정상 Shelf를 채웁니다. 기본 9종과 호환용 Appliance까지 총 10개 Shelf, 최대 55개입니다.

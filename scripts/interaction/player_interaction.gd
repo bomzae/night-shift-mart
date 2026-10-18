@@ -110,7 +110,7 @@ func _physics_process(delta: float) -> void:
 func find_candidate() -> PhysicsBody3D:
 	var origin := camera.global_position
 	var query := PhysicsRayQueryParameters3D.create(origin, origin - camera.global_basis.z * grab_distance)
-	query.collision_mask = 3 | HumanSeparation.HUMAN_LAYER # Bodies + handles + humans, not hazard sensors.
+	query.collision_mask = 3 | HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER # Bodies + handles + humans, not hazard sensors.
 	query.exclude = [player.get_rid()]
 	query.collide_with_areas = true
 	var hit := camera.get_world_3d().direct_space_state.intersect_ray(query)

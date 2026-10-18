@@ -58,7 +58,7 @@ var _grabbing_player: PhysicsBody3D
 
 
 func _ready() -> void:
-	collision_mask |= HumanSeparation.HUMAN_LAYER
+	collision_mask |= HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER
 	mass = maxf(0.1, cart_base_mass)
 	effective_mass = mass
 	contact_monitor = true

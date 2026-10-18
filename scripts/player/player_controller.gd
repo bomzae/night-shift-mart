@@ -18,7 +18,7 @@ var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravi
 
 
 func _ready() -> void:
-	collision_mask |= HumanSeparation.HUMAN_LAYER
+	collision_mask |= HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	knockdown.setup(self, head, true)
 	fire_reaction.setup(self, true)

@@ -2,6 +2,74 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11 — Combat Foundation / KING RAT
+
+2026-10-17 구현 및 자동 검증 완료. **기존1,089 + 신규62 = 총1,151 PASS**, 최종 실패/실행 오류0. 시작 Git은 clean(Prompt10.2 사용자 정리 완료)이었다. 이번 작업은 commit/amend/reset/push하지 않고 uncommitted로 유지한다. 무기/Player Health/보상 경제/다른 보스는 구현하지 않는다. 전투 손맛과 Cart rubbing 평가는 수동 테스트가 필요하다.
+
+### Monster / 공통 Combat Target
+
+- `scripts/combat/combat_target.gd`: 작은 CharacterBody3D 기반. max_health/current_health, receive_damage, receive_impulse, 기존 `receive_impact(damage, impulse)` 및 PhysicsPush의 `apply_external_impulse`를 제공한다. damaged/defeated signal과 중복 처치 방지, 제한된 external_velocity를 가진다.
+- Monster는 기존 예약 layer8(bit128)을 실제 사용한다. Human 그룹/Soft Separation에 등록하지 않는다. Monster mask193(기존 World/Player/Physics1 + Human64 + Monster128), Human mask129 유지. Player/Cart/Product/Tool mask에128을 추가했다. 선택 Ray·소화기·화재 LOS도 Monster를 장애물/외력 대상으로 인식한다.
+- 공통 접촉 Area에서 움직이는 RigidBody의 접근 속도·질량을 읽어 제한된 Push를 받는다. Mop/툴에 피해 공식을 새로 붙이지 않는다. 외부 Push는 AI desired velocity와 합산한다. World/선반 Capsule 충돌은 유지한다.
+- 기존 상품·Cart는 이미 receive_impact 호출 인터페이스가 있으므로 피해 공식과 충돌 코드를 바꾸지 않았다. 상품은 기존 price/Charge 피해, impact_min_speed 게이트, weight 기반 속도·impulse를 사용한다. Cart는 기존 impact speed×effective mass 및 상한, cargo의 개별 arm_cart_impact 경로를 그대로 사용한다.
+
+### KING RAT / 먹기 / 손실
+
+- `scripts/combat/king_rat.gd`, `scenes/combat/king_rat.tscn`: Capsule 충돌, 타원형 body/head, 귀·눈·꼬리 primitive. 외부 에셋 없음.
+- SPAWN(0.5초) → SEEK_FOOD → MOVE_TO_FOOD → EAT → SEEK_FOOD. TELEGRAPH → CHARGE, 강한 피격 STAGGER, DEFEATED 상태도 있다.
+- 실제 grabbable 그룹에서 product_type이 있는 Store 내부 상품만 선택한다. 도구/들고 있는 상품/삭제 예정/sold/stolen/broken/boss_eaten은 제외한다. 가장 가까운 유효 상품을 선택하며 별도 가짜 상품이나 인벤토리는 없다.
+- Shelf 상품은 기존 Shelf 앞 Shopping Point 위치를 접근 목표로 사용하되 고객 예약을 점유하지 않는다. 기존 중앙 통로 z=3.1을 통해 접근하며 바닥 상품도 지원한다. 전체 Navigation을 새로 만들지 않았다. 목표 변경/삭제/Grab은 재탐색, 2.5초 진행 없음 또는 접근 경로 소진 시 해당 상품을 5초 피하고 재탐색한다.
+- 돌진 후 중앙 Shelf 앞쪽(z>6.7, |x|<7.4)에 남으면 z=7.7 → 가까운 측면 x=±7.6 → z=3.1 순서로 우회한다. 모든 목표가 같은 선반 벽에 재접근하는 상황을 피하는 Graybox 한정 경로이며 기존 Store나 NPC 경로를 바꾸지 않는다. 실제 예약 상품 먹기 검사 시작 위치를 앞쪽으로 바꿔 이 복귀 경로도 검증한다.
+- 먹기에는 거리1.9m + World 가시성 + 최종 유효성 검사가 필요하다. 1.5초 먹기 완료 시 `boss_eaten` 표시 후 실제 노드를 즉시 queue_free하고 Shelf.refresh_stock을 호출한다. queued 플래그가 같은 tick의 판매/절도/화재 검증도 무효화한다. 예약 손님은 기존 OOS로 연결된다.
+- `boss_product_loss_value += 실제 price`만 기록한다. Sales/unpaid/stolen/fire/broken ledger에 중복 손실을 넣지 않는다. 먹다가 Player가 옮기거나 다른 시스템이 상품을 소비하면 먹기를 취소한다.
+
+### Charge / Stagger / Defeat / UI
+
+- Player가 7m 이내이고 cooldown이 끝나면 0.65초 주황색·`!` 준비 후 0.8초 동안7.5m/s 돌진한다. 방향은 준비 시작 시 고정되어 Player가 옆으로 이동하면 추적하지 않는다. 초기 cooldown4초, 이후8초다.
+- 실제 slide collision에 닿은 Player/Human의 기존 Knockdown.try_start를 사용한다. 돌진당 대상1회, 기존 immunity/Carry 예외를 존중한다. Player의 held Drop/Cart release/charge cancel/Backward Fall은 공통 Knockdown signal로 그대로 발생한다. NPC 작업 상태는 별도로 변경하지 않는다.
+- Cart/상품은 기존 PhysicsPush로 밀 수 있으며 선반을 파괴하거나 통과하지 않는다. Monster 자체에는 Spill Knockdown/Fire Panic/화재 HP를 추가하지 않았다.
+- 한 hit45 이상이면0.45초 Stagger. 흰색 hit flash0.18초와 피해 숫자 표시. max_health300, HP0이면 처치 signal1회,1.5초 몸 기울임 후 Despawn.
+- `king_rat_manager.gd`: R debug action, 동시1마리(처치 연출 포함), 안전 공간 query와 Player3m 이상 거리 확인. 후면 후보 (0,0.02,2),(-4,0.02,2),(4,0.02,2) 순서로 시도한다. 막히면 생성하지 않는다. UI는 보스 활성 중 KING RAT/HP만 표시하고 평시에는 숨긴다. 작은 [R] 통계는 계속 표시한다.
+- `bosses_defeated`: defeated signal당+1. `boss_product_loss_value`: 실제 먹은 값 누적. 보상/Unlock 없음. 어떤 Boss Mode도 없으며 U 선택·Customer·Checkout·Delivery·Rush·특수 Event를 멈추지 않는다.
+
+### 실제 조절값
+
+| 위치 | 변수 | 기본값 |
+| --- | --- | --- |
+| CombatTarget | max_health / target_mass / max_push_speed | 300 / 18 / 5m/s |
+| CombatTarget | push_drag | 3.0(비례 감쇠) |
+| KingRat | move_speed / eat_time / eat_reach | 2.4m/s / 1.5초 / 1.9m |
+| KingRat | charge_cooldown / charge_range | 8초 / 7m |
+| KingRat | telegraph_time / charge_speed / charge_duration | 0.65초 / 7.5m/s / 0.8초 |
+| KingRat | charge_push | 3.5 |
+| KingRat | stagger_threshold / stagger_time | 45 / 0.45초 |
+| KingRat | defeat_time / stuck_time | 1.5초 / 2.5초 |
+
+### 파일 / 검사 이력
+
+- 신규 CombatTarget/KingRat/KingRatManager 스크립트(+UID), king_rat.tscn, tests/prompt11_smoke.gd(+UID).
+- 수정 Mart에 Bosses 연결, project.godot R/Monster 레이어 이름, Player/Grabbable/Cart/Interaction/Extinguisher/Fire LOS 마스크, README/이 문서. 기존 prompt2_1의 정확한 Cart mask 기대값에 Monster bit를 추가했고 World/Player/Human 보존 계약은 그대로다.
+- 샌드박스 import에서 사용자 AppData Godot 설정 저장 권한 오류가 발생해 정상 사용자 권한으로 재실행했다. 프로젝트 parse 오류와 구분한다. 초기 로그 보존.
+- 최초 신규 검사에서 Cart 관련3건 실패. Backroom z=-1.5에서 Store의 보스 z=2로 발사하면 바닥 경계에서 카트가 튀어 보스 위로 지나갔다. 로그에서 cart y≈2.22/0.98까지 상승한 실제 궤적을 확인했다. 직접 보스 충돌 검사만 같은 Store 바닥 z=1→4.3으로 분리했다. Cart 물리/피해/바닥 구조는 수정하지 않았다.
+- 다음 분리 검사에서 실제 Cart 피해는 정상이나, cargo가 흩어진 뒤 현재 effective_mass로 피해를 다시 계산하던 검사1건이 실패했다. 충돌 당시 last_impact_mass를 사용해 원래 공식을 검증하도록 수정했다. 빈 카트 약25.55 피해, 적재 Cart 약27.71 + Can2개 개별 명중을 관측했다. 물리 산포가 있는 관측값이며 고정 밸런스 수치가 아니다.
+- `.godot/p11_boss.png` 실제 렌더에서 보스 외형/HP/UI를 확인했다. 최초 통합3실패와 원인 분리 로그, 수정 후 통합0실패 로그를 보존한다. 수동 전투 손맛/Cart rubbing 평가를 자동 통과라고 보고하지 않는다.
+- 최종 자동 회귀: Prompt0~10.2 1,089 PASS, Prompt11 62 PASS, 합계1,151 PASS. 모든 검사 종료코드0, 최종 로그 SCRIPT ERROR/ERROR:/FAIL: 0. 실제 창 입력 검사는 순차 실행했다. 최종 import와 Main 7,200 physics ticks(60Hz 기준120초 시뮬레이션)도 종료코드0, 오류/경고0.
+- 최종 로그: `.godot/p11_verified_*.log`, `.godot/p11_import_final.log`, `.godot/p11_main.log`. 신규 검사에서 실제 상품 명중, 빈/적재 Cart 명중 및 개별 cargo 피해, 선반 앞쪽 우회 후 예약 상품 먹기, 중복 손실 방지, Player/Human 돌진 피격·회복, 옆 회피, 소화기 실제 분사 Push, 동시 Bus/Thief 진행을 확인했다. 전체 Full Chaos 조작감은 수동 확인 대상으로 남긴다.
+- 보강한 실제 소화기 검사에서1건 실패: 분사 impulse/18kg의 tick 증가량보다 기존 고정 감속3m/s²가 커 작은 외력이 매번0이 되었다. 보스 외력 감속을 exp(-push_drag×delta) 비례 감쇠로 수정해 작은 지속 외력도 반응하도록 했다. 실패 로그 `.godot/p11_before_drag_fix.log`를 보존하고 최종 재검사62 PASS에서 실제 분사 이동/HP 불변을 확인했다.
+
+### 수동 테스트 / Known Issues / 다음 단계
+
+1. F5 → I → U OFF → R: HP/안전 Spawn/여러 실제 Shelf 및 바닥 상품 먹기/Stock 감소/BOSS LOSS 확인. 목표 상품 Grab 및 삭제 시 재탐색 확인.
+2. Bread/Can/Watermelon/Pan/Microwave/TV의 Tap/Full Charge 피해와 거리 비교. 빈 Cart 및 Loaded Cart Full Charge로 본체+산개 상품 명중과 Stagger 확인.
+3. 준비 `!`를 보고 옆으로 회피, 일부러 피격해 Drop/Backward Fall/회복 확인. NPC 피격 후 Shopping/Thief Escape/Family Exit 복귀 확인.
+4. 소화기 F Push와 Mop 접촉 확인. R active 중 U/B/K/L/O/P/T·Delivery·Checkout을 병행한다.
+5. 처치1회 통계/HP숨김/1.5초 후 제거/다시 R 확인. 기존 상품을 전투에 쓰는 재미와 가격·무게별 유효성은 사용자 수동 판단 대상이다.
+- **NPC Knockdown Mesh / Collider mismatch** 유지.
+- **Cart Contact Repeated Damage** 유지. KING RAT에 카트를 비빌 때 재미있는 기술인지 과도한 exploit인지는 **수동 테스트 필요**, 이번에는 수정하지 않았다.
+- **바닥 경계 고속 Cart 도약**: 초기 보스 검사에서 실제 관측. 경계에서 튀면 공격이 빗나갈 수 있다. 이번 Prompt에서는 기존 바닥/카트 물리 변경 범위를 늘리지 않았다. Final Physics에서 동선/전투 조작감과 함께 확인한다.
+- 보스는 통로 waypoint+재탐색 수준이며 완전한 길찾기는 아니다. 물리 장애물로 막힌 특정 상품은 잠시 피하며, 모든 길이 막힌 경우 플레이어의 환경 정리가 필요할 수 있다.
+- 수동 검증 정상 후 Prompt12 근접 도구/무기 기반 확장 준비. 이번에는 전용 무기를 구현하지 않는다.
+
 ## Prompt 10.2 — Human NPC Soft Separation / Crowd Flow
 
 2026-10-17 구현 및 자동 검증 완료. **기존1,058 + 신규31 = 총1,089 PASS**, 최종 실패/실행 오류0. 시작 Git은 clean(Prompt10.1은 사용자에 의해 정리된 상태)이었다. 변경은 uncommitted이며 commit/amend/reset/push하지 않았다. 실제 군중 조작감은 아래 수동 절차로 확인한다.

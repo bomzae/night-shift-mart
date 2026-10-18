@@ -117,6 +117,11 @@ debug_auto_stock={
 ]
 }
 
+spawn_king_rat={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":82)]
+}
+
 [layer_names]
 
 3d_physics/layer_1="World Player Physics"
@@ -124,7 +129,7 @@ debug_auto_stock={
 3d_physics/layer_5="Spill Sensor"
 3d_physics/layer_6="Fire Sensor"
 3d_physics/layer_7="Human NPC"
-3d_physics/layer_8="Future Monster"
+3d_physics/layer_8="Monster"
 
 [rendering]
 

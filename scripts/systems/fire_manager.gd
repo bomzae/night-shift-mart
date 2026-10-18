@@ -72,7 +72,7 @@ func _prune() -> void:
 	fires = fires.filter(func(fire): return is_instance_valid(fire) and not fire.is_queued_for_deletion())
 
 func visible_between(from: Vector3, to: Vector3, excluded: Array[RID] = []) -> bool:
-	return get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1 | HumanSeparation.HUMAN_LAYER, excluded)).is_empty()
+	return get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1 | HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER, excluded)).is_empty()
 
 func _physics_process(delta: float) -> void:
 	_prune()
