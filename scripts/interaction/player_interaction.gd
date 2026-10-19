@@ -57,7 +57,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		cancel_charge()
 		return
-	if event.is_action_pressed("grab"):
+	if event.is_action_pressed("consume_item") and not event.is_echo():
+		consume_held_food()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("grab"):
 		_grab_requested = true
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("throw"):
@@ -286,3 +289,14 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 func _exit_tree() -> void:
 	drop_held()
 
+
+
+func consume_held_food() -> bool:
+	if not held_object is GrabbableBody or KnockdownState.blocked(player): return false
+	var health := player.get_node_or_null("PlayerHealth") as PlayerHealth
+	if health == null: return false
+	var query := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position - camera.global_basis.z * (health.feed_distance + 0.5), 1 | 64 | 128, [player.get_rid(), held_object.get_rid()])
+	var hit := player.get_world_3d().direct_space_state.intersect_ray(query)
+	var target: PlayerHealth
+	if not hit.is_empty(): target = hit.collider.get_node_or_null("PlayerHealth") as PlayerHealth
+	return health.use_food(held_object, target)

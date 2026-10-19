@@ -16,6 +16,7 @@ enum Phase { UPRIGHT, FALLING, DOWN, STANDING_UP, IMMUNE }
 @export var fall_camera_roll_degrees: float = 0.0
 @export var fall_camera_floor_margin: float = 0.18
 @export var npc_tilt_degrees: float = 80.0
+var persistent_down: bool = false
 var phase: Phase = Phase.UPRIGHT
 var elapsed: float = 0.0
 var fall_count: int = 0
@@ -51,7 +52,7 @@ func tick(delta: float) -> bool:
 		if phase == Phase.FALLING: duration = fall_down_time
 		elif phase == Phase.DOWN: duration = knockdown_duration
 		elif phase == Phase.STANDING_UP: duration = stand_up_time
-		if elapsed >= maxf(0.01, duration):
+		if elapsed >= maxf(0.01, duration) and not (persistent_down and phase == Phase.DOWN):
 			elapsed = 0
 			if phase == Phase.STANDING_UP:
 				finish_recovery()
@@ -137,6 +138,21 @@ func _player_pose(amount: float) -> void:
 		lowering = minf(lowering, maxf(0, rest_world.y - hit.position.y - margin))
 	visual.position.y = _rest_position.y - lowering
 	_camera.rotation = _camera_rest_rotation + Vector3(deg_to_rad(fall_camera_pitch_degrees), 0, deg_to_rad(fall_camera_roll_degrees)) * amount
+
+func hold_downed() -> void:
+	persistent_down = true
+	if not active():
+		phase = Phase.FALLING
+		elapsed = 0
+	elif phase == Phase.STANDING_UP:
+		phase = Phase.DOWN
+		elapsed = 0
+	started.emit()
+
+func release_downed() -> void:
+	persistent_down = false
+	phase = Phase.STANDING_UP
+	elapsed = 0
 
 func finish_recovery() -> void:
 	phase = Phase.IMMUNE

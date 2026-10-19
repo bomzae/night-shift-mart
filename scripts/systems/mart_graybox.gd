@@ -64,6 +64,9 @@ func _ready() -> void:
 	var thieves := ThiefManager.new()
 	thieves.name = "Thieves"
 	add_child(thieves)
+	var team := TeamLifeManager.new()
+	team.name = "TeamLife"
+	add_child(team)
 	var boss_manager := KingRatManager.new()
 	boss_manager.name = "Bosses"
 	add_child(boss_manager)

@@ -10,6 +10,7 @@ var include_cart_fixtures: bool = false
 
 
 func _initialize() -> void:
+	root.grab_focus() # Do not recapture later: focus-loss cancellation remains tested.
 	call_deferred("run_checks")
 
 
@@ -17,6 +18,8 @@ func check(condition: bool, label: String) -> void:
 	if condition:
 		print("PASS: ", label)
 	else:
+		if is_instance_valid(player) and is_instance_valid(interaction):
+			print("INPUT DIAGNOSTIC mouse=", Input.mouse_mode, " yaw=", player.rotation.y, " held=", interaction.held_object, " charge=", interaction.charge_ratio, " blocked=", KnockdownState.blocked(player))
 		push_error("FAIL: " + label)
 		failures += 1
 

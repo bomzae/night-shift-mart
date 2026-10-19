@@ -20,3 +20,6 @@ shelf_position = Vector3(-11, 0, 6)
 shelf_yaw = 90
 legacy = false
 
+
+is_food = true
+heal_value = 20.0

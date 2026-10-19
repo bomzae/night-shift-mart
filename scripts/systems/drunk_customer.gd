@@ -49,6 +49,7 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 	var wobble := 0.45 * (wet_wobble_multiplier if SlipState.wet(self) else 1.0)
 	var desired := wander_direction.rotated(Vector3.UP, sin(_phase * 2.1) * wobble) * wander_speed
 	desired += human_separation.correction(self, desired, separation_multiplier)
+	desired = cart_recovery.steer(desired, state.step, 0.6)
 	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z)
 	horizontal = horizontal.move_toward(desired, wander_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x

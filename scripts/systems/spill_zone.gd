@@ -23,6 +23,7 @@ func contains_core(point: Vector3) -> bool:
 	return Vector2(offset.x, offset.z).length() <= _shape.radius * core_ratio
 
 func _ready() -> void:
+	add_to_group("spills")
 	collision_layer = 16 # Mop head sensing only; no solid liquid collider.
 	collision_mask = 1 | HumanSeparation.HUMAN_LAYER
 	_shape = CylinderShape3D.new()

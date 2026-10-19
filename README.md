@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 11 / KING RAT · 기존 물리 도구 기반 Combat 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 11.1 / Cart 복구 · Player HP · 음식 회복/부활 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
@@ -38,12 +38,30 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | debug_tourist_bus | B | 개발용 관광버스 호출(이벤트 진행 중 중복 호출 불가) |
 | debug_auto_stock | I | 개발용 전체 Shelf 부족분을 실제 물리 상품으로 보충 |
 | spawn_king_rat | R | 개발용 KING RAT 생성(동시에 1마리, 안전한 후면 공간 필요) |
+| consume_item | G | 음식으로 자신 회복 / 바라보는 DOWNED 동료에게 먹이기 |
+| debug_damage_player | H | 개발용 Player HP 30 감소 |
+
+## Player HP / 음식 / 부활
+HP 기본값은 100입니다. Bread/Milk/Watermelon을 들고 **G**를 누르면 각각 15/20/30 HP 회복합니다.
+Full HP와 비식품은 소비하지 않습니다. 음식은 실제로 제거되며 FOOD 비용에 가격이 기록됩니다.
+살아 있는 Player가 2m 이내 DOWNED 동료를 바라보고 G를 누르면 30/40/60 HP로 부활시킵니다.
+벽 너머 먹이기와 DOWNED 상태의 자가 부활은 불가능합니다. 네트워크 멀티플레이는 아직 없습니다.
+마지막 Player가 쓰러지면 즉시 DAY FAILED가 되고, 2초 후 다음 날 Full HP/시작 위치로 복구됩니다.
+현재는 Player·활성 보스·시작 위치 근처 Fire/Spill만 정리하는 Prototype이며 재고·매출·영업 전체를 초기화하지 않습니다.
+**싱글플레이에서는 혼자 쓰러지는 즉시 Day Failure가 정상입니다.**
+동료 부활 수동 테스트: `tests/food_revive_test.tscn`을 열고 **F6** → 후면 통로 음식 Grab → 쓰러진 테스트 동료를 바라보고 G.
+테스트 동료는 직접 조작하지 않습니다. 동료를 살리기 전에 H로 자신도 쓰러뜨리면 전원 DOWNED→다음 날 복구를 확인할 수 있습니다. 다른 음식 비교는 F6로 다시 시작하세요.
+Main에는 가짜 Player를 추가하지 않습니다. H는 개발용 HP 감소 키입니다.
+
+## Cart 장애물 복구
+사람형 NPC는 Cart 앞에서 먼저 옆으로 비킵니다. 전진이 약 2초간 막히면 해당 NPC–Cart 쌍만 임시 통과하고,
+Cart에서 충분히 벗어나면 충돌을 복구합니다. Cart로 NPC를 밀기와 Human끼리의 Soft Separation은 유지합니다.
 
 ## KING RAT 테스트
 **F5 → I → U OFF → R**로 단독 보스 테스트를 시작합니다. U OFF는 선택 사항이며 기존 손님은 계속 행동합니다.
 KING RAT는 실제 진열·바닥 상품을 먹어 BOSS LOSS를 증가시킵니다. 상품을 먼저 집으면 다른 대상을 찾습니다.
 상품 우클릭 Charge Throw, Cart Launch/Cart Bomb의 기존 피해가 그대로 적용됩니다. 고가 상품일수록 강하지만 무거운 상품은 투척 거리가 짧습니다.
-주황색 `!` 준비 동작 후 고정 방향으로 돌진하므로 옆으로 피할 수 있습니다. 맞으면 기존 Knockdown/Backward Fall 후 회복하며 HP는 없습니다.
+주황색 `!` 준비 동작 후 고정 방향으로 돌진하므로 옆으로 피할 수 있습니다. 맞으면 HP 30 감소와 기존 Knockdown/Backward Fall이 발생합니다. HP 0이면 DOWNED이며 자동 기상하지 않습니다.
 소화기는 **F 분사로 Push**, Mop은 물리 접촉 도구로 사용할 수 있습니다. 전용 근접무기는 아직 없습니다.
 보스 HP는 등장 중에만 표시하며, 처치 후 약 1.5초 뒤 제거됩니다. B로 Rush나 다른 사건을 함께 실행할 수 있습니다.
 Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유지합니다. 실제 전투에서의 재미/악용 여부는 수동 관찰 대상입니다.

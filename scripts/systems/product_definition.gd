@@ -7,6 +7,8 @@ extends Resource
 @export var shelf_name: String
 @export var price: float
 @export var weight: float
+@export var is_food: bool = false
+@export var heal_value: float = 0
 @export var flammable: bool = true
 @export var size := Vector3(0.3, 0.3, 0.3)
 @export_enum("Box", "Cylinder", "Sphere") var shape_kind: int = 0

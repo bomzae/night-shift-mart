@@ -2,6 +2,63 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.1 — Cart Recovery / Player Health / Food Revive
+
+2026-10-19 구현 및 자동 검증 완료. **기존1,151 + 신규57 = 총1,208 PASS**, 최종 실패/실행 오류0. 시작 시 `project.godot`의 R 입력 Editor 직렬화 변경이 이미 있었고 보존했다. commit/amend/reset/push하지 않고 모든 변경을 uncommitted로 유지한다. 실제 군중/전투 조작감은 수동 테스트가 필요하다.
+
+### Cart 원인 / 복구
+
+- 기존 Human motor는 Cart 충돌 후 같은 목적지 방향을 계속 요구했다. Human Separation은 다른 Human만 다루므로 Cart 장애물에는 복구가 없었다.
+- 같은 좁은 통로 fixture에서 기존 직진 motor는 z≈0.479에서 600 ticks 후에도 막혔다. 수정 motor는 열린 통로에서 측면 x≈-1.22로 우회해 z>4.5 도달, 좁은 통로에서는 쌍별 통과 후 z>4.5 도달 및 양쪽 exception 제거를 확인했다. 실제 Customer AI motor의 목적지 진행도 검증했다.
+- `CartRecovery`는 Human 전용 작은 Node다. 진행 방향2.2m에 capsule 폭을 고려한3개 probe로 Cart를 찾는다. 벽 너머 Cart를 탐지하지 않는다. 양쪽1.5m 여유를 비교해 encounter 동안 고정된 side를 선택한다.
+- side_speed1.5, 최대 desired speed의80% 보정. Queue/Checkout/SHOP은0.4, Drunk0.6, 나머지 이동1.0. 목표 이동과 외부 push는 유지한다. Basic 기반 Tourist/Accident/Dangerous/Thief/Parent와 Carryable 기반 Drunk/Child Follow에 연결했다. 들기/Cart 위 적재/Knockdown/Fire는 기존 동작을 우선한다.
+- 실제 forward progress가0.15m/s 미만인 정체2초 후 해당 NPC–Cart 양쪽에만 exception.2.5m 이상 떨어지면 복구하며 Cart 삭제/Character 삭제/Carry 시작에서도 정리한다. World/Player/다른Cart/Product/Monster mask는 변경하지 않았다. KING RAT에는 적용하지 않는다.
+- 가까이 이어진 Cart 두 대는 각 쌍을 독립적으로 처리한다. 이미 통과 중인 Cart를 probe에서 제외해 다음 Cart도 감지하며, 첫 Cart 예외를 유지한 채 둘째 Cart 복구가 가능하다. 좁은 통로의 두 Cart 통과 및 모든 exception 복구 검사도 통과했다.
+
+### Player Health / Downed
+
+- `PlayerHealth`: Player별 max/current_health, is_downed, receive_damage(amount, source), heal, enter_downed, revive, reset_for_day, changed/downed/restored 신호. 기본HP100.
+- KING RAT charge_damage30. 기존 돌진별 hit set으로 동일 대상1회이며 NPC에는 HP를 추가하지 않았다. Player Damage 후 기존 Knockdown. 이미 Downed면 추가 피해 없음.
+- 공통 Knockdown에 persistent_down을 추가했다. HP0이면 started 신호로 held Product/Character/Cart/Charge/Tool을 해제하고 FALLING→DOWN에서 멈춘다. 기존 Spill Knockdown의 시간/연출/면역은 변경하지 않았다.
+- DOWNED 중 이동/Jump/Grab/Throw/Tool/Checkout 제한, Mouse Look 유지. 기존 upright Capsule과 Backward Camera pose 유지. revive하면 기존0.4초 STANDING_UP 후 입력 복귀. Day reset은 pose/velocity/시작 transform/Head look을 복구한다.
+
+### 음식 / 부활 / 통계
+
+- ProductDefinition에 is_food(false), heal_value(0). Bread15/Milk20/Watermelon30만 음식으로 설정했다. 다른 가격·무게·물리 설정은 유지한다.
+- `G = consume_item`. 자신 회복은 Full HP 차단. 들고 있는 실제 상품 ownership, food flag, 유효성 검사 후 회복/노드 삭제. `consumed_product_value += 실제 price`1회. queued 상태로 Customer/Fire/Thief/Boss의 기존 소비 검증과 연결된다.
+- `PlayerHealth.use_food(food, target)`는 살아 있고 조작 가능한 제공자, 같은 Team에 등록된 Downed 대상, 거리2m, World LOS를 검증한다. G 입력은 Camera Ray로 대상 PlayerHealth를 고른다. 동료는 heal_value×2(30/40/60)로 부활하며 다른 Alive Player가 반드시 필요하다.
+- Self revive/비식품/거리 초과/벽 너머/전원 Downed 이후 부활은 차단한다. 네트워크 동기화 없음.
+- `tests/food_revive_test.tscn` F6 전용으로 테스트 동료를 생성한다. 실제 PlayerHealth·Knockdown과 물리 Body를 사용하며 Main에는 가짜 Player를 두지 않는다.
+
+### Team / Day prototype
+
+- `TeamLifeManager`가 PlayerHealth 목록을 등록하고 Alive 수를 센다. 한 명이라도 Alive면 계속 영업. 마지막 Downed 순간 day_failed signal을1회 발생시키고 feeding 허용을 즉시 닫는다.
+- 기본2초 DAY FAILED 표시 후 current_day+1, 모든 등록 Player Full HP/시작 위치/정상 pose. 보스는 통계 보상 없이 정리하고 각 시작점3m 안의 Fire/Spill을 정리한다. 기타 Inventory/매출/Customer/모든 Event를 reset하지 않는다. 전체 Round Director/Day economy persistence는 미구현이다.
+- 작은 HUD에 HP/ALIVE/DAY/FOOD 표시. `H = debug_damage_player`로30 HP 감소. G/H는 기존 입력과 중복 없음. R/I/U/B 및 특수 Spawn은 기존대로다.
+
+### 검사 이력 / 결과
+
+- 초기 sandbox import는 인증서/AppData editor settings 접근 오류. 정상 사용자 환경에서 재실행했다. 최초 Main compile의 Cart probe origin 타입 추론 오류는 Vector3 명시로 수정했다.
+- 첫 신규 검사15실패: 부활 fixture가 기존 Checkout 위치여서 Counter에 LOS가 막혔다. 열린 후면 통로로 옮기고 실제 G Ray 입력으로 검증했다. 첫 부활 실패로 뒤의 Downed/Day 단계가 연쇄 실패했으며 실패 로그를 보존했다. 수정 재검사0실패. 벽·거리 차단과 실제 Customer motor, HP0 Character/Cart release 검사를 보강한 신규55개도 통과했다.
+- 연속 Cart 검사2개 보강 후 신규57 PASS. 첫 전체 회귀의 일부 입력 검사에서36개 실패가 발생했다. Cart/Checkout/Fire 이동/Thief 포획 실패 로그에는 mouse=0(잠금 해제), blocked=false가 기록됐고 Full Charge 캡처에서도 조준점/Charge UI가 숨겨져 있었다. 실패 로그는 `.godot/p111_before_focus_*.log`에 보존했다.
+- 테스트 시작 시 Window.grab_focus를 한 번 요청하도록 보강했다. 실행 중 자동 재잠금이나 포커스 상실 무시는 하지 않는다. Prompt0 yaw는 시작 각도0 가정 대신 입력 전후 회전량과 sensitivity를 정확히 비교한다. 공통 실패 진단에 mouse/yaw/held/charge/blocked를 기록한다. 입력 검사 재검증 결과는 아래 최종 합계에 반영한다.
+- 최종 결과: Prompt0~11 1,151 PASS + Prompt11.1 57 PASS = 1,208 PASS. 최종 `p111_verified_*.log`에 SCRIPT ERROR/ERROR:/FAIL:0, 모든 검사 종료코드0. 신규 연속 Cart 변경 뒤 관련 Checkout/Drunk/Family/Fire/Thief도 재검증했다. Import, Main 7,200 physics ticks(60Hz 기준120초 시뮬레이션), F6 부활 Scene 180 ticks 모두 정상 종료, 오류/경고0.
+- 최종 로그 `.godot/p111_verified_*.log`, `.godot/p111_import_final.log`, `.godot/p111_main.log`, `.godot/p111_manual_scene.log`. `.godot/p111_downed.png`에서 실제 DOWNED HP0/ALIVE1 HUD와 기상하지 않는 자세를 확인했다. 입력 상태 관련 실패를 코드 성공으로 숨기지 않고 최초 로그와 재검증 이력을 함께 보존한다.
+
+### 수동 / Known Issues
+
+1. I→U OFF→B, 통로에 Cart: 열린 공간 우회/좁은 공간 임시 통과/충돌 복구, Queue 위치 복귀 및 Thief/Drunk/Family 확인.
+2. I→R, Charge 피격:30HP 감소·Backward Fall. H로도 감소 가능. 세 음식 Grab→G 회복과 Full HP/비식품 차단 확인.
+3. 단독 Player HP0: DAY FAILED→2초 후 다음 날 Full HP/정상 조작/Spawn, KING RAT 제거 확인.
+4. `tests/food_revive_test.tscn` F6: 후면에 있는 음식 Grab→2m 안 Downed 동료 겨냥→G. Bread30/Milk40/Watermelon60HP 부활 확인.
+5. Boss/Rush/Thief/Fire/Spill/Cart와 병행하여 각 업무·음식 경쟁·Stock 감소를 확인한다. 실제 Full Chaos 조작감은 수동 판단 대상.
+- NPC Knockdown Mesh / Collider mismatch 유지. Player Downed Capsule도 upright이며 최종 물리 표현은 별도 검토.
+- Cart Contact Repeated Damage 유지. 실제 보스전에서의 재미/악용 여부는 Final Combat/Physics에서 결정.
+- 기존 바닥 경계 고속 Cart 도약 및 보스 단순 waypoint 길찾기 한계 유지.
+- DOWNED 캡처에서 바로 앞에 떨어진 상품의 큰 Graybox Label이 시야를 가리는 현상을 관측했다. 상품 근접 Label 표시 조정은 추후 Visual Polish 검토 사항이다.
+- Day Reset은 Player 중심 Prototype이다. 전체 경제/재고/이벤트 리셋과 네트워크 Multiplayer는 없다.
+- 수동 검증 정상 후 Prompt12 근접 도구/무기 progression 준비. 정식 Weapon은 아직 추가하지 않았다.
+
 ## Prompt 11 — Combat Foundation / KING RAT
 
 2026-10-17 구현 및 자동 검증 완료. **기존1,089 + 신규62 = 총1,151 PASS**, 최종 실패/실행 오류0. 시작 Git은 clean(Prompt10.2 사용자 정리 완료)이었다. 이번 작업은 commit/amend/reset/push하지 않고 uncommitted로 유지한다. 무기/Player Health/보상 경제/다른 보스는 구현하지 않는다. 전투 손맛과 Cart rubbing 평가는 수동 테스트가 필요하다.

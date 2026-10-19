@@ -9,6 +9,7 @@ enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DE
 @export var telegraph_time: float = 0.65
 @export var charge_speed: float = 7.5
 @export var charge_duration: float = 0.8
+@export var charge_damage: float = 30.0
 @export var charge_push: float = 3.5
 @export var stagger_threshold: float = 45.0
 @export var stagger_time: float = 0.45
@@ -195,6 +196,8 @@ func _charge_hit(body: Node) -> void:
 	var knockdown := body.get_node_or_null("Knockdown") as KnockdownState
 	if knockdown == null: return
 	_hit_targets[body.get_instance_id()] = true
+	var health := body.get_node_or_null("PlayerHealth") as PlayerHealth
+	if health != null: health.receive_damage(charge_damage, self)
 	if knockdown.try_start(charge_direction):
 		if body is CharacterBody3D: body.velocity += charge_direction * charge_push
 		else: PhysicsPush.apply(body, charge_direction * charge_push * 3)

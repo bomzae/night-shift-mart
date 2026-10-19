@@ -6,6 +6,7 @@ var failures: int = 0
 
 
 func _initialize() -> void:
+	root.grab_focus() # Establish the real-window input precondition once.
 	call_deferred("run_checks")
 
 
@@ -66,8 +67,10 @@ func run_checks() -> void:
 		check(player.is_on_wall() and absf(position.x) < 9.5 and absf(position.z) < 9.5, "wall collision: " + action)
 	var motion := InputEventMouseMotion.new()
 	motion.relative = Vector2(100, -10000)
+	var yaw_before := player.rotation.y
 	player._unhandled_input(motion)
-	check(player.rotation.y < -0.1, "mouse yaw")
+	print("MOUSE YAW before=", yaw_before, " after=", player.rotation.y)
+	check(is_equal_approx(angle_difference(yaw_before, player.rotation.y), -100 * player.mouse_sensitivity), "mouse yaw")
 	var head: Node3D = player.get_node("Head")
 	check(is_equal_approx(head.rotation.x, deg_to_rad(85.0)), "mouse pitch clamp")
 	var toggle := InputEventAction.new()

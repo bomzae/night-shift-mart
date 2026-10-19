@@ -11,6 +11,7 @@ extends CharacterBody3D
 @export var minimum_push_speed: float = 0.2
 
 @onready var head: Node3D = $Head
+var health := PlayerHealth.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
 
@@ -23,10 +24,14 @@ func _ready() -> void:
 	knockdown.setup(self, head, true)
 	fire_reaction.setup(self, true)
 	knockdown.started.connect(func(): $Interaction.drop_held())
+	add_child(health)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("toggle_mouse_capture"):
+	if event.is_action_pressed("debug_damage_player") and not event.is_echo():
+		health.receive_damage(30)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_mouse_capture"):
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		else:
