@@ -111,7 +111,7 @@ func run_checks() -> void:
 	await setup_mart()
 	await stock("can")
 	var customer: BasicCustomer = manager.spawn_customer([&"can"])
-	zone = puddle(Vector3(-7.65, 0.01, 6))
+	zone = puddle(Vector3(0, 0.01, 8))
 	for tick in range(600):
 		await frames(1)
 		if customer.knockdown.active(): break

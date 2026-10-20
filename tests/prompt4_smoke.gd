@@ -20,7 +20,7 @@ func setup_mart() -> void:
 	await frames(30)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	player.set_physics_process(false)
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	player.rotation = Vector3.ZERO
 
 func stock(type: String, at: Vector3 = Vector3.ZERO) -> GrabbableBody:
@@ -33,7 +33,7 @@ func stock(type: String, at: Vector3 = Vector3.ZERO) -> GrabbableBody:
 	return body
 
 func wait_checkout(customer: BasicCustomer) -> void:
-	for tick in range(1400):
+	for tick in range(2200):
 		if customer.state == BasicCustomer.State.CHECKOUT:
 			break
 		await frames(1)
@@ -58,8 +58,13 @@ func run_checks() -> void:
 	var second_can := await stock("can", Vector3(0.4, 0, 0))
 	var second := manager.spawn_customer([&"can"])
 	check(second != null and second.goods[0] == second_can, "concurrent customer claims different stock")
+	# FIFO is arrival order, not spawn order. Across the expanded wings a
+	# single-item shopper can overtake a two-shelf shopper. Keep both claims
+	# live, then release the second motor after the first physically queues.
+	second.set_physics_process(false)
 	await wait_checkout(first)
-	for tick in range(900):
+	second.set_physics_process(true)
+	for tick in range(2200):
 		if manager.queue.size() == 2 and second.global_position.distance_to(manager.queue_position(second)) < 0.4:
 			break
 		await frames(1)
@@ -74,7 +79,7 @@ func run_checks() -> void:
 	player.global_position = Vector3(0, 0.01, 2)
 	await frames(35)
 	check(not station.use_station("scan") and first.scanned == 1, "walking away prevents remote scan and preserves progress")
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	await aim_action("scan")
 	await frames(32)
 	check(first.scanned == 2, "all requested units scanned")
@@ -119,7 +124,7 @@ func run_checks() -> void:
 	var removable := await stock("can")
 	var buyer := manager.spawn_customer([&"can"])
 	# Prompt 5.2 moves physical validation from payment to pickup.
-	for tick in range(1400):
+	for tick in range(2200):
 		await frames(1)
 		if buyer.state == BasicCustomer.State.SHOP:
 			break
@@ -166,7 +171,7 @@ func run_checks() -> void:
 		var visitor := manager.spawn_customer([&"can"])
 		check(visitor != null, "six-customer stress spawn")
 		await frames(45)
-	for tick in range(1500):
+	for tick in range(2200):
 		if manager.queue.size() == 6 and manager.queue.back().global_position.distance_to(manager.queue_position(manager.queue.back())) < 0.4:
 			break
 		await frames(1)

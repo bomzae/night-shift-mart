@@ -41,7 +41,7 @@ func _ready() -> void:
 	_reset_timer()
 	checkout = preload("res://scenes/interactables/checkout.tscn").instantiate()
 	checkout.manager = self
-	checkout.position = Vector3(5, 0, 10)
+	checkout.position = Vector3(11, 0, 16)
 	add_child(checkout)
 
 func _reset_timer() -> void:
@@ -129,7 +129,7 @@ func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedSce
 				break
 	customer.position = spawn_at
 	# Reach the front aisle before visiting the actual reserved stock.
-	customer.waypoints = [Vector3(-7.65, 0, 9), Vector3(-7.65, 0, 3.1)]
+	customer.waypoints = [Vector3(-3, 0, 16.5), Vector3(0, 0, 16.5)]
 	if event_options.has("entry_waypoints"):
 		customer.waypoints.assign(event_options.entry_waypoints + customer.waypoints)
 	for type in requested:
@@ -219,7 +219,10 @@ func join_queue(customer: BasicCustomer) -> void:
 	customer.state = BasicCustomer.State.QUEUE
 
 func queue_position(customer: BasicCustomer) -> Vector3:
-	return global_position + Vector3(5 - maxi(0, queue.find(customer)) * queue_spacing, 0.01, 8.6)
+	var index := maxi(0, queue.find(customer))
+	var row := index / 9
+	var column := index % 9 if row % 2 == 0 else 8 - index % 9
+	return global_position + Vector3(11 - column * queue_spacing, 0.01, 14.6 - row * queue_spacing)
 
 func current_customer() -> BasicCustomer:
 	if queue.is_empty() or queue[0].state != BasicCustomer.State.CHECKOUT:

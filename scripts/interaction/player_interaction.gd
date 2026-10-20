@@ -35,6 +35,7 @@ var is_charging: bool = false
 var charge_ratio: float = 0.0
 var _charge_object: RigidBody3D
 var _grab_requested: bool = false
+var _consume_requested: bool = false
 var _release_requested: bool = false
 var _probe := SphereShape3D.new()
 var desired_hold_position: Vector3
@@ -58,7 +59,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		cancel_charge()
 		return
 	if event.is_action_pressed("consume_item") and not event.is_echo():
-		consume_held_food()
+		_consume_requested = true
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("grab"):
 		_grab_requested = true
@@ -81,6 +82,9 @@ func _physics_process(delta: float) -> void:
 	if active and _grab_requested:
 		toggle_grab()
 	_grab_requested = false
+	if active and _consume_requested:
+		consume_held_food()
+	_consume_requested = false
 	# Validate ownership and safety BEFORE a queued throw.
 	if is_instance_valid(held_object):
 		if held_object.holder != self:
@@ -299,4 +303,8 @@ func consume_held_food() -> bool:
 	var hit := player.get_world_3d().direct_space_state.intersect_ray(query)
 	var target: PlayerHealth
 	if not hit.is_empty(): target = hit.collider.get_node_or_null("PlayerHealth") as PlayerHealth
-	return health.use_food(held_object, target)
+	# Only a valid downed teammate takes priority. An alive, distant or
+	# obstructed target must not prevent eating the food in our own hand.
+	if target != null and target != health and target.is_downed:
+		if health.use_food(held_object, target): return true
+	return health.use_food(held_object)

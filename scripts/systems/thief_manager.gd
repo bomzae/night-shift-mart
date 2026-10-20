@@ -61,7 +61,7 @@ func spawn_thief() -> ThiefCustomer:
 		var point: int = chosen.shelf.reserve_shopping_point(thief, chosen.product.global_position)
 		if point >= 0:
 			var destination: Vector3 = chosen.shelf.shopping_point(point)
-			thief.waypoints = [Vector3(-7.65, 0, 9), Vector3(-7.65, 0, 3.1), Vector3(destination.x, 0, 3.1), destination]
+			thief.waypoints = StoreRoutes.via_main(at, destination)
 	add_child(thief)
 	if thief.waypoints.is_empty(): thief.leave_empty()
 	return thief

@@ -16,7 +16,7 @@ carry_radius = 0.3
 shelf_capacity = 5
 slot_columns = 3
 slot_rows = 2
-shelf_position = Vector3(0, 0, 6)
+shelf_position = Vector3(7, 0, 6)
 shelf_yaw = 180
 legacy = false
 

@@ -77,7 +77,7 @@ func seek_food() -> void:
 		if not body is GrabbableBody or not valid_food(body): continue
 		if _ignored_food.get(body.get_instance_id(), 0) > Time.get_ticks_msec(): continue
 		var at: Vector3 = body.global_position
-		if absf(at.x) > 14 or at.z < 0 or at.z > 12: continue
+		if absf(at.x) > 17.5 or at.z < 0 or at.z > 18: continue
 		var score := global_position.distance_squared_to(at)
 		if score < best:
 			best = score
@@ -95,12 +95,7 @@ func seek_food() -> void:
 					destination = point
 			break
 	destination.y = 0.01
-	route = [Vector3(global_position.x, 0.01, 3.1), Vector3(destination.x, 0.01, 3.1), destination]
-	# A charge can leave us in front of the central shelf row. Return around its
-	# end via the existing wide aisle, not straight through the shelf backs.
-	if global_position.z > 6.7 and absf(global_position.x) < 7.4:
-		var side := -7.6 if global_position.x + destination.x < 0 else 7.6
-		route = [Vector3(global_position.x, 0.01, 7.7), Vector3(side, 0.01, 7.7), Vector3(side, 0.01, 3.1), Vector3(destination.x, 0.01, 3.1), destination]
+	route = StoreRoutes.via_main(global_position, destination)
 	_blocked = 0
 	state = State.MOVE_TO_FOOD
 

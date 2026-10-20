@@ -9,7 +9,7 @@ var _label: Label
 func _ready() -> void:
 	var zone := Area3D.new()
 	zone.name = "ExitRemovalZone"
-	zone.position = Vector3(-3, 1.5, 14)
+	zone.position = get_parent().get_node("Entrance").position + Vector3(0, 0.25, 2.15)
 	zone.collision_layer = 0
 	zone.collision_mask = 1 | HumanSeparation.HUMAN_LAYER
 	var shape := CollisionShape3D.new()
@@ -38,7 +38,7 @@ func spawn_drunk() -> DrunkCustomer:
 			count += 1
 	if count >= max_test_drunks:
 		return null
-	var at := Vector3(-3, 0.8, 11)
+	var at := Vector3(-3, 0.8, get_parent().get_node("Entrance").position.z - 0.85)
 	var query := PhysicsShapeQueryParameters3D.new()
 	var sphere := SphereShape3D.new()
 	sphere.radius = 0.5

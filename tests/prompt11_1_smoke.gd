@@ -51,10 +51,10 @@ func run_checks() -> void:
 	var cart_pair: Array[ShoppingCart] = [mart.get_node("Cart"), preload("res://scenes/interactables/shopping_cart.tscn").instantiate()]
 	mart.add_child(cart_pair[1])
 	for i in range(2):
-		await place(cart_pair[i], Vector3(8, 0.05, 2.2 + i * 1.3))
+		await place(cart_pair[i], Vector3(10.5, 0.05, 2.2 + i * 1.3))
 		cart_pair[i].freeze = true
-	for x in [6.85, 9.15]: Graybox.box(mart, "DoubleCorridor", Vector3(0.2, 2, 8), Vector3(x, 1, 4), Color.GRAY)
-	var crossing := walker(Vector3(8, 0.01, 0.2))
+	for x in [9.35, 11.65]: Graybox.box(mart, "DoubleCorridor", Vector3(0.2, 2, 8), Vector3(x, 1, 4), Color.GRAY)
+	var crossing := walker(Vector3(10.5, 0.01, 0.2))
 	for tick in range(1000):
 		crossing.velocity = crossing.cart_recovery.steer(Vector3.BACK * 2.2, 1.0 / 60) + Vector3.DOWN * 0.2
 		crossing.move_and_slide()

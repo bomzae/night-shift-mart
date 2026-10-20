@@ -38,7 +38,7 @@ func run_checks() -> void:
 	check(manager._claims.is_empty() and manager.basket_total(buyer) == 60, "physical claims released and basket keeps full price")
 	# Fresh stock must survive payment for already collected goods.
 	var replacement := await stock("can")
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	await aim_action("pay")
 	check(manager.sales == 0, "basket cannot pay before all scans")
@@ -116,7 +116,7 @@ func run_checks() -> void:
 	shelf = stage_pickup(buyer, &"can")
 	# Existing drunk physics pushes a reserved product out; no special stock exception.
 	var drunk: DrunkCustomer = mart.get_node("Drunks").spawn_drunk()
-	await place(drunk, Vector3(-5, 0.76, 3.9))
+	await place(drunk, shelf.global_position + Vector3(0, 0.76, -2.1))
 	drunk.wander_direction = Vector3.BACK
 	drunk._direction_wait = 20
 	for tick in range(150):

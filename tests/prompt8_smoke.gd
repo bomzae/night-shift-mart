@@ -51,7 +51,7 @@ func run_checks() -> void:
 	await fire_setup()
 	check(InputMap.has_action("use_tool") and InputMap.has_action("debug_spawn_dangerous"), "F and P actions exist")
 	await stock("can")
-	player.global_position = Vector3(5, 0.01, 11.25) # Keep the shopper's main aisle clear.
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25) # Keep the shopper's main aisle clear.
 	var dangerous := fire_manager.spawn_dangerous([&"can"])
 	check(dangerous is BasicCustomer, "dangerous reuses Basic Customer")
 	for tick in range(1400):
@@ -62,7 +62,7 @@ func run_checks() -> void:
 	check(dangerous.picked_items.size() == 1, "dangerous retains purchase basket")
 	await wait_checkout(dangerous)
 	check(fire_manager.fires_created == 1 and dangerous.panic_left == 0, "dangerous resumes checkout without repeated accident")
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	await aim_action("scan")
 	await frames(32)
 	await aim_action("pay")

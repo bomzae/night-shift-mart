@@ -121,7 +121,7 @@ func run_checks() -> void:
 	await place(cart, Vector3(0, 0.1, -3)) # Park the riding fixture away from the shopping aisle.
 	var waiting: LostChild = families.spawn_pair()
 	# Regular shopping/payment and delivery remain live while events exist.
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	var product := await stock("can")
 	var buyer := manager.spawn_customer([&"can"])
 	await wait_checkout(buyer)

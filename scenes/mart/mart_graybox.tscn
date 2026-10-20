@@ -24,7 +24,7 @@ shadow_enabled = true
 [node name="Backroom" type="Node3D" parent="."]
 [node name="LoadingArea" type="Node3D" parent="."]
 [node name="Entrance" type="Marker3D" parent="."]
-position = Vector3(-3, 1.25, 11.85)
+position = Vector3(-3, 1.25, 17.85)
 [node name="Products" type="Node3D" parent="."]
 [node name="Delivery" type="Node3D" parent="."]
 position = Vector3(-3, 0, -3.6)
@@ -37,19 +37,19 @@ position = Vector3(0, 0.05, -5.5)
 rotation_degrees = Vector3(0, 180, 0)
 [node name="Shelves" type="Node3D" parent="."]
 [node name="CanShelf" parent="Shelves" instance=ExtResource("4")]
-position = Vector3(-5, 0, 6)
+position = Vector3(-7, 0, 6)
 rotation_degrees = Vector3(0, 180, 0)
 accepted_type = &"can"
 max_stock = 8
 shelf_color = Color(0.2, 0.55, 0.95, 1)
 [node name="WatermelonShelf" parent="Shelves" instance=ExtResource("4")]
-position = Vector3(0, 0, 6)
+position = Vector3(7, 0, 6)
 rotation_degrees = Vector3(0, 180, 0)
 accepted_type = &"watermelon"
 max_stock = 5
 shelf_color = Color(0.25, 0.8, 0.35, 1)
 [node name="ApplianceShelf" parent="Shelves" instance=ExtResource("4")]
-position = Vector3(5, 0, 6)
+position = Vector3(7, 0, 12)
 rotation_degrees = Vector3(0, 180, 0)
 accepted_type = &"appliance"
 max_stock = 3

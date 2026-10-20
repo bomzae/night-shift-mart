@@ -2,6 +2,61 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.2 — Combat Store / Food Input / Recovery Routes
+
+2026-10-20 구현·자동 검증 완료. **기존1,208 + 신규108 = 총1,316 PASS**, 최종 Script/실행 오류0. 단, 사용자 보고의 싱글플레이 G 실패 원인은 아래와 같이 미확정이며 수동 조건 재확인이 필요하다. 시작 시 있던 `project.godot` G/H 키 에디터 직렬화 변경은 보존했다. commit/amend/reset/push하지 않았으며 변경 사항은 uncommitted다.
+
+### Food 입력 조사와 수정 범위
+
+- 수정 전 Main Player의 실제 ray Grab → `InputEventKey(KEY_G)` 경로에서 Bread/Milk/Watermelon은 각각 HP50→65/70/80 및 실제 삭제에 성공했다. 따라서 사용자 보고의 **싱글플레이 Self Heal 실패 자체는 현재 작업 트리에서 재현되지 않았고 정확한 원인이 확정되지 않았다.** G 등록, Catalog is_food/heal_value, holder, TeamLife 등록은 정상이다. API만 호출하는 검사를 재현 증거로 사용하지 않았다.
+- 별도로 재현한 분기 오류: 앞에 살아 있는 PlayerHealth 대상이 있으면 기존 입력 코드가 이를 `use_food`에 전달했고, 해당 메서드가 Downed가 아니라는 이유로 거부하면서 Self Heal까지 막았다. `.godot/p112_reproduce_normal.log`에 수정 전 실패를 보존한다. Main에 가짜 Player가 없는 점을 고려하면 이것을 신고 원인으로 단정할 수 없다.
+- G를 Grab과 같은 물리 프레임 요청으로 처리한다. 유효한 가까운 Downed 동료 Feed가 성공하면 종료하고, 그 외에는 자기 자신에게 `use_food`를 시도한다. Self Heal에는 조준 조건이 없다. Full HP/Non-food/Downed/소유권/소비된 상품 차단과 중복 비용 방지는 기존 PlayerHealth가 담당한다. 이 변경은 입력 시점의 물리 조회를 한 경로로 모은 것이며, 미재현 실패의 확정 원인이라고 주장하지 않는다.
+- 신규 검사는 실제 Main, 자동 진열 상품, ray Grab, 활성 Player motor, 물리 H/G 이벤트를 포함한다. Food별 회복량/실제 소비/소비 비용, Full HP/Non-food 보존, Alive 조준 대상 fallback, Downed 동료 우선순위를 검사한다.
+
+### 공간과 동선
+
+| 항목 | 기존 | 변경 |
+| --- | --- | --- |
+| Store floor | 30×12m, 360㎡ | 36×18m, 648㎡ (1.8배), 개별 geometry 재배치 |
+| 중앙 전투 통로 | 중앙 3개 Shelf row | 좌우 내부 island 사이 11.2m, 중앙 x=0 배송/이동 축 |
+| 측면 통로 | Shelf 끝과 외곽 상품이 인접 | 내부 island와 외곽 Shelf 사이 약4.9m |
+| 내부 island 횡단 간격 | 단일 중앙 row | z=6/12 두 row 사이 약4.5m |
+| 외곽 Shelf 사이 gap | 오른쪽 약0.3m | 왼쪽3.2m, 오른쪽 최소2.6m |
+| 외벽 뒤 서비스 통로 | 외곽 Shelf 뒤 협소한 일부 공간 | 약3.1m, 양끝과 Shelf 사이 gap으로 복귀 |
+| Rear door / backroom | 문5m, backroom3m+loading3m | 그대로 유지, 배송 이동 길이 증가 없음 |
+| Entrance | 폭4m, z=12 | 폭6m, z=18 |
+| Checkout | (5,10) | (11,16), 1개 유지 |
+| Queue | 중앙 가로줄 | 전면 우측 9명×2줄, 1.25m 간격; x≥1, z=13.35/14.6 |
+
+- 내부 Shelf: Can(-7,6), Watermelon(7,6), Frying Pan(-7,12), 호환 Appliance(7,12). 외곽: x=-14에 Bread/Milk/Glass Drink(z=3/9/15), x=14에 Detergent/Microwave/TV(z=3/8.4/14). 정규9종 및 기존 Appliance 호환, 물리 크기/가격/무게/용량은 유지한다. TV의 전면 Shopping Point 접근이 계산대와 겹치지 않도록 우측 끝 두 Shelf 간격을 조정했다.
+- 모든 Shelf 뒤에는 보행 가능한 공간을 둔다. 외곽 뒤에서 Shelf 간 gap → 측면 통로 → 횡단 통로 → 중앙으로 복귀한다. Jump4.5는 변경하지 않았다. 좌우 각각 순환 동선이 있으며 긴 벽형 Shelf를 추가하지 않았다.
+- `StoreRoutes.via_main`은 새 레이아웃의 고정 중앙 경유 waypoint만 제공한다. 기존 Customer/Thief/Monster 모터·예약·충돌·stuck recovery를 대체하지 않는다. KING RAT는 상품 검색 범위만 x±17.5/z0..18로 확장하고 기존 Eat/Charge/Damage를 유지한다. Knockback 후 임의 위치에서의 복잡한 장애물 경로는 여전히 한계다.
+- Bus 외부 apron/정차/승객 입구는 전면 이동에 맞춰 z+6. 취객 Spawn/Removal은 Entrance 기준이다. Lost Family 근거리 생성 범위는 유지한다. Fire는 기존 실제 Floor ray/Area 방식이므로 고정 Store bounds 변경이 필요하지 않았다. Auto Stock slot은 Shelf local 좌표여서 새 Shelf transform을 따른다.
+- Human↔Human, Human↔Cart, Monster 충돌 mask 및 CartRecovery는 변경하지 않았다. Queue 첫 지점이 TV Shelf와 겹쳤던 초기 배치를 회귀 검사에서 발견해 수정했다.
+
+### 검증 이력 / 수동 재평가
+
+- 샌드박스 실행의 인증서/편집기 설정 저장 오류 후 정상 사용자 환경으로 임포트·검사를 재실행했다. 최초 로그도 보존한다.
+- 기존 테스트의 계산대 위치는 station 상대 좌표, 취객 배송은 새 Entrance, Shelf 충돌은 새 Shelf 위치에 맞춘다. 늘어난 실제 쇼핑 이동 거리 때문에 Checkout 대기 상한을 조정한다. 물리/판매/예약 검증 조건은 삭제하지 않는다.
+- Prompt4 최초 재검사는 두 종류를 사는 첫 손님보다 단일 상품의 두 번째 손님이 먼저 도착해 기존 fixture의 생성순서=도착순서 가정이 깨졌다. 두 사람의 예약은 동시에 유지하고, 첫 사람이 실제 Checkout에 도착한 뒤 두 번째 motor를 재개해 FIFO의 실제 도착순서를 통제한다. 이 실패에서 후속 검사까지 연쇄 실패 및 freed-reference 오류가 발생해 해당 실행만 종료했고 로그를 보존한다. Gameplay의 Queue 규칙은 바꾸지 않는다.
+- 신규 경로 검사의 첫3건 실패는 중앙에 배치된 이동 가능한 소화기와 충돌한 결과였다. 해당 소화기를 계산대 옆(16,17)에 배치해 초기 통로를 비우고 동일한 capsule sweep 조건으로 재검사했다.
+- 최종 자동 검사: Prompt0~11.1 **1,208 PASS**, Prompt11.2 **108 PASS**, 합계 **1,316 PASS / 0 FAIL**. 정상 사용자 환경의 최종 임포트, Main headless7,200 ticks(120 simulated seconds), Main 창600 ticks 모두 종료코드0 및 SCRIPT ERROR/ERROR:0. `git diff --check` 정상.
+- 최종 로그: 기존 항목은 `.godot/p112_reg_<stage>.log`; 재검사0/5/5_2/7_1/10_1 및 신규11_2는 `.godot/p112_verified_<stage>.log`; Prompt4는 `.godot/p112_final_4.log`. 실행 로그는 `p112_final_import.log`, `p112_main_120s.log`, `p112_main_window.log`. 초기 실패 로그는 덮어쓰지 않았다. Prompt0 초기 입력6건 실패는 코드 변경 없이 별도 실행에서22건 모두 통과했다.
+- 신규 결과: 모든 Shelf 뒤 capsule 보행 탈출 경로,30 Shopping Point 접근, 중앙/측면 cart-sized sweep,18명 논리 Queue 좌표,55개 실제 Auto Stock 및 top-up, 실제 재고 Grab/H/G 입력 검사가 통과했다. 12명 Rush가8종 Shelf를 방문하고 Queue4명에 도달했다. Boss+카트2대 공존10초에서 Boss가6.79m 진행하고 Queue9명까지 형성됐다. 강제 Cart/Rat/Human 교차10초에서는 Human이 목적지에 도달했고 Boss가2.36m 이동했다. 이 한 사례를 정체 발생 빈도 전체의 증명으로 해석하지 않는다.
+- 창 렌더 개요 `.godot/p112_store.png`를 확인했다. 넓은 중앙 공간, 좌우 Shelf island/뒤 서비스 통로, 전면 우측 Queue 및 외부 Bus가 표시된다. 기존 개발 HUD와 계산 패널 일부 겹침은 UI polish 범위이며 이번 작업에서 수정하지 않았다.
+- 수동: F5→I→H→Food Grab→G, Full HP/TV G 확인. 각 Shelf 뒤에서 점프 없이 탈출. Loaded Cart U턴/90도/Launch, I→U OFF→R의 Dodge, I→U OFF→B의 Rush, 이어 R/T/K/L/O/P로 복합 상황 확인.
+- Cart+KING RAT+Human 맞물림 발생 빈도와 실제 4인 조작감은 수동 재평가가 필요하다. 단순 공간 검사/단일 시뮬레이션 통과만으로 모든 정체가 해소되었다고 판단하지 않는다.
+- 기존 Final TODO 유지: **NPC Knockdown Mesh/Collider mismatch**, **Cart Contact Repeated Damage**(Boss rubbing 수동 판단), **Day Reset은 Prototype**, **KING RAT 단순 Pathing**. 근접 상품 Label의 Downed 시야 가림 등 기존 외형 polish도 유지한다. Weapon/Multiplayer/새 Boss/Full Day Reset은 구현하지 않는다.
+
+### 변경 파일 역할
+
+- `player_interaction.gd`: 물리 프레임 Consume 요청 및 Downed 동료 우선/Self fallback.
+- `mart_graybox.gd`, `mart_graybox.tscn`, `data/products/*.tres`: 개별 Floor/Wall/Entrance/도구 위치와 Shelf island 배치. 상품 물리 수치는 그대로다.
+- `store_routes.gd`: 고정 중앙 경유점. `basic_customer.gd`, `customer_manager.gd`, `thief_manager.gd`, `thief_customer.gd`, `king_rat.gd`: 새 Shelf/전면 좌표 및 검색 범위 연동. 전투/충돌 정책은 유지한다.
+- `tourist_bus.gd`, `drunk_test_manager.gd`: 외부 정차/입장/퇴장 위치 연동.
+- `tests/prompt11_2_smoke.gd`: 신규108검사. 기존 테스트의 계산대/진열대/출구/Spill/Cart fixture와 도착순서·이동 대기 상한을 새 배치에 맞췄다. 기존 assertion은 유지한다.
+- `README.md`, `PROJECT_NOTES.md`: 조작/레이아웃/검증 이력과 미확정 사항 기록. AGENTS/Skill은 변경하지 않았다.
+
 ## Prompt 11.1 — Cart Recovery / Player Health / Food Revive
 
 2026-10-19 구현 및 자동 검증 완료. **기존1,151 + 신규57 = 총1,208 PASS**, 최종 실패/실행 오류0. 시작 시 `project.godot`의 R 입력 Editor 직렬화 변경이 이미 있었고 보존했다. commit/amend/reset/push하지 않고 모든 변경을 uncommitted로 유지한다. 실제 군중/전투 조작감은 수동 테스트가 필요하다.

@@ -147,7 +147,7 @@ func _physics_process(delta: float) -> void:
 			_leaving_shelf = shopping_shelf
 			shopping_shelf = null
 			# Keep the point occupied until physically clear of its approach.
-			waypoints = [Vector3(global_position.x, 0, 3.1)]
+			waypoints = [Vector3(0, 0, global_position.z)]
 			state = State.STORE
 	if state == State.STORE or state == State.EXIT:
 		if not waypoints.is_empty():
@@ -229,14 +229,8 @@ func disappoint() -> void:
 
 func start_exit() -> void:
 	release_shopping_points()
-	var waiting_at_store := state == State.DISAPPOINTED and global_position.x < -6
 	state = State.EXIT
-	if waiting_at_store:
-		waypoints = [Vector3(-6.9, 0, 10.8), manager.exit_position()]
-	elif global_position.z < 7.5:
-		waypoints = [Vector3(global_position.x, 0, 3.1), Vector3(-7, 0, 3.1), Vector3(-7, 0, 10.8), manager.exit_position()]
-	else:
-		waypoints = [Vector3(global_position.x, 0, 7.7), Vector3(-3, 0, 7.7), manager.exit_position()]
+	waypoints = StoreRoutes.via_main(global_position, manager.exit_position())
 	update_mood()
 
 func continue_shopping() -> void:
@@ -250,7 +244,7 @@ func continue_shopping() -> void:
 	if visited_types.size() == shopping_types.size():
 		if not _heading_queue:
 			_heading_queue = true
-			waypoints = [Vector3(7.4, 0, 3.1), Vector3(7.4, 0, 7.7)]
+			waypoints = [Vector3(0, 0, 14.6), Vector3(1, 0, 14.6)]
 		else:
 			manager.join_queue(self)
 		return
@@ -266,8 +260,7 @@ func continue_shopping() -> void:
 			shopping_shelf = shelf
 			shopping_point_index = point
 			var destination := shelf.shopping_point(point)
-			var travel_z := 3.1 if destination.x >= global_position.x else 2.1
-			waypoints = [Vector3(global_position.x, 0, travel_z), Vector3(destination.x, 0, travel_z), destination]
+			waypoints = StoreRoutes.via_main(global_position, destination)
 			return
 	manager.out_of_stock(self)
 

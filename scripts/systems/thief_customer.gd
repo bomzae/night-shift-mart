@@ -90,7 +90,7 @@ func leave_empty() -> void:
 func start_exit() -> void:
 	super.start_exit()
 	var outside: Vector3 = theft_manager.escape_position()
-	if absf(global_position.x - outside.x) < 1.2 and global_position.z >= 10.5:
+	if absf(global_position.x - outside.x) < 1.2 and global_position.z >= manager.exit_position().z - 0.3:
 		waypoints.clear()
 	# Normal customer's final waypoint is inside the entrance; theft resolves outside.
 	waypoints.append(outside)

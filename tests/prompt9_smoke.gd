@@ -4,7 +4,7 @@ var thieves: ThiefManager
 func setup_thief() -> void:
 	await fire_setup()
 	thieves = mart.get_node("Thieves")
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 
 func wait_theft(thief: ThiefCustomer) -> void:
 	for tick in range(1400):

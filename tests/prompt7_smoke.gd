@@ -190,7 +190,7 @@ func run_checks() -> void:
 	check(mop.holder == null and mop.gravity_scale == 1, "mop drops as a physical body")
 	check(mop.product_type == &"" and not manager.available_goods().has(mop), "mop is not a sale product")
 	# Free tool stays wherever it lands, with real head contact pushing a can.
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	# Isolate head contact from a free upright handle toppling away first.
 	mop.lock_rotation = true
 	await place(mop, Vector3(-0.5, 0.85, 2))

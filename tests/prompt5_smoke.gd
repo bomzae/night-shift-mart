@@ -65,7 +65,7 @@ func run_checks() -> void:
 	var can := await stock("can", Vector3(0, 0, 0.5))
 	var shelf: StockShelf = mart.get_node("Shelves/CanShelf")
 	var can_start := can.global_position
-	await place(drunk, Vector3(-5, 0.76, 3.9))
+	await place(drunk, shelf.global_position + Vector3(0, 0.76, -2.1))
 	drunk.wander_direction = Vector3.BACK
 	drunk._direction_wait = 20
 	await frames(90)
@@ -86,8 +86,8 @@ func run_checks() -> void:
 	check(drunks.broken_product_value == 500, "no repeated breakage from resting contacts")
 
 	# Carry through real entrance; removal also releases interaction safely.
-	await place(drunk, Vector3(-3, 0.8, 10.5))
-	player.global_position = Vector3(-3, 0.01, 8.8)
+	await place(drunk, Vector3(-3, 0.8, 16.5))
+	player.global_position = Vector3(-3, 0.01, 14.8)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	interaction.camera.look_at(drunk.global_position)
 	await frames(3)
@@ -112,8 +112,8 @@ func run_checks() -> void:
 		quit(1)
 		return
 	var cart: ShoppingCart = mart.get_node("Cart")
-	await place(cart, Vector3(-3, 0.1, 9.5))
-	await place(drunk, Vector3(-3, 2.2, 9.5))
+	await place(cart, Vector3(-3, 0.1, 15.5))
+	await place(drunk, Vector3(-3, 2.2, 15.5))
 	# Begin/end carry uses the same physical drop path without a seat.
 	drunk.begin_carry(interaction, player)
 	drunk.end_carry()
@@ -129,7 +129,7 @@ func run_checks() -> void:
 	await frames(120)
 	check(not is_instance_valid(drunk) and drunks.drunks_removed == 2, "cart launch delivery reaches removal zone")
 	# Business continues in presence of a separate drunk.
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	player.rotation = Vector3.ZERO
 	player.get_node("Head").rotation = Vector3.ZERO
 	interaction.camera.rotation = Vector3.ZERO

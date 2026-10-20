@@ -87,7 +87,7 @@ func run_checks() -> void:
 		check(not npc.fire_reaction.active() and npc.velocity.z > 0, scene + " resumes shopping movement")
 
 	await fire_setup()
-	player.global_position = Vector3(5, 0.01, 11.25)
+	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 	await stock("can")
 	var queued := manager.spawn_customer([&"can"])
 	await wait_checkout(queued)
