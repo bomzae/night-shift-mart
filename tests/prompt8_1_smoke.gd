@@ -134,7 +134,7 @@ func run_checks() -> void:
 	check(parent.get_collision_exceptions().has(child) and child.get_collision_exceptions().has(parent), "family collision exceptions preserved")
 	await frames(45)
 	check(not parent.fire_reaction.active() and not child.fire_reaction.active(), "family resumes after panic")
-	for tick in range(1400):
+	for tick in range(2400):
 		await frames(1)
 		if not is_instance_valid(parent): break
 	check(not is_instance_valid(parent) and not is_instance_valid(child), "reunited family completes exit after panic")

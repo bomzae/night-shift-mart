@@ -27,13 +27,13 @@ func stock(type: String, at: Vector3 = Vector3.ZERO) -> GrabbableBody:
 	var body: GrabbableBody = load("res://scenes/interactables/products/" + type + ".tscn").instantiate()
 	mart.get_node("Products").add_child(body)
 	var shelf: StockShelf = mart.get_node("Shelves/" + {"can": "CanShelf", "watermelon": "WatermelonShelf", "appliance": "ApplianceShelf"}[type])
-	body.global_position = shelf.to_global(Vector3(at.x, 1.0, at.z))
+	body.global_position = shelf.to_global(Vector3(at.x, 0.65 + body.definition.size.y / 2 + 0.015 + shelf.tier_height, at.z))
 	await frames(100)
 	check(shelf.has_stock(body), "prepare stable physical stock " + type)
 	return body
 
 func wait_checkout(customer: BasicCustomer) -> void:
-	for tick in range(2200):
+	for tick in range(4200):
 		if customer.state == BasicCustomer.State.CHECKOUT:
 			break
 		await frames(1)
@@ -64,7 +64,7 @@ func run_checks() -> void:
 	second.set_physics_process(false)
 	await wait_checkout(first)
 	second.set_physics_process(true)
-	for tick in range(2200):
+	for tick in range(4200):
 		if manager.queue.size() == 2 and second.global_position.distance_to(manager.queue_position(second)) < 0.4:
 			break
 		await frames(1)
@@ -124,7 +124,7 @@ func run_checks() -> void:
 	var removable := await stock("can")
 	var buyer := manager.spawn_customer([&"can"])
 	# Prompt 5.2 moves physical validation from payment to pickup.
-	for tick in range(2200):
+	for tick in range(4200):
 		await frames(1)
 		if buyer.state == BasicCustomer.State.SHOP:
 			break
@@ -165,13 +165,13 @@ func run_checks() -> void:
 	for i in range(6):
 		var unit: GrabbableBody = load("res://scenes/interactables/products/can.tscn").instantiate()
 		mart.get_node("Products").add_child(unit)
-		unit.global_position = mart.get_node("Shelves/CanShelf").to_global(Vector3((i % 3 - 1) * 0.6, 1, (i / 3 - 0.5) * 0.5))
+		unit.global_position = mart.get_node("Shelves/CanShelf").to_global(Vector3((i % 3 - 1) * 0.6, 0.665 + unit.definition.size.y / 2, (i / 3 - 0.5) * 0.5))
 	await frames(150)
 	for i in range(6):
 		var visitor := manager.spawn_customer([&"can"])
 		check(visitor != null, "six-customer stress spawn")
 		await frames(45)
-	for tick in range(2200):
+	for tick in range(4200):
 		if manager.queue.size() == 6 and manager.queue.back().global_position.distance_to(manager.queue_position(manager.queue.back())) < 0.4:
 			break
 		await frames(1)

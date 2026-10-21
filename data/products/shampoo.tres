@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"shampoo"
+display_name = "Shampoo"
+scene_path = "res://scenes/interactables/products/shampoo.tscn"
+shelf_name = "ShampooShelf"
+price = 25
+weight = 1
+is_food = false
+heal_value = 0
+flammable = true
+size = Vector3(0.2, 0.35, 0.2)
+tint = Color(0.85, 0.6, 0.5700000000000001, 1)
+carry_radius = 0.21
+shelf_capacity = 8
+slot_columns = 4
+slot_rows = 2
+shelf_position = Vector3(23, 0, 12)
+shelf_yaw = 180

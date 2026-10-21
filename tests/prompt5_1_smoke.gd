@@ -11,7 +11,7 @@ func run_checks() -> void:
 	check(buyer.shopping_types.size() == 2 and buyer.goods.size() == 3, "distinct shelf itinerary preserves quantity and reservations")
 	var seen: Array[StringName] = []
 	var shop_frames := 0
-	for tick in range(2200):
+	for tick in range(4200):
 		await frames(1)
 		if buyer.state == BasicCustomer.State.SHOP:
 			shop_frames += 1
@@ -54,7 +54,7 @@ func run_checks() -> void:
 	var selected: Dictionary = {}
 	var simultaneous := false
 	var captured := false
-	for tick in range(2200):
+	for tick in range(4200):
 		await frames(1)
 		if shelf._shopping_users.size() >= 2:
 			simultaneous = true

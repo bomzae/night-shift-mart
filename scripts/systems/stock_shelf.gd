@@ -7,6 +7,10 @@ extends Node3D
 @export var settle_time: float = 0.4
 @export var max_stock_speed: float = 0.35
 @export var max_stock_spin: float = 1.0
+@export var use_catalog_tier: bool = true
+@export var tier_height: float = 0.0
+@export var tier_clearance: float = 1.2
+var point_owner: StockShelf
 var stock_count: int = 0
 var stocked_objects: Array[GrabbableBody] = []
 var _settled: Dictionary = {}
@@ -18,9 +22,11 @@ var _label: Label3D
 var _shopping_users: Dictionary = {}
 
 func shopping_point(index: int) -> Vector3:
+	if is_instance_valid(point_owner): return point_owner.shopping_point(index)
 	return to_global(Vector3(lerpf(-shopping_point_span, shopping_point_span, float(index) / (shopping_point_count - 1)), 0.01, shopping_front_distance))
 
 func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
+	if is_instance_valid(point_owner): return point_owner.reserve_shopping_point(customer, product_position)
 	var selected := -1
 	var nearest := INF
 	for i in range(shopping_point_count):
@@ -35,27 +41,34 @@ func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
 	return selected
 
 func release_shopping_point(customer: Node) -> void:
+	if is_instance_valid(point_owner):
+		point_owner.release_shopping_point(customer)
+		return
 	for i in _shopping_users.keys():
 		if not is_instance_valid(_shopping_users[i]) or _shopping_users[i] == customer:
 			_shopping_users.erase(i)
 
 func _ready() -> void:
-	Graybox.box(self, "Deck", Vector3(2.8, 0.14, 1.4), Vector3(0, 0.58, 0), shelf_color)
+	var definition := ProductCatalog.find(accepted_type)
+	if definition != null and use_catalog_tier:
+		tier_height = definition.shelf_tier_height
+		tier_clearance = definition.shelf_tier_clearance
+	Graybox.box(self, "Deck", Vector3(2.8, 0.14, 0.9 if tier_height > 0 else 1.4), Vector3(0, 0.58 + tier_height, -0.25 if tier_height > 0 else 0), shelf_color)
 	Graybox.box(self, "Back", Vector3(2.8, 1.2, 0.12), Vector3(0, 0.65, -0.7), Color.DIM_GRAY)
-	for x in [-1.25, 1.25]:
-		Graybox.box(self, "Leg", Vector3(0.12, 0.55, 1.2), Vector3(x, 0.275, 0), Color.DIM_GRAY)
+	for x in [-1.34, 1.34]:
+		Graybox.box(self, "Leg", Vector3(0.12, 0.55 + tier_height, 1.2), Vector3(x, (0.55 + tier_height) / 2, 0), Color.DIM_GRAY)
 	zone = Area3D.new()
 	zone.name = "StockZone"
-	zone.position.y = 1.25
+	zone.position.y = 0.65 + tier_height + tier_clearance / 2
 	zone.collision_layer = 0
 	zone.collision_mask = 1
 	var collision := CollisionShape3D.new()
 	var bounds := BoxShape3D.new()
-	bounds.size = Vector3(2.8, 1.2, 1.4)
+	bounds.size = Vector3(2.8, tier_clearance, 1.4)
 	collision.shape = bounds
 	zone.add_child(collision)
 	add_child(zone)
-	_label = Graybox.sign(self, "", Vector3(0, 2.1, 0), shelf_color)
+	_label = Graybox.sign(self, "", Vector3(0, tier_height + 0.8, 0.75), shelf_color)
 
 func _physics_process(delta: float) -> void:
 	refresh_stock(delta)
@@ -81,8 +94,14 @@ func stock_eligible(body: GrabbableBody) -> bool:
 	if not is_instance_valid(body) or body.is_queued_for_deletion() or body.get_meta("sold", false):
 		return false
 	var local := to_local(body.global_position)
-	return body.product_type == accepted_type and not is_instance_valid(body.holder) and absf(local.x) <= 1.4 and absf(local.z) <= 0.7 and local.y >= 0.65 and local.y <= 1.85 and body.linear_velocity.length() <= max_stock_speed and body.angular_velocity.length() <= max_stock_spin
+	return body.product_type == accepted_type and not is_instance_valid(body.holder) and absf(local.x) <= 1.4 and absf(local.z) <= 0.7 and local.y >= 0.65 + tier_height and local.y <= 0.65 + tier_height + tier_clearance and body.linear_velocity.length() <= max_stock_speed and body.angular_velocity.length() <= max_stock_spin
 
 func has_stock(body: GrabbableBody) -> bool:
 	# Recheck live physics/ownership at pickup, not just last tick's cached count.
 	return stock_eligible(body) and stocked_objects.has(body)
+
+func slot_position(slot: Vector3) -> Vector3:
+	# Upper decks step back: the player can see/reach goods on the lower tier.
+	if tier_height > 0: slot.z = slot.z * (5.0 / 6.0) - 0.25
+	slot.y += tier_height
+	return slot

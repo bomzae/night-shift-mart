@@ -86,8 +86,8 @@ func run_checks() -> void:
 	check(drunks.broken_product_value == 500, "no repeated breakage from resting contacts")
 
 	# Carry through real entrance; removal also releases interaction safely.
-	await place(drunk, Vector3(-3, 0.8, 16.5))
-	player.global_position = Vector3(-3, 0.01, 14.8)
+	await place(drunk, Vector3(-3, 0.8, 34.5))
+	player.global_position = Vector3(-3, 0.01, 32.8)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	interaction.camera.look_at(drunk.global_position)
 	await frames(3)
@@ -112,8 +112,8 @@ func run_checks() -> void:
 		quit(1)
 		return
 	var cart: ShoppingCart = mart.get_node("Cart")
-	await place(cart, Vector3(-3, 0.1, 15.5))
-	await place(drunk, Vector3(-3, 2.2, 15.5))
+	await place(cart, Vector3(-3, 0.1, 33.5))
+	await place(drunk, Vector3(-3, 2.2, 33.5))
 	# Begin/end carry uses the same physical drop path without a seat.
 	drunk.begin_carry(interaction, player)
 	drunk.end_carry()

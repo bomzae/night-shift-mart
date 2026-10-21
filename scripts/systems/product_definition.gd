@@ -19,6 +19,9 @@ extends Resource
 @export var slot_rows: int = 2
 @export var shelf_position: Vector3
 @export var shelf_yaw: float = 180
+@export var shelf_tier_height: float = 0.0
+@export var shelf_tier_clearance: float = 1.2
+@export var rack_base_name: String = ""
 @export var legacy: bool = false
 
 func mesh() -> PrimitiveMesh:

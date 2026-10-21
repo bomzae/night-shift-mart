@@ -70,14 +70,14 @@ func run_checks() -> void:
 	for type in types:
 		var shelf_name: String = {&"can": "CanShelf", &"watermelon": "WatermelonShelf", &"appliance": "ApplianceShelf"}[type]
 		var shelf: StockShelf = mart.get_node("Shelves/" + shelf_name)
-		await place(types[type], shelf.to_global(Vector3(0, 1.1, 0)))
+		await place(types[type], shelf.to_global(Vector3(0, 0.65 + types[type].definition.size.y / 2 + 0.015 + shelf.tier_height, 0)))
 	await frames(180)
 	for shelf in mart.get_node("Shelves").get_children():
-		var expected := 1 if types.has(shelf.accepted_type) else 0
+		var expected := 1 if types.has(shelf.accepted_type) and shelf.name == ProductCatalog.find(shelf.accepted_type).shelf_name else 0
 		check(shelf.stock_count == expected, "correct stable stock: " + String(shelf.accepted_type))
 	var can: GrabbableBody = types[&"can"]
 	var can_shelf: StockShelf = mart.get_node("Shelves/CanShelf")
-	player.global_position = Vector3(-5, 0.01, 4.2)
+	player.global_position = can_shelf.shopping_point(1)
 	interaction.camera.look_at(can.global_position)
 	await frames(2)
 	await press("grab")

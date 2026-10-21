@@ -11,7 +11,7 @@ func run_checks() -> void:
 	await setup_thief()
 	auto_stock = mart.get_node("AutoStock")
 	check(InputMap.has_action("debug_auto_stock") and not auto_stock.auto_stock_on_start, "I action and opt-in startup stocking")
-	check(ProductCatalog.ids().size() == 9 and ProductCatalog.find(&"appliance").legacy, "nine primary definitions plus compatible appliance")
+	check(ProductCatalog.ids().size() == 18 and ProductCatalog.find(&"appliance").legacy, "eighteen primary definitions plus compatible appliance")
 	var expected_total := 0
 	for definition: ProductDefinition in ProductCatalog.DEFINITIONS:
 		var product: GrabbableBody = load(definition.scene_path).instantiate()
@@ -21,6 +21,8 @@ func run_checks() -> void:
 		check(definition.stock_slots().size() >= shelf.max_stock, "placement points cover capacity " + String(definition.id))
 		expected_total += shelf.max_stock
 		product.free()
+	expected_total = 0
+	for shelf: StockShelf in mart.get_node("Shelves").get_children(): expected_total += shelf.max_stock
 	check(ProductCatalog.find(&"bread").weight < ProductCatalog.find(&"can").weight and ProductCatalog.find(&"tv").weight > ProductCatalog.find(&"microwave").weight, "light and heavy prototype values")
 	await press("debug_auto_stock")
 	check(auto_stock.last_added == expected_total and mart.get_node("Products").get_child_count() == expected_total, "I creates real physical products for every empty shelf")
@@ -146,7 +148,7 @@ func run_checks() -> void:
 	await setup_thief()
 	var delivery: DeliveryManager = mart.get_node("Delivery")
 	var delivered_types := {}
-	for cycle in range(4):
+	for cycle in range(7):
 		delivery.arrive()
 		check(delivery.delivered == 6, "six spaced physical products per catalog shipment")
 		for product in delivery.shipment:
@@ -155,7 +157,7 @@ func run_checks() -> void:
 		await frames(100)
 		delivery.depart()
 		await frames(5)
-	check(delivered_types.size() == 10, "delivery cycle covers nine products plus legacy appliance")
+	check(delivered_types.size() == 19, "delivery cycle covers eighteen products plus legacy appliance")
 	await setup_thief()
 	auto_stock = mart.get_node("AutoStock")
 	auto_stock.auto_stock_on_start = true

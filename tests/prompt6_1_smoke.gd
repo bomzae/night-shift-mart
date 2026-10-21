@@ -84,7 +84,7 @@ func run_checks() -> void:
 	check(child.global_position.distance_to(child_start) < 0.3, "large separation does not teleport follower")
 	await frames(45)
 	check(child.linear_velocity.length() <= child.recovery_speed + 1, "recovery speed bounded")
-	for tick in range(1200):
+	for tick in range(2400):
 		await frames(1)
 		if families.pairs.is_empty(): break
 	check(families.pairs.is_empty() and families.lost_children_found == 2, "both families exit without mutual blocking or waiting for child trigger")

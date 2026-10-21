@@ -16,10 +16,12 @@ carry_radius = 0.3
 shelf_capacity = 8
 slot_columns = 4
 slot_rows = 2
-shelf_position = Vector3(-14, 0, 9)
+shelf_position = Vector3(-14, 0, 9.3)
 shelf_yaw = 90
 legacy = false
 
 
 is_food = true
 heal_value = 20.0
+
+shelf_tier_clearance = 0.5

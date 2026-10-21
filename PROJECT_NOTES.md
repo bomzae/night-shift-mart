@@ -2,6 +2,82 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.3 — Large Supermarket / Multi-tier / Character Hit Area
+
+2026-10-21 구현·자동 검증 완료. **기존 회귀1,590 + 신규120 = 총1,710 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 변경은 uncommitted다. Prompt 11.2 이후 사용자가 Food Self Heal 및 Shelf 뒤 Player 탈출의 정상 동작을 확인했다. 아래 11.2의 미재현 설명은 당시 조사 이력으로 보존한다.
+
+### 매장 규모와 이동
+
+- Store 바닥 36×18=648㎡ → **72×36=2,592㎡, 정확히 4배**. Floor mesh/collision 면적 비교이며 진열대가 차지하는 면적을 뺀 순수 보행 면적은 아니다. Scene scale과 Player 속도5/Jump4.5는 변경하지 않았다.
+- Store x±36, z0..36. 중앙은 후면 기존11.2m, 전면 진열 구간 최소9.2m 폭이다. 전면 Shelf 중심 x±6/±13/±21/±29, z24/30. 섹션 간 측면 최소4.2m, 두 row 간 횡단4.6m. 뒤쪽과 양끝을 통해 여러 순환 경로로 복귀한다.
+- Backroom3m+Loading3m, 중앙 Rear Door5m를 유지한다. Truck→rear store 거리 증가 없이 주요 기존 재고가 가까이 있다. 앞쪽 먼 재고에는 카트 사용 가치가 생긴다.
+- Entrance x[-6,0], z36, 폭6m. Bus와 외부 apron도 z+18 이동. Checkout은 (11,34) 한 개, Queue는 x1..11/z32.6 및31.35로 중앙 배송·전투 축 오른쪽에 둔다.
+- Produce, Drinks/Dairy, Snacks/Pantry, Household, Cookware, Electronics, Checkout, Rear Delivery를 표지와 바닥 띠로 구분한다. 19개 기본 Stock section(호환 Appliance 포함)+22개 분산 section, 총41개로 밀도를 확보한다. 다단 section 4개는 기본 rack과 공간을 공유한다. 분산 section 용량은 최대4개로 제한해 빈 공간과 과도한 물리 상품 증가를 함께 줄인다.
+
+### Catalog / 실제 크기
+
+기존9개 id와 Appliance 호환을 유지한다. 새 상품도 기존 GrabbableBody/Definition/price damage/weight throw/Cart/Fire/Thief/Consume를 사용한다. 크기는 x×y×z(m), Tier는 주 진열대 기준이며 분산 진열은 독립 낮은 display다.
+
+| 상품 | 가격 | kg | 크기 | Food / Heal | 가연성 | 주 진열 |
+| --- | ---: | ---: | --- | --- | --- | --- |
+| Can | 5 | 1 | .28×.32×.28 | 아니오 | 예 | Pantry 1단 |
+| Bread | 10 | .5 | .50×.22×.24 | 예 /15 | 예 | Bread 1단 |
+| Milk | 15 | 1.5 | .25×.48×.25 | 예 /20 | 아니오 | Dairy 1단 |
+| Glass Drink | 25 | 1.2 | .20×.45×.20 | 아니오 | 아니오 | Drinks display |
+| Detergent | 30 | 2.5 | .36×.50×.30 | 아니오 | 예 | Household display |
+| Watermelon | 50 | 4 | .56×.56×.56 | 예 /30 | 아니오 | Produce display |
+| Frying Pan | 120 | 3 | .85×.12×.48 | 아니오 | 아니오 | Cookware display |
+| Microwave | 300 | 7 | .68×.50×.45 | 아니오 | 예 | Electronics display |
+| TV | 800 | 10 | 1.05×.75×.25 | 아니오 | 예 | Electronics display |
+| Chips | 8 | .3 | .35×.30×.16 | 예 /8 | 예 | Pantry 3단 |
+| Instant Noodles | 6 | .4 | .30×.18×.25 | 예 /10 | 예 | Pantry 2단 |
+| Cereal | 18 | .8 | .30×.40×.20 | 예 /12 | 예 | Bread 2단 |
+| Juice | 20 | 1.5 | .24×.38×.24 | 예 /15 | 아니오 | Dairy 2단 |
+| Cooking Oil | 35 | 2 | .28×.40×.25 | 아니오 | 예 | Pantry display |
+| Shampoo | 25 | 1 | .20×.35×.20 | 아니오 | 예 | Household display |
+| Toilet Paper | 22 | 1.8 | .65×.45×.40 | 아니오 | 예 | Household display |
+| Rice Bag | 45 | 5 | .55×.30×.40 | 예 /25 | 예 | Pantry display |
+| Vacuum Cleaner | 250 | 6 | .60×.75×.50 | 아니오 | 예 | Electronics display |
+
+### 다단 진열 / 업무 연결
+
+- ProductDefinition의 `rack_base_name`, `shelf_tier_height`, `shelf_tier_clearance`로 주 진열 rack과 단을 지정한다. 각 단은 기존 StockShelf를 재사용하며 독립 deck collision/Area/실제 재고/용량을 가진다. 같은 rack의 단들은 floor-level Shopping Point 예약을 공유한다.
+- Pantry deck 상면 .65/1.20/1.60m, Bread/Dairy .65/1.30m. 상단 deck 깊이 .9m, 후방 offset .25m, slot 열 간격 .5m로 하단 상품을 바라보는 시야와 상단 접근을 확보한다. 기둥은 x±1.34m에 두어 넓은 Bread와 겹치지 않는다. 상단 높이는 점프 없이 Carry로 접근하는 범위이며 실제 손맛은 수동 확인한다.
+- 상품 종류와 해당 단의 높이·영역·속도·소유권이 모두 맞아야 정상 Stock이다. 잘못 놓은 상품이나 overstock은 삭제/정렬하지 않는다. AutoStock은 단 높이를 더한 실제 slot에 부족분만 생성하고 겹친 slot은 건너뛴다.
+- Customer는 같은 예약·Basket·Scan/Pay를 사용한다. `shopping_focus`와 얼굴 표지가 구매 단을 향하며 몸 capsule은 upright다. Thief/Fire/Monster도 각 section의 실제 상품을 재사용한다.
+- Delivery는 한 번에 기존처럼 3종×2개만 공급하고 이후 배송에서 18종을 순환한다. 전체 물리 상품 안전 상한은96→256으로 조정해 전체 자동 진열만으로 배송이 중단되지 않도록 했다.
+
+### Monster / Character 이동과 공격 분리
+
+- 원인: 기존 Rat mask193와 Human/Player mask의 Monster bit가 capsule 간 hard blocking을 만들고, Charge 피해도 `move_and_slide` 충돌 결과에 의존했다. 군중이 둘러싼 상태에서는 이동과 공격 판정이 서로 묶여 있었다.
+- KingRat의 Human mask를 제거하고, Human 및 등록된 PlayerHealth 소유 body와 **상호 pair exception**을 둔다. Player/World/Product가 layer1을 공유하므로 layer1을 통째로 제거하지 않는다. 새로 등장하는 사람도 처리하고 카트에는 exception을 적용하지 않는다. WeakRef registry와 `tree_exiting`으로 대상 제거 전에 양쪽 예외를 해제하며, Rat 제거 때도 정리한다. Human↔Human Soft Separation 및 Human CartRecovery는 유지한다.
+- `CharacterHitArea`: capsule radius1m/height1.8m, layer0, mask1|64. Charge 중에는 기존 `_charge_hit`의 charge별 id set으로 한 대상1회만 피해30/KD/push를 준다. 일반 겹침은 impulse12×delta의 약한 분리만 적용하며 HP를 깎지 않는다. Carry 중인 NPC와 Defeated boss는 접촉 반응을 생략한다.
+- Player는 공통 `apply_external_impulse`를 받으며 속도2m/s clamp/감쇠5로 bounded 보정을 합산한다. 기본 이동·점프·Backward Fall은 유지한다. Rat은 HumanSeparation에 들어가지 않는다.
+- World/Shelf/Cart/Product/Tools의 solid collision과 기존 상품·Cart Damage/Cart Bomb은 유지한다. 이 방식은 시각적 겹침을 완전히 없애는 crowd navigation이 아니다.
+- Rat Food 범위는 Store x±35.5/z0..36, 검색반경24m의 가까운 실제 상품이다. 중앙/횡단 waypoint와2.5초 stuck retarget를 사용한다. 외곽 후면 섹션(abs x>20,z<21)은 x±26 서비스 통로와 z1/21 중 짧은 횡단점을 경유한다. 같은 서비스 통로의 목표는 중앙까지 왕복하지 않는다. Customer/Thief/Rat가 이 작은 고정 통로 그래프를 공유한다. Shopping Point 대기도 해당 Shelf 인근이며 대기점까지 같은 경유 경로를 사용한다.
+- Eat는 수평1.9m 및 높이2.25m 제한과 실제 LOS를 검사한다. 대상 단 높이에 맞춘 bite ray로 높은 상품도 실제 제거/Loss 경로에 들어간다. 멀리 있는 상품만 남으면 search 반경 밖이라 먹이 탐색이 멈출 수 있고, 복잡한 장애물 우회는 여전히 한계다.
+
+### 검증 이력
+
+- 최초 신규 script 실행은 테스트 결과 변수명 오타로 Parse Error가 발생했다. `failures`로 수정한 뒤 초기 신규 검사에서 Catalog/물리 진열/공유 예약/top-up/Area Charge를 통과했다. 초기 로그를 보존한다.
+- Prompt3의 초기 실패5건: 분산 진열대도 모두 동일 재고라고 가정한 옛 fixture와 상단 deck에 가려진 하단 Grab이 원인이었다. 배치한 주 진열대만 기대 재고를 검사하고, 실제 하단 Grab 시야를 확보하도록 상단 deck 깊이를 줄였다. 기존 공급 fixture는 상품 크기와 tier 높이를 사용해 deck 사이에 생성한다.
+- 매장 확대에 따라 계산대/Queue/Entrance 좌표 및 이동 대기 상한을 갱신한다. 기존 판매·예약·Loss·물리 계약은 유지한다. Catalog/전체 진열 수/배송 순환 검사는18종 및 분산 section 기준으로 확장한다.
+- 추가 발견·수정: 손님 despawn 후 Rat가 매 프레임 `get_collision_exceptions`로 삭제된 물리 RID를 조회하면서 엔진 오류가 발생했다. WeakRef registry 및 제거 전 양방향 cleanup으로 수정하고 despawn 회귀를 추가했다. 상단 기둥에 걸린 Bread 4개 슬롯도 기둥 위치 조정으로 수정했다.
+- 초기 대량 검사에서 기존 직선 접근 sweep은 새 서비스 통로 경유와 맞지 않아 실패했다. 실제 StoreRoutes의 모든 구간을 capsule sweep하도록 바꾸고, Shelf 뒤 탈출도 연결된 통로로 검사한다. 한 Rush 대기점은 직선으로 걸어가다 선반에 막혀 동일 경유 경로를 적용했다.
+- 퇴장 거리 증가에 따른 가족/Spill 접근 대기 상한과, 입구 이동 후 취객 제거 fixture를 조정했다. 수동 이동시킨 Thief fixture는 이동 후 실제 위치에서 경로를 다시 계산한다. Rush 손실 검사는 helper의60초 대신 실제 기본 Patience25초를 명시한다. Prompt10.1의 기대 수량 변수 범위 오타로 발생한 초기 Parse Error도 수정했다.
+- 최종 결과: Prompt0~11.2 **1,590 PASS**, Prompt11.3 **120 PASS**, 총 **1,710 PASS / 0 FAIL**. Catalog/section 수가 늘어 기존 동적 반복 검사의 개수도 증가했다. 모든 최종 검사 종료코드0, `SCRIPT ERROR:`/`ERROR:`/`FAIL:` 없음.
+- 실제 12명 Rush: 11명 상품 방문, 9명 Queue 도달, 15종 구매 경로 분산, peak Queue9, 예약 중복 없이 이벤트 종료. 별도12명 Rush+Cart2+Rat 검사에서 Rat 이동3.67m, 강제 Cart/Rat/Human 교차에서 Rat 이동1.58m 및 Human 경로 완료. 이는 자동 시나리오의 결과이며 모든 배치에서 혼잡이 사라진다는 보장은 아니다.
+- 신규 검사는 41개 section 총198개 실제 자동 진열 및 재입력0/부족분1, 세 단 실제 ray Grab, 하·중·상단 실제 Pickup→Scan→Pay, 새 Food5종 실제 G, 상단 Rat Eat/Loss, 이전 hard blocking 재현과 동일 경로 해제, Area Charge 피해/KD1회, 일반 접촉 HP 불변, NPC despawn pair cleanup을 포함한다.
+- 최종 로그 선택: `.godot/p113_reg_<stage>.log` 기본, stage3/4/5/5_1/6_1/7_1/8_1/9/10/10_1은 `p113_retry_<stage>.log`, 10_2/11_2/11_3은 `p113_final_<stage>.log`. 최초 실패 로그는 삭제하지 않았다. 실행은 문서의 Godot 경로에서 `--path . --fixed-fps 60 --script res://tests/prompt<stage>_smoke.gd`로 순차 수행했다.
+- 최종 import(`p113_final_import.log`), Main headless7,200 ticks/120 simulated seconds(`p113_main120.log`), Main 창600 ticks(`p113_main_window.log`) 모두 종료코드0/오류0. `.godot/p113_store.png` 실제 렌더에서 확장 floor/진열 island/구역 색상/전면·후면 연결을 확인했다. `git diff --check` 정상. 4인 조작감, 큰 매장의 이동 시간, Loaded Cart 회전 및 시각적 겹침은 아래 수동 검사가 남는다.
+
+### 수동 확인 / Known Issues
+
+- F5→I로 전체 진열, 하/중/상단 Grab/수동 재진열/잘못된 단 확인. U OFF→B로 Rush, R로 KING RAT를 함께 실행한다. Player+Human+Rat 겹침에서도 진행되는지, Charge 피해/KD와 Cart Bomb은 유지되는지 확인한다.
+- 각 Shelf 뒤/side/cross aisle 순환, Loaded Cart U턴, 후면 직결 배송, 전면 Queue, G Food Heal 및 동료 Revive 테스트 scene을 확인한다. 실제4인 네트워크 검증은 아직 아니다.
+- **NPC Knockdown Mesh/Collider mismatch**, **Cart Contact Repeated Damage**는 의도적으로 유지한다. Cart rubbing 손맛/악용 여부는 Final Combat/Physics에서 수동 평가한다.
+- Day Reset은 Prototype이다. Monster navigation은 단순 waypoint/stuck recovery이며, 이번 변경 후 사람과 겹쳐 보이는 정도는 Final Combat Polish에서 재검토한다. Weapon/새 Boss/Multiplayer/Round Director는 구현하지 않는다.
+
 ## Prompt 11.2 — Combat Store / Food Input / Recovery Routes
 
 2026-10-20 구현·자동 검증 완료. **기존1,208 + 신규108 = 총1,316 PASS**, 최종 Script/실행 오류0. 단, 사용자 보고의 싱글플레이 G 실패 원인은 아래와 같이 미확정이며 수동 조건 재확인이 필요하다. 시작 시 있던 `project.godot` G/H 키 에디터 직렬화 변경은 보존했다. commit/amend/reset/push하지 않았으며 변경 사항은 uncommitted다.

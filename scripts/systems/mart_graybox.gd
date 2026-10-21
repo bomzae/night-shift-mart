@@ -4,21 +4,21 @@ extends Node3D
 
 func _ready() -> void:
 	var wall := Color(0.48, 0.51, 0.55)
-	Graybox.box($StoreFloor, "Floor", Vector3(36, 0.4, 18), Vector3(0, -0.2, 9), Color(0.4, 0.43, 0.46))
+	Graybox.box($StoreFloor, "Floor", Vector3(72, 0.4, 36), Vector3(0, -0.2, 18), Color(0.4, 0.43, 0.46))
 	Graybox.box($Backroom, "Floor", Vector3(18, 0.4, 3), Vector3(0, -0.2, -1.5), Color(0.32, 0.37, 0.4))
 	Graybox.box($LoadingArea, "Floor", Vector3(18, 0.4, 3), Vector3(0, -0.2, -4.5), Color(0.28, 0.3, 0.32))
-	for x in [-18, 18]:
-		Graybox.box(self, "Boundary", Vector3(0.25, 3, 18), Vector3(x, 1.5, 9), wall)
+	for x in [-36, 36]:
+		Graybox.box(self, "Boundary", Vector3(0.25, 3, 36), Vector3(x, 1.5, 18), wall)
 	for x in [-9, 9]:
 		Graybox.box(self, "RearBoundary", Vector3(0.25, 3, 6), Vector3(x, 1.5, -3), wall)
 	for z in [-6]:
 		Graybox.box(self, "Boundary", Vector3(18, 3, 0.25), Vector3(0, 1.5, z), wall)
-	Graybox.box(self, "FrontLeft", Vector3(12, 3, 0.25), Vector3(-12, 1.5, 18), wall)
-	Graybox.box(self, "FrontRight", Vector3(18, 3, 0.25), Vector3(9, 1.5, 18), wall)
-	for x in [-13.5, 13.5]:
-		Graybox.box(self, "WingRear", Vector3(9, 3, 0.25), Vector3(x, 1.5, 0), wall)
-	Graybox.box(self, "Outside", Vector3(6, 0.4, 4), Vector3(-3, -0.2, 20), Color(0.25, 0.35, 0.3))
-	Graybox.sign(self, "EXIT  ~_~ →", Vector3(-3, 2.5, 20), Color.LIME_GREEN)
+	Graybox.box(self, "FrontLeft", Vector3(30, 3, 0.25), Vector3(-21, 1.5, 36), wall)
+	Graybox.box(self, "FrontRight", Vector3(36, 3, 0.25), Vector3(18, 1.5, 36), wall)
+	for x in [-22.5, 22.5]:
+		Graybox.box(self, "WingRear", Vector3(27, 3, 0.25), Vector3(x, 1.5, 0), wall)
+	Graybox.box(self, "Outside", Vector3(6, 0.4, 4), Vector3(-3, -0.2, 38), Color(0.25, 0.35, 0.3))
+	Graybox.sign(self, "EXIT  ~_~ →", Vector3(-3, 2.5, 38), Color.LIME_GREEN)
 	# One centered 5m rear door, directly joining dispatch and the main aisle.
 	for doorway in [Vector2(0, 0)]:
 		var left_end: float = doorway.x - 2.5
@@ -28,7 +28,7 @@ func _ready() -> void:
 	Graybox.sign($LoadingArea, "↓ LOADING", Vector3(-3, 2.6, -5), Color.GOLD)
 	Graybox.sign($Backroom, "BACKROOM / DELIVERY", Vector3(0, 2.6, -1))
 	Graybox.sign($StoreFloor, "STORE", Vector3(0, 2.8, 3))
-	Graybox.box($StoreFloor, "CheckoutReserved", Vector3(3, 0.025, 2), Vector3(11, 0.015, 16), Color(0.55, 0.5, 0.25), false)
+	Graybox.box($StoreFloor, "CheckoutReserved", Vector3(3, 0.025, 2), Vector3(11, 0.015, 34), Color(0.55, 0.5, 0.25), false)
 	Graybox.box($Entrance, "DoorMarker", Vector3(6, 0.03, 0.3), Vector3(0, -1.23, 0), Color(0.25, 0.5, 0.55), false)
 	Graybox.sign($Entrance, "ENTRANCE", Vector3(0, 1.8, -0.1))
 	for definition: ProductDefinition in ProductCatalog.DEFINITIONS:
@@ -42,6 +42,7 @@ func _ready() -> void:
 		shelf.position = definition.shelf_position
 		shelf.rotation_degrees.y = definition.shelf_yaw
 		$Shelves.add_child(shelf)
+	_build_supermarket_sections()
 	var auto_stock := AutoStock.new()
 	auto_stock.name = "AutoStock"
 	auto_stock.auto_stock_on_start = auto_stock_on_start
@@ -78,3 +79,44 @@ func _ready() -> void:
 		extinguisher.position = location
 		add_child(extinguisher)
 		Graybox.sign(self, "[F]", location + Vector3.UP * 1.4, Color.ORANGE_RED)
+
+func _build_supermarket_sections() -> void:
+	# Adjacent product sections share a rack and its floor-level shopping reservations.
+	for definition: ProductDefinition in ProductCatalog.DEFINITIONS:
+		if definition.rack_base_name.is_empty(): continue
+		var section: StockShelf = $Shelves.get_node(definition.shelf_name)
+		var base: StockShelf = $Shelves.get_node(definition.rack_base_name)
+		section.position = base.position
+		section.rotation = base.rotation
+		section.point_owner = base
+	# Repeated stock sections put useful products throughout the enlarged floor.
+	var rows := [24.0, 30.0]
+	var section_types := [[&"rice_bag", &"chips", &"instant_noodles", &"bread", &"frying_pan", &"microwave", &"tv", &"vacuum_cleaner"], [&"cereal", &"can", &"milk", &"juice", &"detergent", &"shampoo", &"toilet_paper", &"cooking_oil"]]
+	for row in range(rows.size()):
+		for column in range(8):
+			var definition: ProductDefinition = ProductCatalog.find(section_types[row][column])
+			var shelf := StockShelf.new()
+			shelf.name = "ZoneSection%d_%d" % [row, column]
+			shelf.use_catalog_tier = false
+			shelf.accepted_type = definition.id
+			shelf.max_stock = mini(4, definition.shelf_capacity)
+			shelf.shelf_color = definition.tint
+			shelf.position = Vector3([-29, -21, -13, -6, 6, 13, 21, 29][column], 0, rows[row])
+			shelf.rotation_degrees.y = 180
+			$Shelves.add_child(shelf)
+	for spec in [[&"watermelon", -29, 6], [&"milk", -21, 6], [&"bread", -29, 12], [&"can", -21, 12], [&"detergent", 29.5, 6], [&"tv", 29.5, 18]]:
+		var definition := ProductCatalog.find(spec[0])
+		var shelf := StockShelf.new()
+		shelf.name = "RearZone" + str($Shelves.get_child_count())
+		shelf.use_catalog_tier = false
+		shelf.accepted_type = definition.id
+		shelf.max_stock = mini(4, definition.shelf_capacity)
+		shelf.shelf_color = definition.tint
+		shelf.position = Vector3(spec[1], 0, spec[2])
+		shelf.rotation_degrees.y = 180
+		$Shelves.add_child(shelf)
+	for entry in [["PRODUCE", 7, 3], ["DRINKS / DAIRY", -14, 9], ["SNACKS / PANTRY", -23, 24], ["HOUSEHOLD", 23, 15], ["COOKWARE", -7, 12], ["ELECTRONICS", 23, 25], ["CHECKOUT", 11, 33]]:
+		Graybox.sign(self, entry[0], Vector3(entry[1], 3.4, entry[2]), Color.GOLD)
+		Graybox.box(self, "ZoneStripe", Vector3(5, 0.015, 0.3), Vector3(entry[1], 0.01, entry[2] - 2), Color(0.5, 0.45, 0.25), false)
+	for pad in [[Vector3(7, 0.003, 6), Vector3(5, 0.004, 4), Color(0.29, 0.43, 0.33)], [Vector3(-14, 0.003, 11), Vector3(6, 0.004, 12), Color(0.3, 0.4, 0.49)], [Vector3(-22, 0.003, 26), Vector3(24, 0.004, 10), Color(0.45, 0.38, 0.3)], [Vector3(26, 0.003, 12), Vector3(12, 0.004, 17), Color(0.36, 0.43, 0.42)], [Vector3(-7, 0.003, 12), Vector3(6, 0.004, 4), Color(0.46, 0.4, 0.3)], [Vector3(20, 0.003, 24), Vector3(29, 0.004, 5), Color(0.4, 0.35, 0.48)]]:
+		Graybox.box(self, "ZoneFloor", pad[1], pad[0], pad[2], false)

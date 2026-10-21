@@ -68,7 +68,7 @@ func run_checks() -> void:
 	interaction.camera.look_at(rat.global_position + Vector3.UP)
 	await frames(3)
 	root.get_texture().get_image().save_png("res://.godot/p11_boss.png")
-	check(rat.collision_layer == 128 and rat.collision_mask == 193 and not rat.is_in_group("human_npcs"), "monster layer separate from human steering")
+	check(rat.collision_layer == 128 and rat.collision_mask == 129 and not rat.is_in_group("human_npcs"), "monster layer separate from human steering")
 	check((player.collision_mask & 128) != 0 and (mart.get_node("Cart").collision_mask & 128) != 0, "player and cart detect monster")
 	rat.receive_damage(10)
 	check(rat.current_health == 290 and rat._flash > 0, "damage and visible feedback")

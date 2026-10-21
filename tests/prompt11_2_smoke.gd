@@ -29,7 +29,11 @@ func layout_checks() -> void:
 	for shelf: StockShelf in mart.get_node("Shelves").get_children():
 		var at := shelf.global_position
 		var route: Array[Vector3] = [shelf.to_global(Vector3(0, 0.01, -1.65))]
-		if absf(at.x) > 10:
+		if absf(at.x) > 20:
+			route.append_array(StoreRoutes.via_main(route[0], Vector3(0, 0.01, 21)))
+		elif at.z >= 22:
+			route.append(Vector3(0, 0.01, route[0].z))
+		elif absf(at.x) > 10:
 			var gap := 6.0 if at.z < 12 else 12.0
 			route.append(Vector3(route[0].x, 0.01, gap))
 			route.append(Vector3(signf(at.x) * 10.5, 0.01, gap))
@@ -42,18 +46,22 @@ func layout_checks() -> void:
 		check(clear, "capsule walk-out route behind " + shelf.name)
 		for index in range(shelf.shopping_point_count):
 			var point := shelf.shopping_point(index)
-			check(clear_segment(Vector3(0, 0.01, point.z), point), "shopping approach clear " + shelf.name + str(index))
+			var approach: Array[Vector3] = [Vector3(0, 0.01, point.z)]
+			approach.append_array(StoreRoutes.via_main(approach[0], point))
+			var approach_clear := true
+			for step in range(approach.size() - 1): approach_clear = clear_segment(approach[step], approach[step + 1]) and approach_clear
+			check(approach_clear, "shopping approach clear " + shelf.name + str(index))
 	check(clear_segment(Vector3(0, 0.01, -4), Vector3(0, 0.01, 17), 0.8), "loaded cart straight rear delivery to combat aisle")
 	check(clear_segment(Vector3(-4, 0.01, 2), Vector3(4, 0.01, 2), 0.8), "boss spawn and lateral dodge clearance")
 	for x in [-10.5, 10.5]:
 		check(clear_segment(Vector3(x, 0.01, 1), Vector3(x, 0.01, 14.3), 0.8), "cart-sized secondary loop " + str(x))
 	check(player.jump_velocity == 4.5, "jump unchanged; recovery uses layout")
-	check(manager.checkout.position == Vector3(11, 0, 16), "checkout in front side bay")
+	check(manager.checkout.position == Vector3(11, 0, 34), "checkout in front side bay")
 	for i in range(18):
 		var npc := walker(Vector3(0, 0.01, 1))
 		manager.queue.append(npc)
 		var point := manager.queue_position(npc)
-		check(point.x >= 0.9 and point.z >= 13.3 and point.z <= 14.7, "queue stays outside main delivery/combat spine " + str(i))
+		check(point.x >= 0.9 and point.z >= 31.3 and point.z <= 32.7, "queue stays outside main delivery/combat spine " + str(i))
 	for npc in manager.queue: npc.queue_free()
 	manager.queue.clear()
 	await frames(2)
@@ -165,7 +173,7 @@ func run_checks() -> void:
 	await frames(600)
 	print("COMBINED boss travel=", boss.global_position.distance_to(before), " customers=", manager.customers.size(), " queue=", manager.queue.size())
 	check(boss.global_position.distance_to(before) > 0.5, "boss makes progress with two carts and rush")
-	check(cart.collision_mask & HumanSeparation.HUMAN_LAYER != 0 and boss.collision_mask & HumanSeparation.HUMAN_LAYER != 0, "cart monster human collisions retained")
+	check((cart.collision_mask & HumanSeparation.HUMAN_LAYER) != 0 and (boss.collision_mask & HumanSeparation.HUMAN_LAYER) == 0, "cart stays solid; monster human movement separated")
 	if not boss.route.is_empty():
 		var target: Vector3 = boss.route[-1]
 		await place(cart, Vector3(signf(target.x) * 3.5, 0.05, target.z))

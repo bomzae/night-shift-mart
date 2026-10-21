@@ -100,7 +100,7 @@ func run_checks() -> void:
 	check(not is_instance_valid(child) and not is_instance_valid(parent), "parent and child physically reach exit then despawn")
 	check(families.pairs.size() == 1 and is_instance_valid(other), "other event remains active")
 	# Drunk removal zone must never remove an unmatched child.
-	await place(other, Vector3(-3, 0.6, 14))
+	await place(other, mart.get_node("Drunks/ExitRemovalZone").global_position)
 	await frames(20)
 	check(is_instance_valid(other) and families.lost_children_found == 1, "drunk exit removal ignores lost child")
 	var cart: ShoppingCart = mart.get_node("Cart")

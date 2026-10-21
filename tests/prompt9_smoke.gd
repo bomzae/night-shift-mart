@@ -123,6 +123,7 @@ func run_checks() -> void:
 	await stock("can")
 	thief = thieves.spawn_thief()
 	thief.global_position = Vector3(-6, 0.01, 9)
+	thief.waypoints = StoreRoutes.via_main(thief.global_position, thief.waypoints[-1])
 	await frames(3)
 	var second := thieves.spawn_thief()
 	check(second != null and thieves.spawn_thief() == null, "debug thieves bounded to two")

@@ -24,17 +24,17 @@ var _elapsed: float = 0
 var _spawn_left: float = 0
 var _target_count: int = 0
 var _paid_passengers: Dictionary = {}
-var parking_position := Vector3(2, 0, 21)
-var road_position := Vector3(16, 0, 21)
+var parking_position := Vector3(2, 0, 39)
+var road_position := Vector3(16, 0, 39)
 
 func _ready() -> void:
 	manager = get_parent().get_node("Customers")
 	manager.customer_paid.connect(_on_customer_paid)
 	# Extend around the existing 6x4 entrance pad, without coplanar floor overlap.
 	var paving := Color(0.24, 0.27, 0.29)
-	Graybox.box(self, "ApronLeft", Vector3(3, 0.4, 8), Vector3(-7.5, -0.2, 22), paving)
-	Graybox.box(self, "ApronRight", Vector3(15, 0.4, 8), Vector3(7.5, -0.2, 22), paving)
-	Graybox.box(self, "ApronRear", Vector3(6, 0.4, 4), Vector3(-3, -0.2, 24), paving)
+	Graybox.box(self, "ApronLeft", Vector3(3, 0.4, 8), Vector3(-7.5, -0.2, 40), paving)
+	Graybox.box(self, "ApronRight", Vector3(15, 0.4, 8), Vector3(7.5, -0.2, 40), paving)
+	Graybox.box(self, "ApronRear", Vector3(6, 0.4, 4), Vector3(-3, -0.2, 42), paving)
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	_label = Label.new()
@@ -76,7 +76,7 @@ func _build_bus() -> void:
 	Graybox.sign(bus, "BUS", Vector3(0, 3.1, 0), Color.GOLD)
 
 func spawn_position() -> Vector3:
-	return Vector3(-1.4, 0.01, 19)
+	return Vector3(-1.4, 0.01, 37)
 
 func _physics_process(delta: float) -> void:
 	if state == State.IDLE: return
@@ -95,7 +95,7 @@ func _physics_process(delta: float) -> void:
 			var passenger := manager.spawn_customer([], null, {
 				"tourist": true, "position": spawn_position(),
 				"min_units": maxi(1, min_purchase_units), "max_units": maxi(1, max_purchase_units),
-				"entry_waypoints": [Vector3(-4.15, 0.01, 19), Vector3(-4.15, 0.01, 16.8)]})
+				"entry_waypoints": [Vector3(-4.15, 0.01, 37), Vector3(-4.15, 0.01, 34.8)]})
 			if passenger != null:
 				passengers.append(passenger)
 				spawned_count += 1

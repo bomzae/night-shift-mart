@@ -112,7 +112,7 @@ func run_checks() -> void:
 	await stock("can")
 	var customer: BasicCustomer = manager.spawn_customer([&"can"])
 	zone = puddle(Vector3(0, 0.01, 8))
-	for tick in range(600):
+	for tick in range(1200):
 		await frames(1)
 		if customer.knockdown.active(): break
 	check(customer.knockdown.active(), "shopping customer falls crossing actual core")

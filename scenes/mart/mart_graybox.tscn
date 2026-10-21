@@ -24,7 +24,7 @@ shadow_enabled = true
 [node name="Backroom" type="Node3D" parent="."]
 [node name="LoadingArea" type="Node3D" parent="."]
 [node name="Entrance" type="Marker3D" parent="."]
-position = Vector3(-3, 1.25, 17.85)
+position = Vector3(-3, 1.25, 35.85)
 [node name="Products" type="Node3D" parent="."]
 [node name="Delivery" type="Node3D" parent="."]
 position = Vector3(-3, 0, -3.6)

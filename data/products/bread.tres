@@ -23,3 +23,5 @@ legacy = false
 
 is_food = true
 heal_value = 15.0
+
+shelf_tier_clearance = 0.5

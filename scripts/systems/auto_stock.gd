@@ -32,7 +32,7 @@ func physical_count(shelf: StockShelf) -> int:
 		if seen.has(body.get_instance_id()): continue
 		seen[body.get_instance_id()] = true
 		var p: Vector3 = shelf.to_local(body.global_position)
-		if body.product_type == shelf.accepted_type and absf(p.x) <= 1.4 and absf(p.z) <= 0.7 and p.y >= 0.65 and p.y <= 1.85:
+		if body.product_type == shelf.accepted_type and absf(p.x) <= 1.4 and absf(p.z) <= 0.7 and p.y >= 0.65 + shelf.tier_height and p.y <= 0.65 + shelf.tier_height + shelf.tier_clearance:
 			count += 1 # Includes newly spawned/unsettled goods, so repeated I cannot overfill.
 	return count
 
@@ -45,7 +45,7 @@ func top_up() -> int:
 		var missing := maxi(0, shelf.max_stock - physical_count(shelf))
 		for slot in definition.stock_slots():
 			if missing <= 0: break
-			var transform_at := Transform3D(shelf.global_basis, shelf.to_global(slot))
+			var transform_at := Transform3D(shelf.global_basis, shelf.to_global(shelf.slot_position(slot)))
 			var query := PhysicsShapeQueryParameters3D.new()
 			query.shape = definition.collision_shape()
 			query.transform = transform_at

@@ -11,6 +11,7 @@ extends CharacterBody3D
 @export var minimum_push_speed: float = 0.2
 
 @onready var head: Node3D = $Head
+var external_velocity := Vector3.ZERO
 var health := PlayerHealth.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
@@ -51,6 +52,7 @@ func _notification(what: int) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	external_velocity *= exp(-5.0 * delta)
 	fire_reaction.tick(delta)
 	if knockdown.tick(delta):
 		velocity = knockdown.damp_motion(velocity, delta)
@@ -86,6 +88,7 @@ func _physics_process(delta: float) -> void:
 	elif controls_active and Input.is_action_just_pressed("jump"):
 		velocity.y = jump_velocity
 
+	velocity += external_velocity
 	var incoming_velocity := velocity
 	move_and_slide()
 	# Sliding can zero the actual velocity at a heavy body. Continue applying
@@ -94,6 +97,7 @@ func _physics_process(delta: float) -> void:
 	if incoming_velocity.length_squared() > push_velocity.length_squared():
 		push_velocity = incoming_velocity
 	_push_physics_bodies(push_velocity, delta)
+	velocity -= external_velocity
 
 
 func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
@@ -121,3 +125,6 @@ func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
 		var impulse := minf(max_player_push_impulse, closing_speed * player_push_strength * delta / (1.0 + push_weight_penalty * maxf(0, body_weight - 1)))
 		body.apply_central_impulse(direction * impulse)
 
+
+func apply_external_impulse(impulse: Vector3) -> void:
+	if impulse.is_finite(): external_velocity = (external_velocity + impulse).limit_length(2.0)

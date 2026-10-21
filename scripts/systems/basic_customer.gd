@@ -13,6 +13,7 @@ var visited_types: Array[StringName] = []
 var shopping_shelf: StockShelf
 var shopping_point_index: int = -1
 var _leaving_shelf: StockShelf
+var shopping_focus := Vector3.ZERO
 var _shopping_left: float = 0
 var _heading_queue: bool = false
 var manager: Node
@@ -29,6 +30,7 @@ var resolved: bool = false
 var unpaid: bool = false
 var waypoints: Array[Vector3] = []
 var _mood: Label3D
+var _facing_mark: MeshInstance3D
 var _mesh: MeshInstance3D
 var _contact_zone: Area3D
 var _push: Vector3 = Vector3.ZERO
@@ -69,6 +71,7 @@ func _ready() -> void:
 	facing_mark.mesh = mark
 	facing_mark.position = Vector3(0, 1.35, -0.32)
 	add_child(facing_mark)
+	_facing_mark = facing_mark
 	_mood = Graybox.sign(self, ":)", Vector3(0, 2.4, 0))
 	_mood.pixel_size = 0.005
 	# Colored miniature product silhouettes: no inventory bodies or grabbed goods.
@@ -135,9 +138,11 @@ func _physics_process(delta: float) -> void:
 	var target := global_position
 	if state == State.SHOP:
 		target = shopping_shelf.shopping_point(shopping_point_index)
-		var facing := shopping_shelf.global_position
+		shopping_focus = shopping_shelf.global_position + Vector3.UP * (0.9 + shopping_shelf.tier_height)
+		var facing := shopping_focus
 		facing.y = global_position.y
 		look_at(facing, Vector3.UP)
+		_facing_mark.look_at(shopping_focus, Vector3.UP)
 		if global_position.distance_to(target) < 0.35:
 			_shopping_left -= delta
 		if _shopping_left <= 0:
@@ -147,7 +152,10 @@ func _physics_process(delta: float) -> void:
 			_leaving_shelf = shopping_shelf
 			shopping_shelf = null
 			# Keep the point occupied until physically clear of its approach.
-			waypoints = [Vector3(0, 0, global_position.z)]
+			if absf(global_position.x) > 20:
+				waypoints = [global_position + _leaving_shelf.global_basis.z * 1.2]
+			else:
+				waypoints = StoreRoutes.via_main(global_position, Vector3(0, 0.01, global_position.z))
 			state = State.STORE
 	if state == State.STORE or state == State.EXIT:
 		if not waypoints.is_empty():
@@ -191,6 +199,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	if state == State.STORE and walking.length() > 0.1:
 		look_at(global_position + Vector3(walking.x, 0, walking.z), Vector3.UP)
+	if state != State.SHOP: _facing_mark.rotation = Vector3.ZERO
 	_mesh.rotation.x = -0.1 * sin(PI * (1 - _shopping_left / shopping_time)) if state == State.SHOP else 0.0
 	_mesh.position.y = 0.825 + sin(Time.get_ticks_msec() * 0.012) * minf(0.035, walking.length() * 0.015)
 	update_mood()
@@ -244,7 +253,7 @@ func continue_shopping() -> void:
 	if visited_types.size() == shopping_types.size():
 		if not _heading_queue:
 			_heading_queue = true
-			waypoints = [Vector3(0, 0, 14.6), Vector3(1, 0, 14.6)]
+			waypoints = [Vector3(0, 0, 32.6), Vector3(1, 0, 32.6)]
 		else:
 			manager.join_queue(self)
 		return
@@ -255,7 +264,7 @@ func continue_shopping() -> void:
 				continue
 			var point := shelf.reserve_shopping_point(self, product.global_position)
 			if point < 0:
-				waypoints = [Vector3(-6.5 + manager.customers.find(self) * 0.85, 0, 2.0)]
+				waypoints = StoreRoutes.via_main(global_position, shelf.to_global(Vector3(-2.5 + (manager.customers.find(self) % 6), 0.01, 3.0)))
 				return
 			shopping_shelf = shelf
 			shopping_point_index = point

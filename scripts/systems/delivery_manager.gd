@@ -4,7 +4,7 @@ extends Node3D
 @export var first_delivery_delay: float = 5.0
 @export var delivery_interval: float = 120.0
 @export var truck_wait_time: float = 60.0
-@export var max_active_products: int = 96
+@export var max_active_products: int = 256
 @export var use_catalog_rotation: bool = true
 @export var product_scenes: Array[PackedScene] = [preload("res://scenes/interactables/products/can.tscn"), preload("res://scenes/interactables/products/watermelon.tscn"), preload("res://scenes/interactables/products/appliance.tscn")]
 var truck_present: bool = false

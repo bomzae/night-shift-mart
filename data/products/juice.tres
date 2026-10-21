@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ProductDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/systems/product_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"juice"
+display_name = "Juice"
+scene_path = "res://scenes/interactables/products/juice.tscn"
+shelf_name = "JuiceShelf"
+price = 20
+weight = 1.5
+is_food = true
+heal_value = 15
+flammable = false
+size = Vector3(0.24, 0.38, 0.24)
+tint = Color(0.85, 0.5, 0.43000000000000005, 1)
+carry_radius = 0.22799999999999998
+shelf_capacity = 8
+slot_columns = 4
+slot_rows = 2
+shelf_position = Vector3(-14, 0, 9)
+shelf_yaw = 180
+
+shelf_tier_height = 0.65
+shelf_tier_clearance = 0.5
+rack_base_name = "MilkShelf"

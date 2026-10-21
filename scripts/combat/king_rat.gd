@@ -4,6 +4,7 @@ enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DE
 @export var move_speed: float = 2.4
 @export var eat_time: float = 1.5
 @export var eat_reach: float = 1.9
+@export var max_food_height: float = 2.25
 @export var charge_cooldown: float = 8.0
 @export var charge_range: float = 7.0
 @export var telegraph_time: float = 0.65
@@ -31,9 +32,27 @@ var _flash: float = 0
 var visual: Node3D
 var material := StandardMaterial3D.new()
 var mood: Label3D
+var _character_pairs: Dictionary = {}
+var character_zone: Area3D
+@export var food_search_radius: float = 24.0
+@export var overlap_push: float = 12.0
 
 func _ready() -> void:
 	super._ready()
+	collision_mask &= ~HumanSeparation.HUMAN_LAYER
+	character_zone = Area3D.new()
+	character_zone.name = "CharacterHitArea"
+	character_zone.collision_layer = 0
+	character_zone.collision_mask = 1 | HumanSeparation.HUMAN_LAYER
+	var hit_shape := CollisionShape3D.new()
+	var hit_capsule := CapsuleShape3D.new()
+	hit_capsule.radius = 1.0
+	hit_capsule.height = 1.8
+	hit_shape.shape = hit_capsule
+	hit_shape.position.y = 0.9
+	character_zone.add_child(hit_shape)
+	add_child(character_zone)
+	_sync_character_exceptions()
 	floor_snap_length = 0.2
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -77,8 +96,9 @@ func seek_food() -> void:
 		if not body is GrabbableBody or not valid_food(body): continue
 		if _ignored_food.get(body.get_instance_id(), 0) > Time.get_ticks_msec(): continue
 		var at: Vector3 = body.global_position
-		if absf(at.x) > 17.5 or at.z < 0 or at.z > 18: continue
+		if absf(at.x) > 35.5 or at.z < 0 or at.z > 36: continue
 		var score := global_position.distance_squared_to(at)
+		if score > food_search_radius * food_search_radius: continue
 		if score < best:
 			best = score
 			food = body
@@ -100,8 +120,14 @@ func seek_food() -> void:
 	state = State.MOVE_TO_FOOD
 
 func can_eat() -> bool:
-	if not valid_food(food) or global_position.distance_to(food.global_position) > eat_reach: return false
-	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.05, food.global_position, 1)
+	if not valid_food(food): return false
+	var offset := food.global_position - global_position
+	if absf(offset.y) > max_food_height: return false
+	offset.y = 0
+	if offset.length() > eat_reach: return false
+	# Reach each physical tier from its approach, without biting through a deck.
+	var mouth_height := clampf(food.global_position.y - global_position.y, 1.05, 2.1)
+	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * mouth_height, food.global_position, 1)
 	query.exclude = [get_rid(), food.get_rid()]
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
@@ -125,6 +151,8 @@ func begin_telegraph() -> void:
 	_charge_wait = charge_cooldown
 
 func _physics_process(delta: float) -> void:
+	_sync_character_exceptions()
+	_character_contacts(delta)
 	contact_push(delta)
 	_left -= delta
 	_charge_wait -= delta
@@ -209,3 +237,44 @@ func _on_defeat() -> void:
 	_left = defeat_time
 	food = null
 	route.clear()
+
+# Pair exceptions keep the shared world/product layer intact. Never ghost carts.
+func _sync_character_exceptions() -> void:
+	var characters := get_tree().get_nodes_in_group("human_npcs")
+	for health in get_tree().get_nodes_in_group("player_health"):
+		characters.append(health.get_parent())
+	for body in characters:
+		if body is PhysicsBody3D and not body.is_queued_for_deletion():
+			var id := body.get_instance_id()
+			if not _character_pairs.has(id):
+				_character_pairs[id] = weakref(body)
+				add_collision_exception_with(body)
+				body.add_collision_exception_with(self)
+				body.tree_exiting.connect(_forget_character.bind(body), CONNECT_ONE_SHOT)
+
+func _character_contacts(delta: float) -> void:
+	if is_defeated: return
+	for body in character_zone.get_overlapping_bodies():
+		if body.get_node_or_null("Knockdown") == null: continue
+		if body is CarryableCharacter and is_instance_valid(body.holder): continue
+		if state == State.CHARGE:
+			_charge_hit(body)
+		else:
+			var away: Vector3 = body.global_position - global_position
+			away.y = 0
+			if away.length_squared() < 0.001: away = Vector3.RIGHT
+			PhysicsPush.apply(body, away.normalized() * overlap_push * delta)
+
+func _forget_character(body: PhysicsBody3D) -> void:
+	if not is_instance_valid(body): return
+	_character_pairs.erase(body.get_instance_id())
+	remove_collision_exception_with(body)
+	body.remove_collision_exception_with(self)
+
+func _exit_tree() -> void:
+	for ref: WeakRef in _character_pairs.values():
+		var body := ref.get_ref() as PhysicsBody3D
+		if is_instance_valid(body):
+			remove_collision_exception_with(body)
+			body.remove_collision_exception_with(self)
+	_character_pairs.clear()

@@ -6,6 +6,7 @@ func setup_bus() -> void:
 	await setup_mart()
 	buses = mart.get_node("TouristBus")
 	manager._rng.seed = 10
+	manager.patience_time = 25 # Normal gameplay patience, including unattended rush loss.
 	spawn_frames.clear()
 	manager.child_entered_tree.connect(_record_spawn)
 
@@ -22,7 +23,7 @@ func supply() -> void:
 			mart.get_node("Products").add_child(product)
 			var columns := 4 if type != "appliance" else 2
 			var x := (float(i % columns) - float(columns - 1) / 2) * (0.62 if type != "appliance" else 1.2)
-			product.global_position = shelf.to_global(Vector3(x, 1.15, -0.3 + (i / columns) * 0.6))
+			product.global_position = shelf.to_global(Vector3(x, 0.665 + product.definition.size.y / 2, -0.3 + (i / columns) * 0.6))
 	await frames(150)
 	check(manager.available_goods().size() == 14, "prepare fourteen actual shelf products")
 
