@@ -68,7 +68,9 @@ func _ready() -> void:
 	collision.shape = bounds
 	zone.add_child(collision)
 	add_child(zone)
-	_label = Graybox.sign(self, "", Vector3(0, tier_height + 0.8, 0.75), shelf_color)
+	_label = Graybox.sign(self, definition.display_name.to_upper() if definition != null else String(accepted_type).to_upper(), Vector3(0, tier_height + 0.61, 0.76), Color.WHITE)
+	_label.font_size = 24
+	_label.pixel_size = 0.003
 
 func _physics_process(delta: float) -> void:
 	refresh_stock(delta)
@@ -88,7 +90,6 @@ func refresh_stock(delta: float) -> void:
 			stocked_objects.append(body)
 	_settled = present
 	stock_count = stocked_objects.size()
-	_label.text = "%s\n%d / %d" % [String(accepted_type).to_upper(), stock_count, max_stock]
 
 func stock_eligible(body: GrabbableBody) -> bool:
 	if not is_instance_valid(body) or body.is_queued_for_deletion() or body.get_meta("sold", false):

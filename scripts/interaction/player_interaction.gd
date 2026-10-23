@@ -30,6 +30,7 @@ extends Node
 @onready var camera: Camera3D = player.get_node("Head/Camera3D")
 @onready var crosshair: Label = $Feedback/Crosshair
 @onready var charge_bar: ProgressBar = $Feedback/ChargeBar
+var product_info: Label
 var held_object: RigidBody3D
 var is_charging: bool = false
 var charge_ratio: float = 0.0
@@ -47,6 +48,33 @@ var _tracked_hold: RigidBody3D
 var _hold_goal: Vector3
 var _active_hold_distance: float = 0.0
 var _last_hold_position: Vector3
+
+
+func _ready() -> void:
+	product_info = Label.new()
+	product_info.name = "ProductInfo"
+	$Feedback.add_child(product_info)
+	product_info.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	product_info.offset_left = -130
+	product_info.offset_top = 30
+	product_info.offset_right = 130
+	product_info.offset_bottom = 130
+	product_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	product_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	product_info.add_theme_font_size_override("font_size", 18)
+	product_info.add_theme_color_override("font_shadow_color", Color.BLACK)
+	product_info.add_theme_constant_override("shadow_offset_x", 1)
+	product_info.add_theme_constant_override("shadow_offset_y", 1)
+	product_info.hide()
+
+func update_product_info(candidate: PhysicsBody3D, active: bool) -> void:
+	product_info.hide()
+	if not active or not candidate is GrabbableBody or candidate.product_type == &"": return
+	product_info.text = "%s\n$%.0f  |  %.1f kg" % [candidate.display_name, candidate.price, candidate.weight]
+	var data := ProductCatalog.find(candidate.product_type)
+	if data != null and data.is_food:
+		product_info.text += "\n+%.0f HP" % data.heal_value
+	product_info.show()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -111,7 +139,9 @@ func _physics_process(delta: float) -> void:
 	charge_bar.visible = active and is_charging
 	charge_bar.value = charge_ratio
 	crosshair.visible = active
-	crosshair.modulate = Color.ORANGE if is_instance_valid(held_object) else (Color.LIME_GREEN if find_candidate() != null else Color.WHITE)
+	var candidate := find_candidate() if active and not is_instance_valid(held_object) else null
+	crosshair.modulate = Color.ORANGE if is_instance_valid(held_object) else (Color.LIME_GREEN if candidate != null else Color.WHITE)
+	update_product_info(candidate, active)
 
 
 func find_candidate() -> PhysicsBody3D:

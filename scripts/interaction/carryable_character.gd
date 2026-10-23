@@ -13,6 +13,7 @@ var _carrier: PhysicsBody3D
 var _saved_gravity: float
 var supported_by_cart: bool = false
 var grounded: bool = false
+var product_recovery := ProductRecovery.new()
 var cart_recovery := CartRecovery.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
@@ -30,6 +31,7 @@ func apply_external_impulse(impulse: Vector3) -> void:
 func _ready() -> void:
 	human_separation.setup(self)
 	cart_recovery.setup(self)
+	product_recovery.setup(self)
 	lock_rotation = true
 	continuous_cd = true
 	contact_monitor = true
@@ -43,6 +45,7 @@ func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 	if knockdown.active(): knockdown.finish_recovery()
 	_restore_collision()
 	cart_recovery.clear()
+	product_recovery.clear()
 	holder = controller
 	_carrier = player
 	_saved_gravity = gravity_scale

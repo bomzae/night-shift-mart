@@ -47,6 +47,7 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 	var desired := offset.normalized() * minf(speed_limit, offset.length() * follow_correction)
 	desired += human_separation.correction(self, desired, 0.25 * minf(1, offset.length()))
 	desired = cart_recovery.steer(desired, state.step)
+	desired = product_recovery.steer(desired, state.step)
 	var horizontal := Vector3(state.linear_velocity.x, 0, state.linear_velocity.z).move_toward(desired, follow_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z

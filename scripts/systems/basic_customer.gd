@@ -35,6 +35,7 @@ var _mesh: MeshInstance3D
 var _contact_zone: Area3D
 var _push: Vector3 = Vector3.ZERO
 var _disappointment_left: float
+var product_recovery := ProductRecovery.new()
 var cart_recovery := CartRecovery.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
@@ -45,6 +46,7 @@ var fire_reaction := FireReaction.new()
 func _ready() -> void:
 	human_separation.setup(self)
 	cart_recovery.setup(self)
+	product_recovery.setup(self)
 	add_to_group("basic_customers")
 	patience_left = patience_time
 	floor_snap_length = 0.2
@@ -179,6 +181,7 @@ func _physics_process(delta: float) -> void:
 	if state == State.SHOP or state == State.EVENT_WAIT or not uses_customer_separation(): spacing_weight = 0
 	walking += human_separation.correction(self, walking, spacing_weight)
 	walking = cart_recovery.steer(walking, delta, 0.4 if state == State.QUEUE or state == State.CHECKOUT or state == State.SHOP else 1.0)
+	walking = product_recovery.steer(walking, delta, 0.4 if state == State.QUEUE or state == State.CHECKOUT or state == State.SHOP else 1.0)
 	_push = _push.move_toward(Vector3.ZERO, push_decay * delta)
 	for body in _contact_zone.get_overlapping_bodies():
 		if body is ShoppingCart:

@@ -2,6 +2,56 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.4 — Floor Product Recovery / Rat Mobility / Dense Racks / Aim Info
+
+2026-10-23 구현·자동 검증 완료. 기존 회귀 1,830 + 신규 464 = 총 **2,294 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git 상태는 clean이었으며 변경은 uncommitted로 유지한다. Weapon/새 Boss/Network/Navigation 전면 교체는 구현하지 않았다.
+
+### 바닥 상품 정체 재현과 복구
+
+- 수정 전 실제 BasicCustomer 모터로 좁은 통로의 고정 TV를 향해 이동시켰다. 8초 뒤 z=1.55에 막혀 목적지에 도달하지 못했다(`.godot/p114_before.log`). 기존 CartRecovery는 ShoppingCart만 감지하여 상품에는 우회/복구가 없었다.
+- 별도 작은 `ProductRecovery`를 BasicCustomer 및 CarryableCharacter에 연결한다. Basic 파생 Thief/Parent/Accident/Dangerous/Tourist와 Drunk/Child가 같은 정책을 사용하며 Monster에는 적용하지 않는다. CartRecovery는 수정하지 않는다.
+- 낮은 높이의 전방 probe1.25m, push force12, side speed0.9m/s, side delay0.2초, stuck threshold1.1초, pair clear distance1.8m. 작은 상품은 실제 impulse로 먼저 밀며, 목표 방향 progress가 `max(0.15m/s, 명령 속도×0.3)`보다 낮을 때만 안정된 한쪽으로 비킨다. SHOP/Queue는 보정0.4, Drunk는0.6 배율이다.
+- 낮게 넘어진 TV 모서리는 capsule과 접촉해도 전방 ray 아래에 있을 수 있어, probe가 놓칠 때 실제 slide/contact 목록도 확인한다. 인접한 상품 사이에서 감지가 바뀌어도 상품별 timer/side를1.5초 동안 보존한다. 실제 pass-through pair는 거리가 벌어지거나 물체 상태가 바뀔 때 별도로 해제한다.
+- 높이/회전을 고려해 바닥 상품만 처리하고, 진열대 상품·들고 있는 상품/도구·빠른 투사체는 복구 대상에서 제외한다. Child의 capsule 높이도 고려한다. AI가 Shelf 재고를 미리 밀어내지 않도록 한다.
+- 동일 장애물에 계속 막힐 때 해당 Human/Product 양방향 pair만 잠시 통과한다. 여러 pair를 별도로 관리하고 거리 이탈·Grab·대상 제거·NPC 제거/Carry 시 복구한다. WeakRef와 tree_exiting cleanup으로 삭제된 physics RID를 남기지 않는다.
+
+### KING RAT Mobility
+
+- 기본 move_speed2.4→3.6m/s, search radius24→42m. Player 이동5m/s와 Charge7.5m/s/telegraph0.65초/cooldown8초는 유지한다.
+- 여섯 구역의 빈 통로 진입점: (0,6), (26,6), (26,27), (0,27), (-26,27), (-26,6). 같은 구역2개 섭취 또는18초 체류 또는 주변 상품 없음이면 다음 구역으로 이동한다. 실제 진입한 구역을 visited_zones에 기록한다.
+- 구역 도착 후 그 구역의 실제 상품을 우선 탐색한다. 이동 중에도 기존 Player 근접 Charge가 작동하고 이후 구역 이동을 재개한다. 같은 측면 통로는 중앙을 왕복하지 않으며, 기존 고정 StoreRoutes와2.5초 stuck recovery를 유지한다.
+- 실제 모터 자유 이동 비교: 5초12.00→18.00m, 10초24.00→36.00m. 60초 자동 관찰에서 Produce/Cookware→Household→Electronics 3구역, 총 이동176.59m, 실제 상품 손실330을 기록했다. 이 coverage 검사는 Player Charge를 억제한 이동 관찰이며 이후 근접 Charge를 별도 확인했다. 복잡한 장애물 길찾기를 해결한 것은 아니다.
+
+### Shelf Density / Signage / UI
+
+- 바닥72×36m 및 Rack footprint/통로는 유지한다. 다단 Rack3→13개, 3단1→6개. Pantry/Snacks/Drinks/Household의 기존 island 위에15개 Tier Section을 추가한다. 큰 상품 Display는 유지한다.
+- 전체 Stock Section41→56개, Auto Stock198→318개. 각 단은 실제 deck/Area/slot을 가지며 같은 Rack의 Shopping Point 예약을 공유한다. 반복 facing과 기존 물리 상품을 사용한다. 배송 안전 상한256→400으로 조정하여 전체 진열 상태에서도 소량 배송을 허용한다.
+- 전체 진열 직후4초 검사에서318개 생성,286개 Sleep, 최고 속도 약0.053m/s였다. 상품은 Static으로 전환하지 않는다. 순간 FPS/다양한 PC 성능을 보장하는 수치는 아니다.
+- Shelf edge의 작은 Label3D에는 상품 이름만 표시한다. Zone Category Sign은 유지하고, 상시 Stock Count/Price/Weight 표시는 제거한다.
+- 판매 상품의 World 상세 Label은 기본 OFF, Inspector `show_debug_label`로 선택 표시한다. 소화기 용량/도구 이름과 Customer Purchase Icon은 유지한다.
+- PlayerInteraction의 기존 Grab Candidate ray 결과를 crosshair 색과 ProductInfo UI가 함께 사용한다. 별도 Hover ray를 만들지 않는다. 조준한 판매 상품의 실제 instance Name/Price/Weight 및 Catalog Food Heal만 화면 중앙 아래에 표시한다. 대상 변경/삭제/비상품/잡은 상태/입력 제한 상태에서는 갱신 또는 Hide한다.
+
+### 검사 이력
+
+- 최초 신규 실행의 probe origin 타입 추론 Parse Error를 Vector3 명시로 수정했다. 이후 실행에서 상단 deck과 Detergent 하단 상품 간섭으로4개 slot이 비어 Household 상단을0.75m offset으로 높였다.
+- Godot에서 지원하지 않는 `%g` 숫자 서식은 `%.0f`/`%.1f`로 수정했다. 렌더 확인에서 깨진 장식 기호도 제거해 `Name / $Price | Weight kg / +Heal HP`로 표시한다.
+- 초기 coverage에서 앞쪽 Shelf Row 위의 구역 진입점이 막혀, 진입점을 z27 횡단 통로로 이동했다. 최초 실패 로그는 보존한다.
+- Prompt11 회귀의4개 연쇄 실패는 빈 매장에서 이미 구역 이동을 시작한 Rat를 테스트가 임의 위치로 옮기고 상품을 추가한 뒤, 이전 구역 경로가 남은 fixture에서 발생했다. 배치 위치 기준으로 SEEK_FOOD/구역을 초기화하되 실제 이동→Eat→Stock/Loss/OOS 계약은 그대로 검사하여 재통과했다.
+- 추가 Scatter 검사에서 처음에는 취객이4초에1.98m 전진해 고정2m 경계에 못 미쳤다. 관찰을 전체 Scatter 통과로 확장하자 낮은 TV 접촉을 ray가 놓치는 현상과 인접 상품 전환 때 timer가 초기화되는 실제 문제를 확인했다. 실제 접촉 보조 및 상품별 encounter timer를 추가한 뒤 약11.8초에 z26→33.03으로 통과,4개 pair recovery를 수행했다. 진행률 기준만 높인 중간 수정은 충분하지 않았으며 해당 실패 로그도 보존한다.
+- 신규 핵심 검사: light Can 실제 push/예외0, 연속 pinned TV2개 통과 및 pair복구, held tool 제외, 실제5/10초 이동, 전체 Tier 실재고/Name Tag/318개 top-up, Sleep, 실제 ray 기반 Bread/TV 정보와 대상 삭제 Hide, 60초 구역 방문/실제 Eat/근접 Charge.
+- 최종 결과: Prompt0~11.3 회귀 **1,830 PASS**, 신규 핵심450 + flow13 + 최초 재현 재검사1 = **464 PASS**, 합계 **2,294 PASS / 0 FAIL**. Section/상품 증가에 따라 기존 동적 반복 검사의 수도 증가했다. 전체 회귀 실행 후 마지막 ProductRecovery 보완에 대해서는 신규 핵심/flow 및 Prompt5/6.1/10.2를 다시 실행했다.
+- 최종 로그: 기존 `.godot/p114_reg_<stage>.log`, Prompt11은 `p114_final_11.log`, 재검사5/6.1/10.2는 `p114_tuned_<stage>.log`, 신규는 `p114_tuned_11_4.log`/`p114_flow_pairs.log`/`p114_reproduce_after.log`. 선택 결과 목록은 `.godot/p114_results.txt`. 모든 최종 선택 로그 종료코드0, SCRIPT ERROR/ERROR/FAIL 없음. 중간 실패 로그는 위 이력과 함께 보존한다.
+- 최종 코드 import, Main headless 7,200 physics ticks(120초 simulation), 실제 창 Main600 ticks 모두 종료코드0/오류0. 로그는 `p114_tuned_import.log`, `p114_tuned_main120.log`, `p114_tuned_main_window.log`.
+- 실제 318개 재고+바닥 상품12개+Tourist12명 시나리오에서10명 이상의 목적지 진행을 확인했고, Thief Scatter 통과 및 Drunk 약11.8초 통과도 확인했다. 정상 Rush에서는 다중 Shelf/Queue 진행과 예약 일관성을 검사했다. 자동 시나리오 통과가 모든 물체 배치의 무정체나 수동 조작감까지 보장하지는 않는다.
+- 실제 렌더로 Product Aim UI와 Pantry3단 진열/Name Tag를 확인했다(`p114_aim.png`, `p114_rack.png`, `p114_store.png`). 전체 Chaos의 손맛과 가독성 최종 평가는 아래 수동 검사로 남긴다.
+
+### 수동 검사 / Known Issues
+
+- F5→I: 318개 다단 진열, 가까이서 Tag와 상품 시야 확인. 상품 조준 시 상세 UI, 다른 곳을 보면 Hide. 하/중/상단 Grab/수동 재진열을 확인한다.
+- 통로에 Can/TV/Mop을 놓고 U ON/B/T/K로 일반 손님·Rush·Thief·Drunk 진행 확인. Player가 들고 있는 도구/날아오는 상품 및 Cart 충돌은 계속 실제 물리로 작동해야 한다.
+- I→U OFF→R 후1분 관찰: 구역 이동, 상품 섭취, 일반 이동과 Charge 차이를 확인한다. Cart+상품 Scatter+Rush+Fire+Spill 동시 손맛은 수동 확인이 남는다.
+- NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype은 유지한다. KING RAT simple pathing/구역 진입 막힘 및 Monster/Character visual overlap은 Final Combat Polish에서 재평가한다.
+
 ## Prompt 11.3 — Large Supermarket / Multi-tier / Character Hit Area
 
 2026-10-21 구현·자동 검증 완료. **기존 회귀1,590 + 신규120 = 총1,710 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 변경은 uncommitted다. Prompt 11.2 이후 사용자가 Food Self Heal 및 Shelf 뒤 Player 탈출의 정상 동작을 확인했다. 아래 11.2의 미재현 설명은 당시 조사 이력으로 보존한다.

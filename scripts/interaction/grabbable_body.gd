@@ -2,6 +2,7 @@ class_name GrabbableBody
 extends RigidBody3D
 ## Shared physical object; data lives on each instance, never in an inventory.
 
+@export var show_debug_label: bool = false
 @export var display_name: String = "Object"
 @export var product_type: StringName = &""
 @export var flammable: bool = true
@@ -53,6 +54,7 @@ func _ready() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = tint
 	$Mesh.material_override = material
+	$Label.visible = show_debug_label or product_type == &""
 	$Label.text = "%s  $%.0f\n%.1f kg" % [display_name, price, weight]
 
 

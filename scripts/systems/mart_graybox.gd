@@ -115,6 +115,35 @@ func _build_supermarket_sections() -> void:
 		shelf.position = Vector3(spec[1], 0, spec[2])
 		shelf.rotation_degrees.y = 180
 		$Shelves.add_child(shelf)
+	# Grow upward within existing islands; no loss of cross-aisle clearance.
+	var rack_specs := {
+		"ZoneSection0_1": [[&"instant_noodles", 0.55], [&"can", 1.0]],
+		"ZoneSection0_2": [[&"chips", 0.45], [&"can", 0.95]],
+		"ZoneSection0_3": [[&"cereal", 0.55], [&"chips", 1.15]],
+		"ZoneSection1_1": [[&"instant_noodles", 0.55], [&"chips", 0.95]],
+		"ZoneSection1_2": [[&"juice", 0.65]],
+		"ZoneSection1_3": [[&"milk", 0.55]],
+		"ZoneSection1_4": [[&"shampoo", 0.75]],
+		"RearZone38": [[&"instant_noodles", 0.55], [&"chips", 0.95]],
+		"RearZone37": [[&"cereal", 0.55]],
+		"ShampooShelf": [[&"cooking_oil", 0.55]]
+	}
+	for base_name in rack_specs:
+		var base: StockShelf = $Shelves.get_node(base_name)
+		for spec in rack_specs[base_name]:
+			var definition := ProductCatalog.find(spec[0])
+			var tier := StockShelf.new()
+			tier.name = base_name + "_" + String(definition.id)
+			tier.use_catalog_tier = false
+			tier.accepted_type = definition.id
+			tier.max_stock = definition.shelf_capacity
+			tier.tier_height = spec[1]
+			tier.tier_clearance = 0.5
+			tier.shelf_color = definition.tint
+			tier.position = base.position
+			tier.rotation = base.rotation
+			tier.point_owner = base
+			$Shelves.add_child(tier)
 	for entry in [["PRODUCE", 7, 3], ["DRINKS / DAIRY", -14, 9], ["SNACKS / PANTRY", -23, 24], ["HOUSEHOLD", 23, 15], ["COOKWARE", -7, 12], ["ELECTRONICS", 23, 25], ["CHECKOUT", 11, 33]]:
 		Graybox.sign(self, entry[0], Vector3(entry[1], 3.4, entry[2]), Color.GOLD)
 		Graybox.box(self, "ZoneStripe", Vector3(5, 0.015, 0.3), Vector3(entry[1], 0.01, entry[2] - 2), Color(0.5, 0.45, 0.25), false)

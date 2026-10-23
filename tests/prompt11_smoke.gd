@@ -97,6 +97,12 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.global_position = Vector3(0, 0.01, 8) # Return around the central shelf row after a charge.
 	var product := await stock("can")
+	# This fixture teleports the boss after its empty-store roaming has started.
+	# Rebase the controlled food trial at the actual placement, retaining the real motor/Eat path.
+	rat.destination_zone = -1
+	rat.current_zone = rat.nearest_zone(rat.global_position)
+	rat.zone_age = 0
+	rat.state = KingRat.State.SEEK_FOOD
 	var customer := manager.spawn_customer([&"can"])
 	customer.set_physics_process(false)
 	for tick in range(1200):

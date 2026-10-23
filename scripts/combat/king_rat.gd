@@ -1,7 +1,7 @@
 class_name KingRat
 extends CombatTarget
-enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED }
-@export var move_speed: float = 2.4
+enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE }
+@export var move_speed: float = 3.6
 @export var eat_time: float = 1.5
 @export var eat_reach: float = 1.9
 @export var max_food_height: float = 2.25
@@ -34,8 +34,58 @@ var material := StandardMaterial3D.new()
 var mood: Label3D
 var _character_pairs: Dictionary = {}
 var character_zone: Area3D
-@export var food_search_radius: float = 24.0
+@export var food_search_radius: float = 42.0
 @export var overlap_push: float = 12.0
+
+# Clear aisle entries around the store, not destinations inside shelf geometry.
+const ZONE_ENTRIES: Array[Vector3] = [Vector3(0, 0.01, 6), Vector3(26, 0.01, 6), Vector3(26, 0.01, 27), Vector3(0, 0.01, 27), Vector3(-26, 0.01, 27), Vector3(-26, 0.01, 6)]
+const ZONE_NAMES := ["Produce/Cookware", "Household", "Electronics", "Front/Dairy", "Pantry", "Rear Snacks"]
+@export var zone_dwell_time: float = 18.0
+@export var zone_eat_limit: int = 2
+var current_zone: int = 0
+var destination_zone: int = -1
+var zone_age: float = 0
+var zone_eaten: int = 0
+var visited_zones: Array[int] = []
+
+func nearest_zone(at: Vector3) -> int:
+	var result := 0
+	for i in range(ZONE_ENTRIES.size()):
+		if at.distance_squared_to(ZONE_ENTRIES[i]) < at.distance_squared_to(ZONE_ENTRIES[result]): result = i
+	return result
+
+func change_zone() -> void:
+	destination_zone = (current_zone + 1) % ZONE_ENTRIES.size()
+	food = null
+	var entry := ZONE_ENTRIES[destination_zone]
+	if absf(global_position.x) > 20 and signf(global_position.x) == signf(entry.x):
+		route = [Vector3(entry.x, 0.01, global_position.z), entry]
+	else:
+		route = StoreRoutes.via_main(global_position, entry)
+	state = State.TRAVEL_ZONE
+	_blocked = 0
+
+func travel_zone(delta: float) -> Vector3:
+	if global_position.distance_to(ZONE_ENTRIES[destination_zone]) < 1.0:
+		current_zone = destination_zone
+		destination_zone = -1
+		zone_age = 0
+		zone_eaten = 0
+		if not visited_zones.has(current_zone): visited_zones.append(current_zone)
+		state = State.SEEK_FOOD
+		return Vector3.ZERO
+	_blocked = _blocked + delta if global_position.distance_to(_last_position) < 0.005 else 0
+	if _blocked >= stuck_time or route.is_empty():
+		# Try the next clear sector instead of retrying one blocked entry forever.
+		current_zone = destination_zone
+		change_zone()
+	if route.is_empty(): return Vector3.ZERO
+	var offset := route[0] - global_position
+	offset.y = 0
+	if offset.length() < 0.25:
+		route.pop_front()
+		return Vector3.ZERO
+	return offset.normalized() * minf(move_speed, offset.length() * 4)
 
 func _ready() -> void:
 	super._ready()
@@ -74,6 +124,8 @@ func _ready() -> void:
 	damaged.connect(_on_damage)
 	defeated.connect(_on_defeat)
 	_last_position = global_position
+	current_zone = nearest_zone(global_position)
+	visited_zones.append(current_zone)
 
 func _part(size: Vector3, at: Vector3) -> void:
 	var mesh := MeshInstance3D.new()
@@ -99,10 +151,13 @@ func seek_food() -> void:
 		if absf(at.x) > 35.5 or at.z < 0 or at.z > 36: continue
 		var score := global_position.distance_squared_to(at)
 		if score > food_search_radius * food_search_radius: continue
+		if nearest_zone(at) != current_zone: score += food_search_radius * food_search_radius
 		if score < best:
 			best = score
 			food = body
-	if food == null: return
+	if food == null:
+		change_zone()
+		return
 	var destination := food.global_position
 	for shelf: StockShelf in director.get_parent().get_node("Shelves").get_children():
 		if shelf.zone.overlaps_body(food):
@@ -139,6 +194,7 @@ func finish_eating() -> bool:
 	food.queue_free() # Synchronous queued flag invalidates sale/theft/fire in this tick.
 	for shelf: StockShelf in director.get_parent().get_node("Shelves").get_children(): shelf.refresh_stock(0)
 	food = null
+	zone_eaten += 1
 	return true
 
 func begin_telegraph() -> void:
@@ -172,8 +228,14 @@ func _physics_process(delta: float) -> void:
 		desired = charge_direction * charge_speed
 		if _left <= 0: state = State.SEEK_FOOD
 	else:
+		if destination_zone < 0: zone_age += delta
 		if is_instance_valid(player) and _charge_wait <= 0 and global_position.distance_to(player.global_position) <= charge_range:
 			begin_telegraph()
+		elif destination_zone >= 0:
+			state = State.TRAVEL_ZONE
+			desired = travel_zone(delta)
+		elif zone_age >= zone_dwell_time or zone_eaten >= zone_eat_limit:
+			change_zone()
 		elif state == State.SEEK_FOOD:
 			seek_food()
 		elif not valid_food(food):
