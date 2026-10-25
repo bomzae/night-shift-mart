@@ -1,6 +1,6 @@
 class_name KingRat
 extends CombatTarget
-enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE }
+enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY }
 @export var move_speed: float = 3.6
 @export var eat_time: float = 1.5
 @export var eat_reach: float = 1.9
@@ -42,6 +42,26 @@ const ZONE_ENTRIES: Array[Vector3] = [Vector3(0, 0.01, 6), Vector3(26, 0.01, 6),
 const ZONE_NAMES := ["Produce/Cookware", "Household", "Electronics", "Front/Dairy", "Pantry", "Rear Snacks"]
 @export var zone_dwell_time: float = 18.0
 @export var zone_eat_limit: int = 2
+@export var player_awareness_radius: float = 22.0
+@export var pursuit_speed: float = 4.8
+@export var target_memory_time: float = 6.0
+@export var charge_recovery_time: float = 0.3
+@export var recoil_duration: float = 0.25
+@export var max_recoil_speed: float = 4.5
+@export var recoil_damage_scale: float = 0.055
+@export var recoil_cooldown: float = 0.3
+var target_memory: float = 0.0
+var last_known_position := Vector3.ZERO
+var pursuit_route: Array[Vector3] = []
+var pursuit_planner: RatAisleRoute
+var _route_wait: float = 0
+var _pursuit_blocked: float = 0
+var _pursuit_detour_left: float = 0
+var _recoil_left: float = 0
+var _recoil_wait: float = 0
+var recoil_velocity := Vector3.ZERO
+var last_recoil_speed: float = 0
+var _sees_player: bool = false
 var current_zone: int = 0
 var destination_zone: int = -1
 var zone_age: float = 0
@@ -89,6 +109,7 @@ func travel_zone(delta: float) -> Vector3:
 
 func _ready() -> void:
 	super._ready()
+	pursuit_planner = RatAisleRoute.new(self)
 	collision_mask &= ~HumanSeparation.HUMAN_LAYER
 	character_zone = Area3D.new()
 	character_zone.name = "CharacterHitArea"
@@ -207,6 +228,9 @@ func begin_telegraph() -> void:
 	_charge_wait = charge_cooldown
 
 func _physics_process(delta: float) -> void:
+	update_awareness(delta)
+	_recoil_left = maxf(0, _recoil_left - delta)
+	_recoil_wait = maxf(0, _recoil_wait - delta)
 	_sync_character_exceptions()
 	_character_contacts(delta)
 	contact_push(delta)
@@ -226,11 +250,21 @@ func _physics_process(delta: float) -> void:
 			_left = charge_duration
 	elif state == State.CHARGE:
 		desired = charge_direction * charge_speed
-		if _left <= 0: state = State.SEEK_FOOD
+		if _left <= 0:
+			state = State.CHARGE_RECOVERY
+			_left = charge_recovery_time
+	elif state == State.CHARGE_RECOVERY:
+		if _left <= 0: state = State.PURSUIT if target_memory > 0 else State.SEEK_FOOD
 	else:
 		if destination_zone < 0: zone_age += delta
-		if is_instance_valid(player) and _charge_wait <= 0 and global_position.distance_to(player.global_position) <= charge_range:
+		if is_instance_valid(player) and _sees_player and _charge_wait <= 0 and global_position.distance_to(player.global_position) <= charge_range:
 			begin_telegraph()
+		elif target_memory > 0:
+			state = State.PURSUIT
+			desired = pursue_player(delta)
+		elif state == State.PURSUIT:
+			pursuit_route.clear()
+			state = State.SEEK_FOOD
 		elif destination_zone >= 0:
 			state = State.TRAVEL_ZONE
 			desired = travel_zone(delta)
@@ -260,8 +294,11 @@ func _physics_process(delta: float) -> void:
 				_ignored_food[food.get_instance_id()] = Time.get_ticks_msec() + 5000
 				state = State.SEEK_FOOD
 	_last_position = global_position
-	velocity.x = desired.x + external_velocity.x
-	velocity.z = desired.z + external_velocity.z
+	var motion := desired + external_velocity
+	if _recoil_left > 0 and not is_defeated:
+		motion = (recoil_velocity * (_recoil_left / recoil_duration) + external_velocity).limit_length(max_recoil_speed)
+	velocity.x = motion.x
+	velocity.z = motion.z
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 	move_and_slide()
 	for i in range(get_slide_collision_count()):
@@ -340,3 +377,50 @@ func _exit_tree() -> void:
 			remove_collision_exception_with(body)
 			body.remove_collision_exception_with(self)
 	_character_pairs.clear()
+
+func update_awareness(delta: float) -> void:
+	target_memory = maxf(0, target_memory - delta)
+	_route_wait = maxf(0, _route_wait - delta)
+	_sees_player = false
+	if is_defeated or not is_instance_valid(player) or player_awareness_radius <= 0: return
+	var health := player.get_node_or_null("PlayerHealth") as PlayerHealth
+	if health != null and health.is_downed:
+		target_memory = 0
+		return
+	if global_position.distance_to(player.global_position) > player_awareness_radius: return
+	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.1, player.global_position + Vector3.UP, 1)
+	query.exclude = [get_rid(), player.get_rid()]
+	_sees_player = get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+	if _sees_player:
+		if target_memory <= 0: _route_wait = 0
+		target_memory = target_memory_time
+		last_known_position = player.global_position
+
+func pursue_player(delta: float) -> Vector3:
+	_pursuit_detour_left = maxf(0, _pursuit_detour_left - delta)
+	_pursuit_blocked = _pursuit_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
+	if _route_wait <= 0 or _pursuit_blocked >= 1.0:
+		if _pursuit_blocked >= 1.0:
+			_pursuit_detour_left = 4.0
+			_pursuit_blocked = 0
+		pursuit_route = pursuit_planner.build(global_position, last_known_position, _pursuit_detour_left > 0)
+		_route_wait = 0.8
+	if pursuit_route.is_empty(): return Vector3.ZERO
+	var offset := pursuit_route[0] - global_position
+	offset.y = 0
+	if offset.length() < 0.35:
+		pursuit_route.pop_front()
+		return Vector3.ZERO
+	return offset.normalized() * minf(pursuit_speed, offset.length() * 4)
+
+func receive_impact(amount: float, impulse: Vector3) -> void:
+	if is_defeated: return
+	# Combat impacts have direction; continuous spray remains receive_impulse only.
+	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and _recoil_wait <= 0:
+		var direction := Vector3(impulse.x, 0, impulse.z).normalized()
+		last_recoil_speed = minf(max_recoil_speed, amount * recoil_damage_scale + impulse.length() / target_mass * 0.25)
+		recoil_velocity = direction * last_recoil_speed
+		_recoil_left = recoil_duration
+		_recoil_wait = recoil_cooldown
+	# Preserve shared damage/weak external-force contract without stacking recoil.
+	super.receive_impact(amount, impulse)

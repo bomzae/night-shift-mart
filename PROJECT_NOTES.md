@@ -2,6 +2,47 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.5 — Cart Cargo Stability / KING RAT Pursuit / Hit Recoil
+
+2026-10-25 구현·자동 검증 완료. 기존 회귀 **2,294 + 신규92 = 2,386 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git 상태는 clean이었으며 변경은 uncommitted로 유지한다. Weapon/새 Boss/네트워크/인벤토리 슬롯/NavMesh는 추가하지 않았다.
+
+### Cart 원인 재현 / 안정화
+
+- 수정 전 빈 Cart, Can9개, Watermelon/Microwave/TV 단독, 혼합11개를 실제로 적재해 정지3초+측정3초, 직진3초, 회전1.5초, 급정지1.5초를 비교했다. `.godot/p115_before.log`에 결과를 보존한다. Can9개의 정지 수직 속도 평균0.0307/최대0.0726m/s, 주행 최대0.881m/s, 혼합11개 주행 최대1.031m/s였다. 이 배치에서는 심한 이탈까지 재현되지는 않았다.
+- 차체는 `_integrate_forces`에서 handle 목표 속도/회전을 빠르게 보정하고 바구니 material bounce0.05를 사용하지만, 기존 적재물에는 상대 운동 감쇠가 없었다. 반복 바구니/상품 접촉 후 미세 속도가 남는 것을 확인했다. 차체/상품 질량 이중 합산이나 상품을 Parent/Static으로 고정한 구조는 아니었다. 이번 수정은 질량·바구니 충돌·운전 가속을 바꾸지 않고 이 낮은 상대 운동을 제한적으로 감쇠한다.
+- 추가 16kg 적재 프레임 추적에서 차체가 먼저6m/s에 도달하고 저마찰 바구니의 상품은 뒤처진 뒤, 뒤벽 접촉 순간 차체 수직 속도 약0.7m/s와 수평 감속이 발생했다. 안정화 OFF에서도 같은 현상이 한 프레임 늦게 나타났다. 이는 정상 급가속의 물리 산개 가능성을 남기는 동작이며, 상시 velocity 고정으로 제거하지 않는다.
+- 기존 LoadVolume의 실제 cargo 목록을 재사용한다. GrabbableBody가 WeakRef로 지원 Cart를 참조하고 자기 `_integrate_forces`에서 soft assist를 받는다. Cart 이동+회전에 따른 접촉 위치 속도에 대한 상대 속도만 감쇠하며 위치 snap/centering/parenting/freeze는 없다.
+- 기본값: 상대 속도 상한1.6m/s, linear damping4/s(수직 절반), angular damping5/s, 보정 가속 상한3m/s². local x±0.72/z±0.82/y≤1.12 내부만 적용해 rim/상단 과적은 붙잡지 않는다. 원래 `linear_damp`/`angular_damp`를 덮어쓰지 않아 Carry/Spill과 복원 충돌이 없다.
+- Grab, armed throw, basket 이탈, Cart Launch4초, impact spill1초, 급가감속24m/s² 초과, 회전2.5rad/s 초과, 약20° 이상 기울기, 상대 속도/회전 초과에서 해제한다. 급가감속/기울기 후0.45초 재진입 유예. Cart 속도0.15m/s 이상이면 sleeping cargo를 깨워 지원 물체 이동에 반응하게 한다.
+- 카트 밖으로 나온 상품 Label을 무조건 show하던 기존 경로도 11.4의 `show_debug_label` 정책으로 복구한다. 상품 가격 정보가 산개 후 다시 상시 나타나지 않게 한다.
+- 최종 동일 배치 Can9개 ON/OFF 비교: 정지 수직 속도 평균0.0647→0.0129m/s, 최대0.0780→0.0269m/s. 정지·직진·회전/급정지 후9개 유지. 주행 peak는0.486→0.972m/s여서 모든 주행 충격이 감소했다고 주장하지 않는다. 혼합11개는11개 유지, 정지 평균0.000394/주행 peak0.968m/s. 단독 Watermelon/Microwave/TV도 적재 유지.
+- 4초 정지에서 모든 적재물이 자연 Sleep에 들어가지는 않았다. 별도 Sleep→Wake 검사는 출발 직전 물체를 Sleep 상태로 두고 실제 카트 이동 시 깨어나1m 이상 이동하는지 확인한다. 정지 중 강제 Sleep 후 한 프레임 유지라는 추가 전제는 실제 접촉이 이미 Wake시켜 실패했으므로 제거했고, 이동/물리 유지 검사는 그대로 통과했다(`p115_sleep_fixture_initial.log`). 보정이 자연 Sleep을 일정 시간 내 보장한다는 의미는 아니다.
+
+### KING RAT 위협 / 경로
+
+- Roam3.6m/s, Food search42m, 구역 순회는 유지한다. Player awareness22m, Pursuit4.8m/s, target memory6초를 추가했다. 실제 LOS에서 인지하고, 시야가 끊기면 마지막으로 본 위치를 추적한다. 숨은 Player의 현재 위치를 계속 읽어 추적하지 않는다. Downed Player는 추적 대상에서 제외한다.
+- 우선순위: Defeated → Stagger → Charge/짧은 Recovery → Pursuit → Food/Zone. Charge7.5m/s, Telegraph0.65초, cooldown8초, 피해30 및 고정 방향 Hit Area는 유지한다. Charge가 끝나면0.3초 Recovery 후 기억이 남으면 Pursuit 재개.
+- `RatAisleRoute`는 기존 Main/Cross/Service aisle 좌표에 고정 교차점을 둔 작은 그래프다. Boss 크기 sweep으로 통과 가능한 인접 간선 및 출발/도착 연결만 사용한다. Customer/기존 Food 경로를 전면 교체하지 않는다. 0.8초 간격 재탐색, 실제 진행이1초 막히면4초 동안 바닥 상품도 경로 장애물에 포함한다. Cart/World는 항상 경로 장애물이며 실제 solid collision도 유지한다.
+- 첫 우회 검사 실패: 경로 sweep 반경0.68m가 실제 몸체0.65m보다 커 벽 접촉 위치에서 모든 출발 경로를 막았다. sweep 반경0.63m/중심높이0.65m로 작은 접촉 여유를 두었다. 같은 선반 우회 재검사에서 측면 통로로 이동해 Player와0.33m까지 접근했다.
+- 고정 TV 검사에서는0.8초 경로 갱신이1초 정체 timer를 매번 지우는 오류를 추가 발견했다. 경로 갱신과 정체 timer를 분리해, 실제 진행 또는 정체 대응 시에만 초기화한다. 중간 실패 로그는 보존한다.
+
+### Combat Recoil
+
+- 기존 상품/Cart `receive_impact(amount, impulse)`의 피해 계산과 충격 방향을 그대로 사용한다. `min(4.5, damage×0.055 + impulse.length()/18×0.25)`m/s의 수평 recoil을0.25초 감쇠 적용한다. 해당 짧은 시간에는 AI 이동 대신 recoil이 우선하며 외력과 합친 실제 수평 속도도4.5m/s로 제한한다.
+- Recoil은 누적하지 않고0.3초 cooldown을 둔다. 기존 strong hit threshold45 / Stagger0.45초를 유지한다. Damage만 받거나 일반 Character overlap/소화기 `receive_impulse`만 받으면 recoil을 시작하지 않는다. Cart 반복 접촉 Damage 자체는 의도대로 수정하지 않는다.
+- 실제 Full Throw 측정 recoil: Bread0.226, Can0.238, Watermelon0.457, Frying Pan0.673, Microwave1.309, TV2.972m/s. 값은 원래 price/weight/charge/impact 결과를 사용하며 Boss 전용 상품 Damage는 만들지 않는다.
+- 실제 움직이는 Boss에 Can2개 Loaded Cart를 발사한 최종 검사: 차체 피해27.21, 총 피해33.81, Boss 이동3.18m, recoil speed1.747m/s. 별도 충돌 분리 검사에서도 Cart 본체+상품2개 총3회 Hit 및 실제 산개를 확인했다. 물리 이동 거리는 충돌 배치에 따라 달라진다.
+
+### 검사 / 수동 확인 / Known Issues
+
+- 신규 `prompt11_5_cargo_probe.gd`는 수정 전/후 측정용, `prompt11_5_smoke.gd`는 적재/추적/실제 상품 충돌58개, `prompt11_5_extra_smoke.gd`는 고정 상품 우회/Charge miss/경사/극단 recoil/실제 이동 Boss Cart 충돌26개, `prompt11_5_chaos_smoke.gd`는 통합8개를 검사한다.
+- Prompt3.1 최초 회귀1건 실패: 0.3초의 마지막 한 프레임 속도가 위 뒤벽 접촉에 걸려2.76m/s였다. 실제로는 같은0.3초 안에 이미6m/s에 도달했고, 보정 OFF도 다음 프레임에2.74m/s로 감속했다. 검사 의도인 '0.3초 이내4.5m/s 초과 도달'을 구간 내 최대 속도로 검사하도록 바꿨다. 입력 반응/회전/정지/전복/질량/Launch 기준은 유지했고 재검사 통과했다. `.godot/p115_handling_trace.log`, `p115_final_prompt11_5_handling_trace.log`, `p115_reg_3_1.log`를 보존한다.
+- 초기 통합 검사에서는 같은 프레임 특수 손님 생성으로 입구 안전 검사에 걸려 Drunk 생성이 거부됐다. Debug 입력처럼1.5초 간격으로 생성했다. 초기60초에서는 Tourist12명 모두 상품 방문했지만 Queue0명이었고, 관찰을120초로 늘려 다품목 구매 후 Queue 진입까지 검사했다. 최종: Tourist12/12 상품 방문, peak Queue9, pursuit5,610ticks, Rat 총 경로173.41m, Charge로 관찰 Player HP10000→9550. 긴 관찰 동안 solo Day Failure로 종료되지 않도록 테스트에서만 HP를 높였다. Thief/Drunk/Lost Family/Fire/Spill/Cart/상품 Scatter 동시 존재를 확인했다. 초기 로그 `p115_chaos_initial.log`를 보존한다.
+- 최종 Prompt0~11.4 회귀 **2,294 PASS**, Prompt11.5 **92 PASS**, 합계 **2,386 PASS / 0 FAIL**. 선택 로그 목록/개수는 `.godot/p115_results.txt`. 초기 실행은 `p115_reg_<stage>.log`, 재검사 및 후반 회귀는 `p115_final_prompt<stage>_smoke.log`, 통합은 `p115_chaos.log`를 사용한다. 진단 전용 중복 실행은 합계에 넣지 않는다. 고정 상품 우회 재검사에서도 Player 기억을 유지한 채 TV 뒤 z16.05까지 진행했다.
+- 최종 코드 import(`p115_final_import.log`), Main headless7,200ticks/120초 simulation(`p115_main120.log`), 실제 창 Main600ticks(`p115_main_window.log`) 모두 종료코드0 및 Script/엔진 오류0. 통합 렌더 `p115_chaos.png`도 직접 확인했다. 자동 검사 결과는 모든 배치의 무정체나 수동 조작감을 보장하지 않는다.
+- 자동 검사와 별도로 F5→I 후 Can/Milk/Watermelon/TV/Microwave 혼합 적재, 직진/회전/U턴/급정지/Cart Bomb을 수동 확인한다. I→U OFF→R 후 시야 진입, 선반 뒤 이동, 장거리 도주, 상품별 Throw와 Loaded Cart 충격을 비교한다. Rush/Thief/Fire/Spill 동시 손맛은 수동 평가가 남는다.
+- 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap Final Combat Polish. 과적·rim에 걸린 상품·급회전·강한 충돌에서는 여전히 흔들림/이탈이 가능하며 cargo physics는 Final Polish에서 추가 평가한다. 고정 aisle 그래프는 Full Navigation이 아니므로 여러 물체가 모든 통로를 막은 경우의 경로 보장은 없다.
+
 ## Prompt 11.4 — Floor Product Recovery / Rat Mobility / Dense Racks / Aim Info
 
 2026-10-23 구현·자동 검증 완료. 기존 회귀 1,830 + 신규 464 = 총 **2,294 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git 상태는 clean이었으며 변경은 uncommitted로 유지한다. Weapon/새 Boss/Network/Navigation 전면 교체는 구현하지 않았다.

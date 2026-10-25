@@ -38,6 +38,14 @@ extends RigidBody3D
 @export var wet_drive_multiplier: float = 0.85
 @export var wet_steering_multiplier: float = 0.6
 
+@export var cargo_assist_enabled: bool = true
+@export var cargo_relative_speed: float = 1.6
+@export var cargo_linear_damping: float = 4.0
+@export var cargo_angular_damping: float = 5.0
+@export var cargo_assist_acceleration: float = 3.0
+var cargo_release_time: float = 0.0
+var _cargo_previous_velocity := Vector3.ZERO
+
 var holder: Node
 var loaded_weight: float = 0.0
 var effective_mass: float = 12.0
@@ -133,12 +141,13 @@ func refresh_load() -> void:
 			var local_point: Vector3 = to_local(body.global_position)
 			if absf(local_point.x) < 0.83 and absf(local_point.z) < 0.96 and local_point.y > 0.38 and local_point.y < 1.6:
 				cargo.append(body)
+				body.cargo_cart = weakref(self)
 				loaded_weight += body.weight
 	# The cargo keeps its own mass. Do not add it again to the chassis RigidBody.
 	effective_mass = maxf(0.1, cart_base_mass + loaded_weight * load_mass_multiplier)
 	for body in previous:
 		if is_instance_valid(body) and not cargo.has(body):
-			body.get_node("Label").show()
+			body.get_node("Label").visible = body.show_debug_label or body.product_type == &""
 	for body in cargo:
 		body.get_node("Label").hide()
 
@@ -173,6 +182,7 @@ func launch_cart(direction: Vector3, multiplier: float, charge: float, interacti
 	refresh_load()
 	end_carry()
 	_launch_remaining = 4.0
+	cargo_release_time = 4.0
 	_launch_hits.clear()
 	_crash_available = true
 	var forward := Vector3(direction.x, 0, direction.z).normalized()
@@ -195,6 +205,15 @@ func launch_cart(direction: Vector3, multiplier: float, charge: float, interacti
 
 func _physics_process(delta: float) -> void:
 	refresh_load()
+	var acceleration := (linear_velocity - _cargo_previous_velocity).length() / maxf(delta, 0.001)
+	if acceleration > 24 or angular_velocity.length() > 2.5 or global_basis.y.dot(Vector3.UP) < 0.94:
+		cargo_release_time = maxf(cargo_release_time, 0.45)
+	_cargo_previous_velocity = linear_velocity
+	cargo_release_time = maxf(0, cargo_release_time - delta)
+	# Sleeping cargo must wake when its supporting chassis moves, not hang in space.
+	if linear_velocity.length() > 0.15 or angular_velocity.length() > 0.15:
+		for body in cargo:
+			if body.sleeping: body.sleeping = false
 	_impact_wait = maxf(0.0, _impact_wait - delta)
 	_launch_remaining = maxf(0.0, _launch_remaining - delta)
 	$Label.text = "CART | load %.1f kg" % loaded_weight
@@ -276,6 +295,7 @@ func _on_body_entered(body: Node) -> void:
 
 
 func _spill_on_impact(incoming: Vector3, impacted_cargo: Array) -> void:
+	cargo_release_time = maxf(cargo_release_time, 1.0)
 	# Stylized collision shock, applied as a bounded physical impulse. Cargo is
 	# never repositioned or detached: it must clear the basket's real colliders.
 	var horizontal := Vector3(incoming.x, 0, incoming.z)
@@ -290,4 +310,19 @@ func _exit_tree() -> void:
 	end_carry()
 	for body in cargo:
 		if is_instance_valid(body):
-			body.get_node("Label").show()
+			body.get_node("Label").visible = body.show_debug_label or body.product_type == &""
+
+func assist_cargo(body: GrabbableBody, physics: PhysicsDirectBodyState3D) -> bool:
+	if not cargo_assist_enabled or cargo_release_time > 0 or _launch_remaining > 0: return false
+	if is_instance_valid(body.holder) or body._armed_seconds > 0 or not cargo.has(body): return false
+	if linear_velocity.length() > 6.5 or angular_velocity.length() > 2.5 or global_basis.y.dot(Vector3.UP) < 0.94: return false
+	var local_point := to_local(physics.transform.origin)
+	# Upper overload and objects riding the rim receive no glue/centering.
+	if absf(local_point.x) > 0.72 or absf(local_point.z) > 0.82 or local_point.y > 1.12: return false
+	var support_velocity := linear_velocity + angular_velocity.cross(physics.transform.origin - global_position)
+	var relative := physics.linear_velocity - support_velocity
+	if relative.length() > cargo_relative_speed or physics.angular_velocity.length() > 5: return false
+	var damping := Vector3(relative.x, relative.y * 0.5, relative.z) * (1.0 - exp(-cargo_linear_damping * physics.step))
+	physics.linear_velocity -= damping.limit_length(cargo_assist_acceleration * physics.step)
+	physics.angular_velocity *= exp(-cargo_angular_damping * physics.step)
+	return true

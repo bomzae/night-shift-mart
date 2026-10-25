@@ -13,6 +13,7 @@ description: NIGHT SHIFT MART의 gameplay 기능 구현과 기존 gameplay 표�
 - **Do Not Lock Player:** 업무 중 이동/Grab/Toy Interaction을 유지한다. 계산 등의 이유로 전체 입력을 잠그지 않는다.
 - **Prefer System Interaction:** 별도 연출 이벤트보다 기존 시스템 결합으로 상황을 만든다. 물리 상품을 숫자 인벤토리로 대체하지 않는다.
 - **Contextual Product Info:** Shelf/Category 이름은 표시하되 상품 가격·무게·음식 정보는 조준한 대상에만 표시한다. Customer 구매 아이콘과 도구 상태 피드백은 유지한다.
+- **Loose Cargo:** 카트 적재물은 실제 RigidBody로 유지한다. 평상시 낮은 상대 속도의 적재물에만 약한 안정화를 허용하며 Grab·Launch·강한 충격·전복에서는 자유롭게 이탈해야 한다.
 - **Monster Contact:** 사람과의 hard collision이 군중 정체를 만들면 이동 충돌과 공격 Hit Area를 분리한다. World·Cart·상품의 물리 충돌은 유지하고, pair exception은 대상 제거 전에 양쪽에서 정리한다.
 - **Prototype Scope:** 요청된 목표를 먼저 완성하고 다음 콘텐츠/복잡한 추상 계층을 만들지 않는다.
 - **Manual Feel Test:** 자동 통과만으로 손맛을 확정하지 않는다. 재미있는가, 답답하지 않은가, 즉각적인가, 다른 시스템과 상황을 만드는가를 직접 확인할 절차를 보고한다. 실제 수행하지 않은 수동 검사를 통과라고 쓰지 않는다.
