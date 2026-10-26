@@ -1,6 +1,15 @@
 class_name KingRat
 extends CombatTarget
-enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY }
+enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY, REPOSITION, RECOIL }
+@export var desired_attack_distance: float = 3.2
+@export var reposition_speed: float = 3.5
+@export var post_hit_grace: float = 0.35
+@export var separation_push_interval: float = 0.4
+var _spacing_grace: float = 0
+var _push_waits: Dictionary = {}
+var separation_push_count: int = 0
+var _reposition_side: float = 1.0
+var _reposition_blocked: float = 0.0
 @export var move_speed: float = 3.6
 @export var eat_time: float = 1.5
 @export var eat_reach: float = 1.9
@@ -231,6 +240,10 @@ func _physics_process(delta: float) -> void:
 	update_awareness(delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
 	_recoil_wait = maxf(0, _recoil_wait - delta)
+	_spacing_grace = maxf(0, _spacing_grace - delta)
+	for id in _push_waits.keys():
+		_push_waits[id] -= delta
+		if _push_waits[id] <= 0: _push_waits.erase(id)
 	_sync_character_exceptions()
 	_character_contacts(delta)
 	contact_push(delta)
@@ -242,7 +255,13 @@ func _physics_process(delta: float) -> void:
 	if state == State.DEFEATED:
 		visual.rotation.z = lerp_angle(visual.rotation.z, 1.3, minf(1, delta * 7))
 		if _left <= 0: queue_free()
-	elif state == State.SPAWN or state == State.STAGGER:
+	elif _recoil_left > 0:
+		pass # Impact motion owns this tick; no pursuit or charge transitions.
+	elif state == State.RECOIL or state == State.STAGGER:
+		if state == State.RECOIL or _left <= 0:
+			_spacing_grace = post_hit_grace
+			resume_combat()
+	elif state == State.SPAWN:
 		if _left <= 0: state = State.SEEK_FOOD
 	elif state == State.TELEGRAPH:
 		if _left <= 0:
@@ -254,10 +273,31 @@ func _physics_process(delta: float) -> void:
 			state = State.CHARGE_RECOVERY
 			_left = charge_recovery_time
 	elif state == State.CHARGE_RECOVERY:
-		if _left <= 0: state = State.PURSUIT if target_memory > 0 else State.SEEK_FOOD
+		if _left <= 0: resume_combat()
+	elif state == State.REPOSITION:
+		if target_memory <= 0:
+			state = State.SEEK_FOOD
+		elif combat_distance() >= desired_attack_distance:
+			state = State.PURSUIT
+		else:
+			var away := global_position - last_known_position
+			away.y = 0
+			if away.length_squared() < 0.01: away = global_basis.z
+			# A stable lateral component prevents backing straight into a shelf.
+			_reposition_blocked = _reposition_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
+			if _reposition_blocked > 0.6:
+				_reposition_side *= -1
+				_reposition_blocked = 0
+			var side := away.normalized().cross(Vector3.UP) * _reposition_side
+			var direction := (away.normalized() + side * 0.45).normalized()
+			if test_move(global_transform, direction * 0.7):
+				direction = side if not test_move(global_transform, side * 0.7) else -side
+			desired = direction * reposition_speed
 	else:
 		if destination_zone < 0: zone_age += delta
-		if is_instance_valid(player) and _sees_player and _charge_wait <= 0 and global_position.distance_to(player.global_position) <= charge_range:
+		if target_memory > 0 and _sees_player and combat_distance() < desired_attack_distance - 0.25:
+			state = State.REPOSITION
+		elif is_instance_valid(player) and _sees_player and _spacing_grace <= 0 and _charge_wait <= 0 and combat_distance() >= desired_attack_distance - 0.25 and combat_distance() <= charge_range:
 			begin_telegraph()
 		elif target_memory > 0:
 			state = State.PURSUIT
@@ -308,7 +348,10 @@ func _physics_process(delta: float) -> void:
 			PhysicsPush.apply(body, desired.normalized() * (60 if state == State.CHARGE else 12) * delta)
 		elif body is BasicCustomer and desired.length() > 0.1:
 			PhysicsPush.apply(body, desired.normalized() * 12 * delta)
-	if desired.length() > 0.1: look_at(global_position + desired, Vector3.UP)
+	if state in [State.TELEGRAPH, State.PURSUIT, State.REPOSITION] and target_memory > 0 and combat_distance() > 0.1:
+		look_at(Vector3(last_known_position.x, global_position.y, last_known_position.z), Vector3.UP)
+	elif desired.length() > 0.1:
+		look_at(global_position + desired, Vector3.UP)
 	material.albedo_color = Color.WHITE if _flash > 0 else (Color.ORANGE_RED if state == State.TELEGRAPH else Color(0.5, 0.27, 0.45))
 	visual.position.y = sin(Time.get_ticks_msec() * 0.025) * 0.06 if state == State.EAT else 0
 	if _flash <= 0: mood.text = "✓" if is_defeated else ("!" if state == State.TELEGRAPH else State.keys()[state])
@@ -351,18 +394,23 @@ func _sync_character_exceptions() -> void:
 				body.add_collision_exception_with(self)
 				body.tree_exiting.connect(_forget_character.bind(body), CONNECT_ONE_SHOT)
 
-func _character_contacts(delta: float) -> void:
-	if is_defeated: return
+func _character_contacts(_delta: float) -> void:
+	if is_defeated or _recoil_left > 0 or state in [State.STAGGER, State.RECOIL, State.REPOSITION, State.CHARGE_RECOVERY]: return
 	for body in character_zone.get_overlapping_bodies():
 		if body.get_node_or_null("Knockdown") == null: continue
 		if body is CarryableCharacter and is_instance_valid(body.holder): continue
+		var health := body.get_node_or_null("PlayerHealth") as PlayerHealth
+		if health != null and health.is_downed: continue
 		if state == State.CHARGE:
 			_charge_hit(body)
 		else:
+			if _push_waits.has(body.get_instance_id()): continue
+			_push_waits[body.get_instance_id()] = separation_push_interval
+			separation_push_count += 1
 			var away: Vector3 = body.global_position - global_position
 			away.y = 0
 			if away.length_squared() < 0.001: away = Vector3.RIGHT
-			PhysicsPush.apply(body, away.normalized() * overlap_push * delta)
+			PhysicsPush.apply(body, away.normalized() * minf(overlap_push / 60.0, 0.3))
 
 func _forget_character(body: PhysicsBody3D) -> void:
 	if not is_instance_valid(body): return
@@ -397,6 +445,7 @@ func update_awareness(delta: float) -> void:
 		last_known_position = player.global_position
 
 func pursue_player(delta: float) -> Vector3:
+	if _sees_player and combat_distance() <= desired_attack_distance: return Vector3.ZERO
 	_pursuit_detour_left = maxf(0, _pursuit_detour_left - delta)
 	_pursuit_blocked = _pursuit_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
 	if _route_wait <= 0 or _pursuit_blocked >= 1.0:
@@ -422,5 +471,20 @@ func receive_impact(amount: float, impulse: Vector3) -> void:
 		recoil_velocity = direction * last_recoil_speed
 		_recoil_left = recoil_duration
 		_recoil_wait = recoil_cooldown
+		state = State.RECOIL
 	# Preserve shared damage/weak external-force contract without stacking recoil.
 	super.receive_impact(amount, impulse)
+
+func combat_distance() -> float:
+	var offset := last_known_position - global_position
+	offset.y = 0
+	return offset.length()
+
+func resume_combat() -> void:
+	_route_wait = 0
+	if target_memory <= 0:
+		state = State.SEEK_FOOD
+	elif combat_distance() < desired_attack_distance:
+		state = State.REPOSITION
+	else:
+		state = State.PURSUIT

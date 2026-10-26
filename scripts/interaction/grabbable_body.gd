@@ -24,6 +24,7 @@ extends RigidBody3D
 
 var cargo_cart: WeakRef
 var cargo_assisted: bool = false
+var cargo_support_time: float = 0.0
 var holder: Node = null
 var hold_target: Vector3
 var follow_strength: float = 12.0
@@ -124,6 +125,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if cargo_cart != null:
 		var cart := cargo_cart.get_ref() as ShoppingCart
 		if is_instance_valid(cart): cargo_assisted = cart.assist_cargo(self, state)
+	if not cargo_assisted: cargo_support_time = 0.0
 	if is_instance_valid(holder):
 		var desired := ((hold_target - state.transform.origin) * follow_strength).limit_length(max_carry_speed)
 		state.linear_velocity = state.linear_velocity.move_toward(desired, max_carry_acceleration * state.step)

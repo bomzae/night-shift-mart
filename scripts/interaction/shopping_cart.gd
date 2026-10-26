@@ -325,4 +325,33 @@ func assist_cargo(body: GrabbableBody, physics: PhysicsDirectBodyState3D) -> boo
 	var damping := Vector3(relative.x, relative.y * 0.5, relative.z) * (1.0 - exp(-cargo_linear_damping * physics.step))
 	physics.linear_velocity -= damping.limit_length(cargo_assist_acceleration * physics.step)
 	physics.angular_velocity *= exp(-cargo_angular_damping * physics.step)
+	# Thin footprints need persistent support, not just presence in LoadVolume.
+	# Keep rim/vertical/overloaded objects free to tip and fall.
+	if body.definition != null:
+		var size := body.definition.size
+		var axes := [size.x, size.y, size.z]
+		axes.sort()
+		var flat: bool = axes[0] <= axes[1] * 0.3
+		var relative_basis := global_basis.inverse() * physics.transform.basis
+		var extent := relative_basis.x.abs() * size.x + relative_basis.y.abs() * size.y + relative_basis.z.abs() * size.z
+		var supported := false
+		for i in range(physics.get_contact_count()):
+			# Direct-body contact normals are already expressed in world axes in
+			# this physics backend (including bodies resting on a rotated axis).
+			var normal := physics.get_contact_local_normal(i)
+			var collider := physics.get_contact_collider_object(i)
+			if normal.dot(Vector3.UP) > 0.8 and (collider == self or cargo.has(collider)):
+				supported = true
+		var footprint_fits := absf(local_point.x) + extent.x / 2 < 0.76 and absf(local_point.z) + extent.z / 2 < 0.86
+		var quiet := relative.length() < 0.25 and physics.angular_velocity.length() < 0.35
+		var lying_flat: bool = extent.y < axes[0] + axes[1] * 0.12
+		if flat and supported and quiet and footprint_fits and lying_flat:
+			body.cargo_support_time += physics.step
+		else:
+			body.cargo_support_time = 0
+		if body.cargo_support_time >= 0.35:
+			var strength := clampf(1.0 - linear_velocity.length() / 3.0 - angular_velocity.length(), 0, 1)
+			physics.angular_velocity *= exp(-18.0 * strength * physics.step)
+			if absf(relative.y) < 0.08:
+				physics.linear_velocity.y -= relative.y * (1.0 - exp(-12.0 * strength * physics.step))
 	return true

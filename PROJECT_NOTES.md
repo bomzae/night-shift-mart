@@ -2,6 +2,44 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.6 — Flat Cargo / KING RAT Post-hit Recovery
+
+2026-10-26 구현·자동 검증 완료. 기존 회귀 **2,386 + 신규41 = 2,427 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git clean. Weapon/새 콘텐츠/Navigation 전면 교체는 없으며 변경은 uncommitted로 유지한다.
+
+### 재현과 Cargo 수정
+
+- 실제 Main Cart에 Pan 단독(수평/0.15rad 기울기), Pan+Can, Pan+Watermelon, Pan2개를 적재했다. 2초 정착 후5초 측정하고 별도로 직진3초/회전1.5초/정지1.5초를 실행한다. 변경 전 `.godot/p116_before.log`, 신규 검사 `.godot/p116_new.log`. 이 배치에서는 큰 튀김은 재현되지 않았다. 관찰된 문제는 작지만 지속되는 접촉 속도이며 Pan+Can의 평균 선속도0.00629m/s가 단독보다 컸다. 수동 보고의 모든 배치를 재현했다고 주장하지 않는다.
+- Pan은 이미 0.85×0.12×0.48m 단일 BoxShape/BoxMesh이고 COM은 자동 중앙(0,0,0)이다. 높은 COM이나 복잡한 손잡이 compound collider가 원인은 아니므로 형상·COM·질량·basket 충돌은 변경하지 않았다. 기존 assist는 낮은 상대 속도만 확인하고 지속 지지 접촉 여부를 구분하지 않아 미세 접촉 회전을 충분히 감쇠하지 않았다.
+- 상품명 분기 없이 Definition의 가장 얇은 축이 다음 축의30% 이하인 물체에 적용한다. 실제 상향 접촉 normal>0.8, Cart 또는 다른 cargo 지지, 낮은 상대 속도<0.25m/s/회전<0.35rad/s, 회전을 반영한 높이≤두께+다음 축×0.12, rim 안 footprint가0.35초 유지되어야 한다. 원래 Y축이 두꺼운 상품도 옆으로 평평하게 놓이면 같은 판정을 사용하며 회전된 실제 외곽 크기로 rim 여유를 확인한다.
+- 기존 assist에 회전 감쇠18/s, 작은 상대 수직 속도(<0.08m/s) 감쇠12/s를 추가한다. 정지에서 강하고 이동·회전 시 연속 감소,3m/s 이상에서는 추가 감쇠0. 기존 Launch/충돌/Grab/기울기/높은 상대 속도 해제 조건을 유지하고 지원 타이머도 초기화한다. 위치 snap/강제0속도/freeze/parenting/강제Sleep 없음.
+- 초기 동일 배치 비교(평균 선속도 / |수직속도| m/s / 각속도 rad/s):
+
+| 배치 | 이전 | 이후 |
+|---|---|---|
+| Pan 수평 | 0.00006059 / 0.00003674 / 0.00014551 | 0.00005795 / 0.00003058 / 0.00010785 |
+| Pan+Can | 0.00629258 / 0.00006288 / 0.00129606 | 0.00629393 / 0.00005927 / 0.00098981 |
+| Pan2개 | 0.00005070 / 0.00002624 / 0.00012931 | 0.00005029 / 0.00001637 / 0.00009244 |
+
+- 수평 Pan 수직 평균 약17%, 회전 약26% 감소. Pan+Can 선속도/변위는 개선되지 않았으므로 모든 진동이 제거됐다고 해석하지 않는다. 수평 최대 변위0.00006295→0.00004356m, Pan2개0.00011149→0.00015737m. 300측정 frame 중 자연Sleep0. 단독은Cart1개, 혼합은Cart+상품2개 접촉. 직진 수직peak0.12197→0.12306m/s로 거의 같고 직진/회전/정지 후 적재1개 유지.
+
+### KING RAT 원인과 전투 흐름
+
+- 수정 전 강한 hit 후3초에 Player 거리0.341m, PURSUIT, Charge cooldown996.42초(검사에서 공격을 억제하기 위한1000초 설정)로 밀착 추적이 재현됐다. 실제 기본 cooldown은8초다. 기존 모터는 마지막 Player 위치까지 접근하고 최소 정지 거리가 없었다. Stagger 종료는 SEEK_FOOD 다음 tick에 곧바로 PURSUIT가 되고, recoil 중에도 AI 판단/Charge 전이는 계속 실행됐다. 일반 overlap push도 매 frame 적용됐다.
+- RECOIL/REPOSITION 상태를 기존 enum 끝에 추가해 기존 상태 index를 보존한다. 피격 시 Pursuit/Telegraph/Charge를 중단하고 recoil 이동만 우선한다. Strong hit은 기존 Stagger45피해/0.45초를 유지한다. 종료 후 목표 기억을 유지하면서 가까우면 Reposition, 거리가 충분하면 Pursuit, 기억이 없으면 Food/Zone으로 복귀한다.
+- 공격 간격3.2m, Reposition3.5m/s, 진입 hysteresis0.25m, 피격 종료 후 Telegraph 유예0.35초. 가까울 때 뒤/옆으로 물러나고0.7m body probe로 막힌 뒤쪽 대신 측면을 선택한다.0.6초 진행이 없으면 측면 방향을 바꾼다. Charge 종료0.3초 Recovery도 같은 거리 재평가를 사용한다. 쿨다운 동안 보이는 Player의3.2m 이내로 계속 전진하지 않는다.
+- 일반 overlap push는 Character별0.4초 간격, 한 번 최대0.3 impulse(기본0.2)로 제한한다. Recoil/Stagger/Reposition/ChargeRecovery/Downed에는 적용하지 않는다. Charge Hit Area의 피해30/Knockdown/한 Charge당1회는 별도 유지한다. 소화기 외력/상품 Damage 계산/Cart 밀착 반복 Damage는 변경하지 않았다.
+- Roam3.6/Pursuit4.8/Charge7.5m/s, awareness22m, memory6초, recoil0.25초/최대4.5m/s, 기존 route/food/zone 흐름 유지. 간단한 측면 probe이며 모든 장애물로 둘러싸인 배치의 탈출을 보장하는 Full Navigation은 아니다.
+
+### 검사 / 수동 확인 / Known Issues
+
+- 신규 `prompt11_6_probe.gd`: 실제 적재와 피격 재현·비교. `prompt11_6_smoke.gd`: 적재5종, 주행/발사/Cart Bomb, 피격→거리 확보→Charge, 실제1초 동안 일반Push2~3회 제한/Downed 제외. `prompt11_6_extra_smoke.gd`: 실제 support timer, 가장자리 자유 낙하, 다른 얇은 축의 임의 상품, 약한 hit/연속 hit/뒤쪽 벽에서 측면 복구.
+- 추가 임의 상품 검사에서 접촉 법선 좌표를 중복 변환한 구현 오류가 발견됐다. 0.45×0.35×0.06m 물체를90° 눕히면 backend의 `get_contact_local_normal`이 이미 약(0,1,0)을 반환하는데 body basis를 다시 곱해 지지 판정이 실패했다. 직접 반환값을 사용하도록 수정했다. `.godot/p116_extra_diagnostic.log`에 실패·회전·속도·접촉 법선 기록을 보존한다. Pan 정상 적재의 평균 접촉점4개, Pan+Can/두Pan8개, Pan+Watermelon5개이고 basket 접촉shape index는0(바닥)였다. 상시 정상지원300frame을 확인한다.
+- 초기 전체 회귀0의 전진 벽 접촉,1의 투척4항목이 실패했다.1 로그의 Player yaw가 약0.9rad로 변해 투사체가 목표를 빗나간 입력 조건을 확인했다. 같은 검사/코드의 단독 재실행에서0은22개,1은48개 모두 통과했다. 물리 검사를 약화하거나 Player 입력 로직을 바꾸지 않았으며 초기 실패 로그를 보존한다.11.3의 군중 통과 검사도3초 뒤 최종 변위가2m 미만으로 실패했다. Charge 뒤 새 Reposition/Pursuit로 되돌아올 수 있으므로 관찰 중 최대 실제 변위가2m 초과인지 검사하도록 수정했다. 충돌 통과 기준을 낮춘 것이 아니라 공격 종료 후 다른 상태의 최종 위치와 통과 진행을 분리했으며 재검사135개 통과.
+- 최종 Prompt0~11.5 전체2,386개, 신규 기본30/추가11개 합계2,427개 통과. 선택 로그 목록은 `.godot/p116_results.txt`. 초기 회귀 `p116_reg_<stage>.log`,0/1/11.3은 `p116_final_<stage>.log`, 최종 cargo/추적 회귀11.5 및11.5_extra와 신규11.6/11.6_extra는 `p116_verified_<stage>.log`를 사용한다. 실패한 실행도 별도로 남기며 중복 재실행은 PASS 합계에 넣지 않는다. 임포트 `p116_verified_import.log`, Main headless7,200ticks/120초 `p116_verified_main.log`, 실제 창 Main600ticks `p116_main_window.log` 모두 오류0.
+- 120초 Chaos 검사: Tourist12명 중11명 실제 상품 방문, Queue peak10, Pursuit5,490ticks, Rat 총 이동100.05m, 관찰용 Player HP10000→9550. Thief/Drunk/Lost Family/Fire/Spill/Cart/상품 Scatter 중 사업과 전투가 계속 진행했다. 렌더 `p115_chaos.png`도 확인했다(기존 검사 스크립트의 출력 파일명). 공격성이나 수동 손맛의 최종 판정은 사용자 조작으로 확인한다.
+- 수동 확인: Pan 평평하게5~10초, Pan+Can/Milk/Watermelon, 주행/회전/급정지와 불안정 edge/Cart Bomb. I→U OFF→R 후 Pan/Watermelon/TV 투척, 아주 가까운 거리, Charge 직후 쿨다운, 연속hit, Tourist/Fire/Spill 혼합에서 공격 박자를 확인한다. 자동 측정으로 수동 전투 손맛이 검증됐다고 표시하지 않는다.
+- 유지: **NPC Knockdown Mesh / Collider mismatch**, **Cart Contact Repeated Damage**, **Day Reset Prototype**, **Monster / Character visual overlap Final Combat Polish**. 극단적인 과적·비정상 걸침의 흔들림/낙하는 허용된다. 고정 aisle route 및 간단한 Reposition의 복잡 장애물 한계는 남는다.
+
 ## Prompt 11.5 — Cart Cargo Stability / KING RAT Pursuit / Hit Recoil
 
 2026-10-25 구현·자동 검증 완료. 기존 회귀 **2,294 + 신규92 = 2,386 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git 상태는 clean이었으며 변경은 uncommitted로 유지한다. Weapon/새 Boss/네트워크/인벤토리 슬롯/NavMesh는 추가하지 않았다.
