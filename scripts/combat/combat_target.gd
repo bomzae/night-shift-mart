@@ -39,7 +39,7 @@ func contact_push(delta: float) -> void:
 		if closing > 0.1:
 			receive_impulse(away.normalized() * minf(40, closing * body.mass) * delta * 12)
 
-func receive_damage(amount: float) -> void:
+func receive_damage(amount: float, _source: Node = null, _instigator = null) -> void:
 	if is_defeated or amount <= 0 or not is_finite(amount): return
 	last_damage = amount
 	hit_count += 1
@@ -49,10 +49,10 @@ func receive_damage(amount: float) -> void:
 		is_defeated = true
 		defeated.emit()
 
-func receive_impact(amount: float, impulse: Vector3) -> void:
+func receive_impact(amount: float, impulse: Vector3, instigator = null) -> void:
 	if is_defeated: return
 	receive_impulse(impulse)
-	receive_damage(amount)
+	receive_damage(amount, null, instigator)
 
 func receive_impulse(impulse: Vector3) -> void:
 	if is_defeated or not impulse.is_finite(): return

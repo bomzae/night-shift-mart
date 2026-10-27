@@ -120,6 +120,7 @@ func run_checks() -> void:
 	check(rat.visited_zones.size() >= 3 and travelled > 45, "sixty second rat coverage reaches three real zones")
 	check(mart.get_node("Bosses").boss_product_loss_value > 0, "zone roaming still eats actual stock")
 	player.position = rat.position + Vector3.RIGHT * 3
+	rat.provoke(player) # Charge regression explicitly provokes the neutral creature.
 	rat._charge_wait = 0
 	await frames(2)
 	check(rat.state == KingRat.State.TELEGRAPH, "zone travel retains nearby player charge pressure")

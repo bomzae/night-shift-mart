@@ -16,5 +16,6 @@ description: NIGHT SHIFT MART의 gameplay 기능 구현과 기존 gameplay 표�
 - **Loose Cargo:** 카트 적재물은 실제 RigidBody로 유지한다. 평상시 낮은 상대 속도의 적재물에만 약한 안정화를 허용하며 Grab·Launch·강한 충격·전복에서는 자유롭게 이탈해야 한다.
 - **Monster Contact:** 사람과의 hard collision이 군중 정체를 만들면 이동 충돌과 공격 Hit Area를 분리한다. World·Cart·상품의 물리 충돌은 유지하고, pair exception은 대상 제거 전에 양쪽에서 정리한다.
 - **Post-hit Spacing:** 피격 recoil은 추적 이동보다 우선한다. Target 기억을 유지하더라도 피격 후 공격 간격을 재확보하며, 일반 overlap push를 반복 공격으로 사용하지 않는다.
+- **Provocation:** 주변 생물의 감지·도발·전투 목표 선택은 구분한다. 평소 세계 행동을 유지하고 실제 공격자 또는 지속적인 근접 위협에 반응하며, 환경 피해를 임의의 Player에게 귀속하지 않는다.
 - **Prototype Scope:** 요청된 목표를 먼저 완성하고 다음 콘텐츠/복잡한 추상 계층을 만들지 않는다.
 - **Manual Feel Test:** 자동 통과만으로 손맛을 확정하지 않는다. 재미있는가, 답답하지 않은가, 즉각적인가, 다른 시스템과 상황을 만드는가를 직접 확인할 절차를 보고한다. 실제 수행하지 않은 수동 검사를 통과라고 쓰지 않는다.

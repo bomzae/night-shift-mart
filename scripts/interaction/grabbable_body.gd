@@ -23,6 +23,7 @@ extends RigidBody3D
 			carry_radius = value.carry_radius
 
 var cargo_cart: WeakRef
+var attack_attribution := AttackAttribution.new()
 var cargo_assisted: bool = false
 var cargo_support_time: float = 0.0
 var holder: Node = null
@@ -65,6 +66,7 @@ func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 	if is_instance_valid(holder):
 		return false
 	holder = controller
+	attack_attribution.remember(player)
 	_cart_source = null
 	_armed_seconds = 0.0
 	_saved_gravity = gravity_scale
@@ -83,6 +85,7 @@ func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 func end_carry() -> void:
 	if not is_instance_valid(holder):
 		return
+	attack_attribution.remember(holder.get_parent())
 	holder = null
 	gravity_scale = _saved_gravity
 	angular_damp = _saved_angular_damp
@@ -91,6 +94,7 @@ func end_carry() -> void:
 
 
 func launch(direction: Vector3, speed: float, damage: float) -> void:
+	if is_instance_valid(holder): attack_attribution.remember(holder.get_parent())
 	end_carry()
 	_cart_source = null
 	throw_damage = damage
@@ -105,6 +109,7 @@ func arm_cart_impact(damage: float, cart: PhysicsBody3D) -> void:
 	# Use the same one-hit damage path for loose cargo; internal basket contacts
 	# remain physical but do not consume its first external impact.
 	_cart_source = cart
+	if cart is ShoppingCart: attack_attribution.remember(cart.attack_attribution.current())
 	throw_damage = damage
 	_armed_seconds = 4.0
 	_incoming_velocity = linear_velocity
@@ -162,4 +167,7 @@ func _on_body_entered(body: Node) -> void:
 		return
 	var impulse := (_incoming_velocity * weight * knockback_multiplier).limit_length(max_knockback_impulse)
 	impact_count += 1
-	body.call_deferred("receive_impact", throw_damage, impulse)
+	if body is CombatTarget:
+		body.call_deferred("receive_impact", throw_damage, impulse, attack_attribution.current())
+	else:
+		body.call_deferred("receive_impact", throw_damage, impulse)

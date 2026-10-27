@@ -18,6 +18,7 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 11)
+	rat.provoke(player) # Explicit combat fixture; neutral LOS no longer provokes.
 	rat.update_awareness(0)
 	rat.receive_impact(60, Vector3.FORWARD * 18)
 	var start := rat.position

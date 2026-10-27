@@ -2,6 +2,42 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.7 — KING RAT Provocation / Aggro
+
+2026-10-27 구현·자동 검증 완료. 기존 회귀 **2,427 + 신규46 = 2,473 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 시작 Git clean, 변경은 uncommitted 유지. 사용자가11.6 flat cargo 안정화와 Recoil→Reposition 개선을 수동 확인했다. 이번 변경은 Weapon/새 Boss/네트워크/Threat Table 없이 기존 전투의 시작·종료 조건과 공격자 전달만 확장한다.
+
+### 원인 / Neutral / 도발
+
+- 기존 `update_awareness`는22m 이내 LOS만으로 매 frame 전투 기억을6초로 갱신했다. 따라서 상품 탐색 중 지나가는 Player도 Food보다 먼저 추적했다. 기존11.5 회귀도 이 자동 전투 시작을 전제로 했다.
+- Spawn은 `is_aggro=false`, `aggro_target=null`. 중거리 LOS/상품 Grab/목표 상품 가져가기는 새 Aggro를 만들지 않는다. 기존 Food/Zone 이동을 그대로 우선한다.
+- 실제 양수 피해로 HP가 감소했고 유효한 Alive Player instigator가 있으면 해당 Player를 목표로 한다. 가장 최근 유효 공격자가 우선이며 큰 Threat Table은 없다.0피해/무효·Downed 공격자는 제외한다. 공격자 없는 환경 Damage는 새 Aggro도, 기존 Player 기억 갱신도 만들지 않는다.
+- Self-defense: `player_health` 그룹의 각 Alive Player를 확인한다. LOS가 있고2.5m 이내 상태가 같은 Player 기준1.25초 연속 유지되면 도발한다. 거리 이탈/가림은 해당 체류 시간을 초기화한다. 여러 Player의 접촉 시간을 합산하지 않으며 벽 반대편에서 가까운 것만으로 도발하지 않는다.
+
+### 공격자 전달 / API
+
+- 작은 `AttackAttribution`은 Player WeakRef와8초의 physics-frame 기반 만료 시점을 보관한다. Grab/Drop/Throw 때 기록하고, 카트는 Grab/운전 중/Launch 때 갱신한다. Cart Bomb 상품은 Launcher 기록을 전달받는다. 오래 방치한 물체의 접촉을 영구 소유권으로 해석하지 않는다.
+- 상품·Cart의 실제 충돌이 `CombatTarget`이면 `receive_impact(amount, impulse, instigator)`로 전달한다. 기존 NPC/TestTarget에는 기존2인자 호출을 유지한다. 상품 price/charge/weight 및 Cart Damage 공식, hit 횟수, 산개, Known Issue인 Cart rubbing Damage는 변경하지 않는다.
+- `CombatTarget.receive_damage(amount, source=null, instigator=null)`를 통해 향후 Weapon도 명시적인 공격자를 전달할 수 있다. 현재 source로부터 공격자를 임의 추정하지 않는다.0 이하/비정상 피해는 기존 검증에서 차단한다.
+- 삭제된 Player가 deferred impact와 겹칠 수 있으므로 instigator의 Node 형식을 진입 전에 강제하지 않고 `is_instance_valid` 후 CharacterBody3D/PlayerHealth를 검사한다. 최초 신규 검사에서 삭제된 target을 typed Node 인자로 넘기면서 생긴 Script Error를 이 방식으로 수정했다. 초기 로그 `p117_new.log`는 보존한다.
+
+### Aggro Combat / 해제
+
+- Aggro 중에는 기존 LOS/last_known_position 및 aisle 우회를 재사용한다. awareness22m, Roam3.6/Pursuit4.8/Charge7.5m/s, Charge cooldown8초/telegraph0.65초/피해30, recoil/stagger/3.2m spacing은 유지한다.
+- 기억 기본값은 `aggro_memory_time=12초`. 대상이 시야에 들어오거나 유효 공격자 피해를 다시 주면 갱신한다. 가려졌거나 awareness 밖이면 마지막 위치를 추적하며,12초 동안 갱신되지 않으면 해제한다. 최신 instigator는 거리 밖에서도 공격으로 도발할 수 있다.
+- 해제 시 target/memory/추적 경로를 지우고 현재 위치의 nearest zone에서 실제 Product를 재탐색한다. Store 중앙으로 teleport/강제 복귀하지 않는다. Recoil/Stagger가 진행 중이면 마친 뒤 중립 행동을 재개한다. 대상 삭제/Downed도 즉시 해제한다.
+- 미래 다인 Player는 공격 event의 instigator reference로 교체 가능하며, 근접 방어 후보도 등록된 Player별로 처리한다. Networking은 구현하지 않았다.
+
+### 검사와 수동 확인
+
+- 신규 `prompt11_7_smoke.gd`:10초 중립 관찰, 실제 Grab→Throw 충돌, Cart Bomb, 첫 피격 회복,12초 도주/재도발, 근접 스침/체류, 환경 피해, 다른 Player 재타겟/삭제/Downed, attribution 만료.
+- 신규 `prompt11_7_food_smoke.gd`:실제 음식 목표 Grab 후 재탐색, 해제 후 현위치 탐색, 벽 너머 근접 방어 차단, LOS memory/피해 갱신, 카트 driver attribution.
+- 기존11.4 Charge,11.5 추적/Chaos,11.6 피격·공격 간격 회귀는 자동 LOS 도발 대신 명시적인 도발 전제를 추가했다. 기존 이동·우회·피해·산개·회복 기준은 유지한다.11.5의 기존6초 기억 시간 검사만 Inspector 값6초로 지정하여 기존 계약을 그대로 검사하고, 새 기본12초 해제는11.7에서 검사한다. Neutral 관찰 검사는 도발하지 않는 별도 fixture다.
+- 최종 신규 기본34개/음식·환경12개 모두 통과. 최초 `p117_new.log`의 삭제 target 오류는 수정 후 동일 제거 검사에서 통과했다. 실제 Throw/Cart Bomb의 attacker 전달, 만료된 소유자 기록의 실제 투사체 피해가 새 Aggro를 만들지 않는 것, 다른 Player 재타겟 및 삭제/Downed, 근접 스침과 지속 체류, 가려진 위치 기억/해제/재도발을 검사했다.
+- 전체0~11.6 회귀2,427개는 `p117_reg_<stage>.log`, 신규 최종은 `p117_final_11_7.log`/`p117_final_11_7_food.log`. 선택 목록과 합계는 `.godot/p117_results.txt`에 보존한다. 초기 실패/중복 재실행은 합산하지 않는다. 임포트와 Main headless7,200ticks/120초, 실제 창600ticks 모두 종료코드0·오류0(`p117_main_import.log`, `p117_main_headless.log`, `p117_main_window.log`).
+- 중립60초 관찰: visited zones[0,1,2], 총 이동176.59m, 실제 상품 손실330. 도발 후120초 혼합: Tourist12명 중11명 상품 방문, Queue peak10, Pursuit5,490ticks, Rat 총 이동100.05m, 관찰 Player HP10000→9550. Customer 업무와 도발 후 Combat을 각각 유지했다. 혼합 검사는 시작 시 명시적으로1피해를 주며, 중립 검사는 공격하지 않는다.
+- 수동: I→U OFF→R 후5~10m에서 관찰/빠른 스침/음식 가져가기, Pan·TV 투척으로 전투 시작, 선반 뒤 장거리 도주 후12초 해제, 재공격으로 두 번째 전투,2.5m 이내 체류로 Self-defense를 확인한다. 자동 통과만으로 손맛을 확정하지 않는다.
+- 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap Final Combat Polish, 극단적인 Cart 과적 Physics Chaos. 고정 aisle route의 복잡 장애물 한계도 남는다.
+
 ## Prompt 11.6 — Flat Cargo / KING RAT Post-hit Recovery
 
 2026-10-26 구현·자동 검증 완료. 기존 회귀 **2,386 + 신규41 = 2,427 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 작업 시작 Git clean. Weapon/새 콘텐츠/Navigation 전면 교체는 없으며 변경은 uncommitted로 유지한다.

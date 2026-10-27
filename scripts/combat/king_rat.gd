@@ -29,6 +29,12 @@ var state := State.SPAWN
 var food: GrabbableBody
 var director: Node
 var player: CharacterBody3D
+@export var aggro_memory_time: float = 12.0
+@export var close_threat_distance: float = 2.5
+@export var close_threat_time: float = 1.25
+var is_aggro: bool = false
+var aggro_target: CharacterBody3D
+var _close_threats: Dictionary = {}
 var route: Array[Vector3] = []
 var charge_direction := Vector3.FORWARD
 var _left: float = 0.5
@@ -53,7 +59,6 @@ const ZONE_NAMES := ["Produce/Cookware", "Household", "Electronics", "Front/Dair
 @export var zone_eat_limit: int = 2
 @export var player_awareness_radius: float = 22.0
 @export var pursuit_speed: float = 4.8
-@export var target_memory_time: float = 6.0
 @export var charge_recovery_time: float = 0.3
 @export var recoil_duration: float = 0.25
 @export var max_recoil_speed: float = 4.5
@@ -430,19 +435,74 @@ func update_awareness(delta: float) -> void:
 	target_memory = maxf(0, target_memory - delta)
 	_route_wait = maxf(0, _route_wait - delta)
 	_sees_player = false
-	if is_defeated or not is_instance_valid(player) or player_awareness_radius <= 0: return
-	var health := player.get_node_or_null("PlayerHealth") as PlayerHealth
-	if health != null and health.is_downed:
-		target_memory = 0
+	if is_defeated: return
+	if not is_aggro:
+		var nearby := {}
+		for health in get_tree().get_nodes_in_group("player_health"):
+			var candidate := health.get_parent() as CharacterBody3D
+			if not valid_attacker(candidate): continue
+			var id := candidate.get_instance_id()
+			if global_position.distance_to(candidate.global_position) <= close_threat_distance and can_see(candidate):
+				nearby[id] = float(_close_threats.get(id, 0)) + delta
+				if nearby[id] >= close_threat_time:
+					provoke(candidate)
+					break
+		_close_threats = nearby
+		if not is_aggro: return
+	if not valid_attacker(aggro_target):
+		clear_aggro()
 		return
-	if global_position.distance_to(player.global_position) > player_awareness_radius: return
-	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.1, player.global_position + Vector3.UP, 1)
-	query.exclude = [get_rid(), player.get_rid()]
-	_sees_player = get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+	player = aggro_target
+	if global_position.distance_to(player.global_position) <= player_awareness_radius:
+		_sees_player = can_see(player)
 	if _sees_player:
 		if target_memory <= 0: _route_wait = 0
-		target_memory = target_memory_time
+		target_memory = aggro_memory_time
 		last_known_position = player.global_position
+	elif target_memory <= 0:
+		clear_aggro()
+
+func can_see(candidate: CharacterBody3D) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.1, candidate.global_position + Vector3.UP, 1)
+	query.exclude = [get_rid(), candidate.get_rid()]
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+func valid_attacker(candidate) -> bool:
+	if not is_instance_valid(candidate) or not candidate is CharacterBody3D or candidate.is_queued_for_deletion(): return false
+	var health := candidate.get_node_or_null("PlayerHealth") as PlayerHealth
+	return health != null and not health.is_downed
+
+func provoke(attacker) -> void:
+	if is_defeated or not valid_attacker(attacker): return
+	is_aggro = true
+	aggro_target = attacker as CharacterBody3D
+	player = aggro_target
+	target_memory = aggro_memory_time
+	last_known_position = player.global_position
+	pursuit_route.clear()
+	_route_wait = 0
+	_close_threats.clear()
+
+func clear_aggro() -> void:
+	is_aggro = false
+	aggro_target = null
+	player = null
+	target_memory = 0
+	_sees_player = false
+	_close_threats.clear()
+	pursuit_route.clear()
+	route.clear()
+	food = null
+	destination_zone = -1
+	current_zone = nearest_zone(global_position)
+	zone_age = 0
+	zone_eaten = 0
+	if state not in [State.RECOIL, State.STAGGER, State.DEFEATED]: state = State.SEEK_FOOD
+
+func receive_damage(amount: float, source: Node = null, instigator = null) -> void:
+	var before := current_health
+	super.receive_damage(amount, source, instigator)
+	if current_health < before and not is_defeated: provoke(instigator)
 
 func pursue_player(delta: float) -> Vector3:
 	if _sees_player and combat_distance() <= desired_attack_distance: return Vector3.ZERO
@@ -462,7 +522,7 @@ func pursue_player(delta: float) -> Vector3:
 		return Vector3.ZERO
 	return offset.normalized() * minf(pursuit_speed, offset.length() * 4)
 
-func receive_impact(amount: float, impulse: Vector3) -> void:
+func receive_impact(amount: float, impulse: Vector3, instigator = null) -> void:
 	if is_defeated: return
 	# Combat impacts have direction; continuous spray remains receive_impulse only.
 	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and _recoil_wait <= 0:
@@ -473,7 +533,7 @@ func receive_impact(amount: float, impulse: Vector3) -> void:
 		_recoil_wait = recoil_cooldown
 		state = State.RECOIL
 	# Preserve shared damage/weak external-force contract without stacking recoil.
-	super.receive_impact(amount, impulse)
+	super.receive_impact(amount, impulse, instigator)
 
 func combat_distance() -> float:
 	var offset := last_known_position - global_position

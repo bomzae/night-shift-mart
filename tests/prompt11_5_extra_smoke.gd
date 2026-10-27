@@ -4,6 +4,8 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 20)
+	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
+	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD
 	var tv := load(ProductCatalog.find(&"tv").scene_path).instantiate() as GrabbableBody
 	mart.add_child(tv)
@@ -21,6 +23,8 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 15)
+	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
+	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD
 	rat._charge_wait = 0
 	await frames(2)

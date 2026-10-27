@@ -26,6 +26,7 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 11)
+	rat.provoke(player) # Explicit combat fixture; neutral LOS no longer provokes.
 	rat.update_awareness(0)
 	rat.state = KingRat.State.PURSUIT
 	rat.receive_impact(2, Vector3.FORWARD)
@@ -46,6 +47,7 @@ func run_checks() -> void:
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 11)
 	Graybox.box(mart, "SpacingWall", Vector3(3, 2, 0.3), Vector3(0, 1, 9), Color.GRAY)
+	rat.provoke(player) # Explicit combat fixture; neutral LOS no longer provokes.
 	rat.update_awareness(0)
 	rat.resume_combat()
 	await frames(180)

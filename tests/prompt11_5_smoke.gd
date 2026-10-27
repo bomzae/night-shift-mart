@@ -30,10 +30,11 @@ func run_checks() -> void:
 	rat.player_awareness_radius = 22
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 20)
+	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
+	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD
-	rat.target_memory = 0
 	await frames(3)
-	check(rat.state == KingRat.State.PURSUIT and rat.target_memory > 5.8, "visible player acquired before food")
+	check(rat.state == KingRat.State.PURSUIT and rat.target_memory > 5.8, "provoked visible player takes combat priority")
 	var start := rat.position
 	await frames(60)
 	check(rat.position.z > start.z + 4, "pursuit actual progress toward player")
@@ -48,6 +49,7 @@ func run_checks() -> void:
 	rat.player_awareness_radius = 22
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 20)
+	rat.provoke(player)
 	await frames(2)
 	var barrier := Graybox.box(mart, "PursuitShelf", Vector3(4, 2, 1.2), Vector3(0, 1, 15), Color.GRAY)
 	await frames(2)
@@ -67,6 +69,8 @@ func run_checks() -> void:
 	rat.player_awareness_radius = 100
 	rat.position = Vector3(0, 0.01, 2)
 	player.position = Vector3(0, 0.01, 34)
+	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
+	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD
 	start = rat.position
 	await frames(300)

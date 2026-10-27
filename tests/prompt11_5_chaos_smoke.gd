@@ -11,6 +11,7 @@ func run_checks() -> void:
 	var bus: TouristBus = mart.get_node("TouristBus")
 	bus.tourist_count = 12
 	rat = mart.get_node("Bosses").spawn_boss()
+	rat.receive_damage(1, null, player) # Business-under-combat fixture.
 	check(mart.get_node("Thieves").spawn_thief() != null, "chaos thief active")
 	# Respect the existing safe entrance spawn volume, as separate debug presses do.
 	await frames(90)

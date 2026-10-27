@@ -47,6 +47,7 @@ var cargo_release_time: float = 0.0
 var _cargo_previous_velocity := Vector3.ZERO
 
 var holder: Node
+var attack_attribution := AttackAttribution.new()
 var loaded_weight: float = 0.0
 var effective_mass: float = 12.0
 var cargo: Array[GrabbableBody] = []
@@ -84,6 +85,7 @@ func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
 	if absf(local_player.x) < 0.95 and absf(local_player.z) < 1.0 and local_player.y > 0.25:
 		return false # A rider cannot pull their own floor from inside the basket.
 	holder = controller
+	attack_attribution.remember(player)
 	_grabbing_player = player
 	add_collision_exception_with(player)
 	player.add_collision_exception_with(self)
@@ -104,6 +106,7 @@ func end_carry() -> void:
 
 
 func update_control(player: CharacterBody3D, camera: Camera3D) -> void:
+	attack_attribution.remember(player)
 	_control_forward = -camera.global_basis.z
 	_control_forward.y = 0.0
 	_control_forward = _control_forward.normalized()
@@ -179,6 +182,7 @@ func damage_at_speed(speed: float) -> float:
 
 
 func launch_cart(direction: Vector3, multiplier: float, charge: float, interaction: Node) -> void:
+	if is_instance_valid(interaction): attack_attribution.remember(interaction.get_parent())
 	refresh_load()
 	end_carry()
 	_launch_remaining = 4.0
@@ -288,7 +292,10 @@ func _on_body_entered(body: Node) -> void:
 		last_impact_damage = damage_at_speed(speed)
 		impact_count += 1
 		var impulse := (incoming * effective_mass * impact_knockback_multiplier).limit_length(max_knockback_impulse)
-		body.call_deferred("receive_impact", last_impact_damage, impulse)
+		if body is CombatTarget:
+			body.call_deferred("receive_impact", last_impact_damage, impulse, attack_attribution.current())
+		else:
+			body.call_deferred("receive_impact", last_impact_damage, impulse)
 		print("CART impact speed=%.2f mass=%.2f damage=%.2f impulse=%.2f" % [speed, effective_mass, last_impact_damage, impulse.length()])
 		if speed >= spill_min_speed:
 			call_deferred("_spill_on_impact", incoming, cargo.duplicate())
