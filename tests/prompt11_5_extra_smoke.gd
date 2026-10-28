@@ -3,7 +3,7 @@ extends "res://tests/prompt11_5_smoke.gd"
 func run_checks() -> void:
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
-	player.position = Vector3(0, 0.01, 20)
+	player.position = Vector3(0, 0.01, 25) # Stay outside attack range until the pinned-product detour.
 	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
 	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD
@@ -33,8 +33,8 @@ func run_checks() -> void:
 	player.position.x = 4
 	await frames(85)
 	check(rat.charge_direction.is_equal_approx(direction) and player.health.current_health == 100, "charge direction locks and lateral dodge avoids damage")
-	await frames(25)
-	check(rat.state == KingRat.State.PURSUIT and rat.target_memory > 0, "miss recovers briefly then resumes pursuit")
+	await frames(ceili(rat.charge_recovery_time * 60) + 5)
+	check(rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] and rat.target_memory > 0, "miss recovers briefly then resumes active combat")
 	rat.current_health = 2000
 	rat.receive_impact(1000, Vector3.RIGHT * 1000)
 	check(rat.last_recoil_speed == rat.max_recoil_speed, "extreme combat recoil clamps")

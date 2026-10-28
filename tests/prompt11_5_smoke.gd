@@ -29,7 +29,7 @@ func run_checks() -> void:
 	await boss_setup()
 	rat.player_awareness_radius = 22
 	rat.position = Vector3(0, 0.01, 10)
-	player.position = Vector3(0, 0.01, 20)
+	player.position = Vector3(0, 0.01, 25) # Keep the speed probe outside the new attack band.
 	rat.aggro_memory_time = 6.0 # Preserve this legacy memory-duration fixture.
 	rat.provoke(player) # Combat regression now explicitly starts a fight.
 	rat.state = KingRat.State.SEEK_FOOD

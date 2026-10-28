@@ -30,7 +30,7 @@ func run_checks() -> void:
 		await frames(1)
 		saw_reposition = saw_reposition or rat.state == KingRat.State.REPOSITION
 	check(saw_reposition and rat.combat_distance() >= rat.desired_attack_distance - 0.2, "post-stagger reposition establishes attack spacing")
-	check(rat.target_memory > 0 and rat.state == KingRat.State.PURSUIT, "target retained without contact pursuit")
+	check(rat.target_memory > 0 and rat.state == KingRat.State.REPOSITION, "target retained while actively positioning during cooldown")
 	check(rat.separation_push_count <= 1, "cooldown does not generate push loop")
 	rat._charge_wait = 0
 	await frames(3)

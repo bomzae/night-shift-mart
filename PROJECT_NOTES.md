@@ -2,6 +2,51 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 11.8 — KING RAT Active Combat Loop
+
+2026-10-29 구현·자동 검증 완료. 기존 회귀 **2,473 + 신규35 = 2,508 PASS / 최종0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 시작 Git clean, 변경은 uncommitted 유지. 사용자가11.7 중립/Aggro 동작을 수동 확인했다. Neutral·도발·attacker attribution·12초 Aggro decay는 유지하고 Aggro 이후의 의사결정/이동/공격 박자만 변경한다. Weapon/새 공격/새 Boss/Networking/NavMesh는 추가하지 않았다.
+
+### 원인과 재현
+
+- 기존8초 cooldown 중에는 Player 중심을 향해 Pursuit하다가3.2m에서 모터가0을 반환했다. Charge/피격 회복 후에도 이 generic Pursuit로 돌아갔으므로 긴 정지·추종 시간이 생겼다. Spawn의 기본 공격 대기4초도 첫 전투 시작을 늦출 수 있었다.
+- 실제 Main의 Rat과5m 거리 정지 Player(관찰용 HP10000), 열린 중앙 통로에서30초 관찰. 이전: Telegraph4회/2.60초, Charge4회/3.20초, Recovery1.27초, Reposition1.12초, Pursuit21.82초. Pursuit/재배치 중 수평 속도0.25m/s 미만의 총 정지21.82초, 최장 연속6.08초. `.godot/p118_before.log`에 수정 전 측정 보존.
+
+### Combat Decision / 거리 / 이동
+
+- 작은 재사용 `CombatDecision.choose`는 거리·공격 경로·준비 여부로 APPROACH/ATTACK/REPOSITION만 선택한다. 실제 Charge 실행·물리 이동은 KingRat에 남겨 과도한 framework를 만들지 않는다.
+- 너무 가까움<2.5m: 뒤/옆으로3.2m spacing 확보. 중거리2.5~7m: 열린 공격 경로이고 cooldown/grace 종료면 즉시 Telegraph. 쿨다운이면 정지하지 않고 약4m 반경을 유지하도록 측면 이동+거리 보정을 한다.7m 초과 또는 공격 경로가 막혔으면 Combat Approach.
+- 기존 enum `PURSUIT` 값은 회귀/외부 참조 호환을 위해 유지하지만 이제 의미는 **COMBAT_APPROACH**이며 머리 위 표시도 이 이름을 사용한다. Aggro 이동을 Neutral Food/Zone 분기에서 분리했다. 접근 목표도 열린 경로에서는 Player 중심이 아니라3.2m 앞 공격 위치다. 다음 frame마다 Attack 가능 여부를 먼저 결정한다.
+- Reposition: 근접 탈출3.5m/s, 쿨다운 측면 재배치2m/s. 안정된 한쪽 방향과 거리 보정,0.7m body probe로 벽 회피,0.6초 진행 정체 시 방향 변경. 양쪽이 모두 막히면 기존 aisle graph로 접근 경로를 다시 찾는다. 근접 탈출은3.2m 확보까지 유지하여 경계에서 공격/후퇴를 매 frame 바꾸지 않는다.
+
+### 공격 박자 / 장애물 / 피격
+
+| 값 | 이전 | 현재 |
+|---|---:|---:|
+| Charge cooldown (Telegraph 시작 기준) | 8초 | 4.5초 |
+| 초기 공격 대기 | 4초 | 0초 |
+| Telegraph | 0.65초 | 0.65초 |
+| Charge 최대 시간 / 속도 | 0.8초 / 7.5m/s | 유지 |
+| Attack Recovery | 0.3초 | 0.55초 |
+| Approach / Roam 속도 | 4.8 / 3.6m/s | 유지 |
+| Combat repath / 정체 판정 | 0.8 / 1초 | 0.4 / 0.8초 |
+
+- Aggro가 Spawn 대기를 중단해 다음 physics tick부터 결정한다. Recoil/Stagger 등 명확한 피격 동작은 우선한다. Charge cooldown은 먼 거리에서도 계속 감소한다. Charge miss는 최대 거리 후 Recovery, 실제 Aggro Target hit는 추가0.12초까지 진행 후 Recovery로 연결한다. NPC를 스친 것만으로 돌진을 조기 종료하지 않는다.
+- LOS 외에 기존0.63m sweep으로 World/Shelf/Cart를 통과할 공격 경로인지0.2초마다 확인한다. 시야가 있어도 바구니/낮은 장애물로 몸체 경로가 막히면 Telegraph 대기 대신 aisle 우회한다. 바닥 상품에 실제 정체되면 기존 상품 포함 detour를 사용한다. 길찾기 전체를 다시 작성하지 않았다.
+- Recoil/Stagger 종료→0.35초 post-hit grace→Combat Decision, Charge Recovery 종료→Combat Decision. 일반 overlap push는 공격으로 취급하지 않는다. Damage30, Knockdown, direction lock, Cart solid와 기존 Product/Cart Damage 공식을 유지한다.
+- 최종 같은30초 관찰: Telegraph7회/4.55초, Charge7회/3.63초, Recovery3.97초, Reposition7진입/17.85초, Approach0초(처음부터5m 정지 Target이므로). 추적·재배치 중 정지0초, 비전투 상태0초, 최장 연속 Recovery0.567초, Player HP10000→9790. 이는 자동 고정 배치의 운동/상태 측정이며 수동 전투 손맛이나 모든 장애물의 무정체를 보장하지 않는다. Far/후퇴 Target 접근은 별도 검사로 통과했다.
+
+### 검사 / Known Issues
+
+- `prompt11_8_observation.gd`: 수정 전후 같은30초 관찰, 상태 시간/진입 횟수, 정지 총량/최장 구간, Recovery 다음 동작 공백 측정.
+- `prompt11_8_smoke.gd`: 거리별 결정, Mid 즉시 Telegraph, Far/움직이는 Player 접근→Attack, close 탈출, cooldown 각도 변경, strong hit 우선순위/복귀,30초 cadence.
+- `prompt11_8_route_smoke.gd`: 선반 LOS 차단→우회→공격, solid Cart 우회, 첫 도발의 초기 대기 제거, Aggro 해제 후 Food/Zone 복귀.
+- 기존11.5 속도 검사는 공격 거리 밖으로 Target을10→15m에 배치하여 빠른 접근 기준을 보존한다.11.5 miss 회복은 설정된 새 Recovery 시간을 기다린 뒤 Approach/Reposition 재개를 검사한다.11.6 cooldown 기억 유지 검사는 정지 Pursuit 대신 능동 Reposition을 기대하도록 변경한다. 피격·물리·피해·거리 기준을 완화하지 않는다.
+- 전체 회귀 최초 실행에서11.5 extra의 고정 TV 검사1개 실패: Rat이 `(2.58, 0, 16.00)`까지 능동 재배치로 우회했으나 기존 검사가 요구하는 `_pursuit_detour_left` 타이머 발동은 없었다. 정체 복구 자체를 계속 검증하도록 이 fixture의 Player도10→15m로 이동하여 TV를 공격 거리 진입 전에 만나게 했다. 재검사26 PASS, `detoured=true`, Rat `(-1.04, 0, 16.04)`. 실제 전진·정체 타이머·Target 유지 기준 모두 보존. 실패 원본 `.godot/p118_reg_11_5_extra.log`, 재검사 `.godot/p118_retry_11_5_extra.log` 보존.
+- 신규 core26 + route9 PASS. Shelf 차단 우회 후 Rat `(-3.77, 0, 14.20)`, Target 거리6.92m에서 Telegraph, 열린 공격 경로 재확보→공격 대기0.017초. 고정 Cart 우회→Telegraph, Cart solid, 최초 도발 즉시 결정,12초 기억 만료 후 Food/Zone 복귀 통과. 기존 중립10초·실제 Product/Cart 도발·피격/Revive·Tourist/Chaos·cargo 회귀 모두 통과.
+- 최종 로그 집계 `.godot/p118_results.txt`: 회귀38개 실행 + 신규2개 실행, 중복 재검사 PASS는 합산하지 않음. `.godot/p118_final_11_8.log`에30초 측정, `.godot/p118_final_11_8_route.log`에 장애물 결과. Headless editor import, Main headless7200 physics ticks(120초), 창 Main600 ticks 모두 종료0·오류0 (`p118_main_import/headless/window.log`). `git diff --check` 통과. Main 창 검사는 자동 시뮬레이션이며 수동 조작 완료를 뜻하지 않는다.
+- 수동: I→U OFF→R 후 중립 관찰, Pan 투척으로 전투 시작,4~6m에서 Telegraph, Main aisle 도주, 가까이 붙기, Charge Dodge, Shelf 반대편 이동, TV/Pan 반격과30초 전투 박자를 확인한다. 수동 조작 결과는 아직 미확인.
+- 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap Final Combat Polish, 극단적 Cart 과적 Physics Chaos. 고정 aisle graph는 Full Navigation이 아니며 모든 통로가 봉쇄된 경우의 경로 보장은 없다.
+
 ## Prompt 11.7 — KING RAT Provocation / Aggro
 
 2026-10-27 구현·자동 검증 완료. 기존 회귀 **2,427 + 신규46 = 2,473 PASS / 0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 시작 Git clean, 변경은 uncommitted 유지. 사용자가11.6 flat cargo 안정화와 Recoil→Reposition 개선을 수동 확인했다. 이번 변경은 Weapon/새 Boss/네트워크/Threat Table 없이 기존 전투의 시작·종료 조건과 공격자 전달만 확장한다.

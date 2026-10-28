@@ -2,6 +2,13 @@ class_name KingRat
 extends CombatTarget
 enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY, REPOSITION, RECOIL }
 @export var desired_attack_distance: float = 3.2
+@export var too_close_distance: float = 2.5
+@export var combat_repath_interval: float = 0.4
+@export var combat_stuck_time: float = 0.8
+@export var orbit_speed: float = 2.0
+var _retreating: bool = false
+var _lane_wait: float = 0
+var _clear_attack_lane: bool = false
 @export var reposition_speed: float = 3.5
 @export var post_hit_grace: float = 0.35
 @export var separation_push_interval: float = 0.4
@@ -14,7 +21,7 @@ var _reposition_blocked: float = 0.0
 @export var eat_time: float = 1.5
 @export var eat_reach: float = 1.9
 @export var max_food_height: float = 2.25
-@export var charge_cooldown: float = 8.0
+@export var charge_cooldown: float = 4.5
 @export var charge_range: float = 7.0
 @export var telegraph_time: float = 0.65
 @export var charge_speed: float = 7.5
@@ -38,7 +45,7 @@ var _close_threats: Dictionary = {}
 var route: Array[Vector3] = []
 var charge_direction := Vector3.FORWARD
 var _left: float = 0.5
-var _charge_wait: float = 4.0
+var _charge_wait: float = 0.0
 var _hit_targets := {}
 var _blocked: float = 0
 var _last_position: Vector3
@@ -59,7 +66,7 @@ const ZONE_NAMES := ["Produce/Cookware", "Household", "Electronics", "Front/Dair
 @export var zone_eat_limit: int = 2
 @export var player_awareness_radius: float = 22.0
 @export var pursuit_speed: float = 4.8
-@export var charge_recovery_time: float = 0.3
+@export var charge_recovery_time: float = 0.55
 @export var recoil_duration: float = 0.25
 @export var max_recoil_speed: float = 4.5
 @export var recoil_damage_scale: float = 0.055
@@ -246,6 +253,7 @@ func _physics_process(delta: float) -> void:
 	_recoil_left = maxf(0, _recoil_left - delta)
 	_recoil_wait = maxf(0, _recoil_wait - delta)
 	_spacing_grace = maxf(0, _spacing_grace - delta)
+	_lane_wait = maxf(0, _lane_wait - delta)
 	for id in _push_waits.keys():
 		_push_waits[id] -= delta
 		if _push_waits[id] <= 0: _push_waits.erase(id)
@@ -278,39 +286,13 @@ func _physics_process(delta: float) -> void:
 			state = State.CHARGE_RECOVERY
 			_left = charge_recovery_time
 	elif state == State.CHARGE_RECOVERY:
-		if _left <= 0: resume_combat()
-	elif state == State.REPOSITION:
-		if target_memory <= 0:
-			state = State.SEEK_FOOD
-		elif combat_distance() >= desired_attack_distance:
-			state = State.PURSUIT
-		else:
-			var away := global_position - last_known_position
-			away.y = 0
-			if away.length_squared() < 0.01: away = global_basis.z
-			# A stable lateral component prevents backing straight into a shelf.
-			_reposition_blocked = _reposition_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
-			if _reposition_blocked > 0.6:
-				_reposition_side *= -1
-				_reposition_blocked = 0
-			var side := away.normalized().cross(Vector3.UP) * _reposition_side
-			var direction := (away.normalized() + side * 0.45).normalized()
-			if test_move(global_transform, direction * 0.7):
-				direction = side if not test_move(global_transform, side * 0.7) else -side
-			desired = direction * reposition_speed
+		if _left <= 0: desired = combat_move(delta) if is_aggro else Vector3.ZERO
+		if _left <= 0 and not is_aggro: state = State.SEEK_FOOD
+	elif is_aggro:
+		desired = combat_move(delta)
 	else:
 		if destination_zone < 0: zone_age += delta
-		if target_memory > 0 and _sees_player and combat_distance() < desired_attack_distance - 0.25:
-			state = State.REPOSITION
-		elif is_instance_valid(player) and _sees_player and _spacing_grace <= 0 and _charge_wait <= 0 and combat_distance() >= desired_attack_distance - 0.25 and combat_distance() <= charge_range:
-			begin_telegraph()
-		elif target_memory > 0:
-			state = State.PURSUIT
-			desired = pursue_player(delta)
-		elif state == State.PURSUIT:
-			pursuit_route.clear()
-			state = State.SEEK_FOOD
-		elif destination_zone >= 0:
+		if destination_zone >= 0:
 			state = State.TRAVEL_ZONE
 			desired = travel_zone(delta)
 		elif zone_age >= zone_dwell_time or zone_eaten >= zone_eat_limit:
@@ -359,7 +341,7 @@ func _physics_process(delta: float) -> void:
 		look_at(global_position + desired, Vector3.UP)
 	material.albedo_color = Color.WHITE if _flash > 0 else (Color.ORANGE_RED if state == State.TELEGRAPH else Color(0.5, 0.27, 0.45))
 	visual.position.y = sin(Time.get_ticks_msec() * 0.025) * 0.06 if state == State.EAT else 0
-	if _flash <= 0: mood.text = "✓" if is_defeated else ("!" if state == State.TELEGRAPH else State.keys()[state])
+	if _flash <= 0: mood.text = "✓" if is_defeated else ("!" if state == State.TELEGRAPH else ("COMBAT_APPROACH" if state == State.PURSUIT else State.keys()[state]))
 
 func _charge_hit(body: Node) -> void:
 	if _hit_targets.has(body.get_instance_id()): return
@@ -368,6 +350,7 @@ func _charge_hit(body: Node) -> void:
 	_hit_targets[body.get_instance_id()] = true
 	var health := body.get_node_or_null("PlayerHealth") as PlayerHealth
 	if health != null: health.receive_damage(charge_damage, self)
+	if is_aggro and body == aggro_target and state == State.CHARGE: _left = minf(_left, 0.12)
 	if knockdown.try_start(charge_direction):
 		if body is CharacterBody3D: body.velocity += charge_direction * charge_push
 		else: PhysicsPush.apply(body, charge_direction * charge_push * 3)
@@ -474,6 +457,7 @@ func valid_attacker(candidate) -> bool:
 
 func provoke(attacker) -> void:
 	if is_defeated or not valid_attacker(attacker): return
+	if not is_aggro and state == State.SPAWN: state = State.PURSUIT
 	is_aggro = true
 	aggro_target = attacker as CharacterBody3D
 	player = aggro_target
@@ -482,6 +466,7 @@ func provoke(attacker) -> void:
 	pursuit_route.clear()
 	_route_wait = 0
 	_close_threats.clear()
+	_lane_wait = 0
 
 func clear_aggro() -> void:
 	is_aggro = false
@@ -497,6 +482,7 @@ func clear_aggro() -> void:
 	current_zone = nearest_zone(global_position)
 	zone_age = 0
 	zone_eaten = 0
+	_retreating = false
 	if state not in [State.RECOIL, State.STAGGER, State.DEFEATED]: state = State.SEEK_FOOD
 
 func receive_damage(amount: float, source: Node = null, instigator = null) -> void:
@@ -505,15 +491,19 @@ func receive_damage(amount: float, source: Node = null, instigator = null) -> vo
 	if current_health < before and not is_defeated: provoke(instigator)
 
 func pursue_player(delta: float) -> Vector3:
-	if _sees_player and combat_distance() <= desired_attack_distance: return Vector3.ZERO
 	_pursuit_detour_left = maxf(0, _pursuit_detour_left - delta)
 	_pursuit_blocked = _pursuit_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
-	if _route_wait <= 0 or _pursuit_blocked >= 1.0:
-		if _pursuit_blocked >= 1.0:
+	if _route_wait <= 0 or _pursuit_blocked >= combat_stuck_time:
+		if _pursuit_blocked >= combat_stuck_time:
 			_pursuit_detour_left = 4.0
 			_pursuit_blocked = 0
-		pursuit_route = pursuit_planner.build(global_position, last_known_position, _pursuit_detour_left > 0)
-		_route_wait = 0.8
+		var goal := last_known_position
+		if _sees_player and _clear_attack_lane:
+			var away := global_position - last_known_position
+			away.y = 0
+			goal += away.normalized() * desired_attack_distance
+		pursuit_route = pursuit_planner.build(global_position, goal, _pursuit_detour_left > 0)
+		_route_wait = combat_repath_interval
 	if pursuit_route.is_empty(): return Vector3.ZERO
 	var offset := pursuit_route[0] - global_position
 	offset.y = 0
@@ -542,9 +532,57 @@ func combat_distance() -> float:
 
 func resume_combat() -> void:
 	_route_wait = 0
-	if target_memory <= 0:
+	_lane_wait = 0
+	if not is_aggro or target_memory <= 0:
 		state = State.SEEK_FOOD
-	elif combat_distance() < desired_attack_distance:
-		state = State.REPOSITION
 	else:
-		state = State.PURSUIT
+		combat_move(0)
+
+func combat_move(delta: float) -> Vector3:
+	if not is_aggro or not valid_attacker(aggro_target):
+		state = State.SEEK_FOOD
+		return Vector3.ZERO
+	var distance := combat_distance()
+	if _lane_wait <= 0:
+		pursuit_planner.refresh_exclusions()
+		_clear_attack_lane = _sees_player and pursuit_planner.clear_segment(global_position, last_known_position)
+		_lane_wait = 0.2
+	var lane := _sees_player and _clear_attack_lane
+	var ready := _charge_wait <= 0 and _spacing_grace <= 0
+	if distance < too_close_distance and _sees_player: _retreating = true
+	if distance >= desired_attack_distance: _retreating = false
+	var action := CombatDecision.choose(distance, lane, ready, too_close_distance, charge_range)
+	if _retreating and _sees_player: action = CombatDecision.Action.REPOSITION
+	match action:
+		CombatDecision.Action.ATTACK:
+			begin_telegraph()
+			return Vector3.ZERO
+		CombatDecision.Action.REPOSITION:
+			state = State.REPOSITION
+			return reposition_move(delta, distance)
+		_:
+			# Retain the legacy enum value; this motor now only creates attack range.
+			state = State.PURSUIT
+			return pursue_player(delta)
+
+func reposition_move(delta: float, distance: float) -> Vector3:
+	var away := global_position - last_known_position
+	away.y = 0
+	if away.length_squared() < 0.01: away = global_basis.z
+	away = away.normalized()
+	_reposition_blocked = _reposition_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
+	if _reposition_blocked > 0.6:
+		_reposition_side *= -1
+		_reposition_blocked = 0
+	var side := away.cross(Vector3.UP) * _reposition_side
+	var radial := 1.0 if _retreating else clampf((desired_attack_distance + 0.8 - distance) * 1.5, -0.8, 0.8)
+	var direction := (away * radial + side * (0.45 if _retreating else 1.0)).normalized()
+	if test_move(global_transform, direction * 0.7):
+		direction = side if not test_move(global_transform, side * 0.7) else -side
+		if test_move(global_transform, direction * 0.7):
+			# Both lateral exits are obstructed: use the existing aisle graph.
+			_route_wait = 0
+			_clear_attack_lane = false
+			state = State.PURSUIT
+			return pursue_player(delta)
+	return direction * (reposition_speed if _retreating else orbit_speed)
