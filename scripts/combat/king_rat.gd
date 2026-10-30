@@ -30,6 +30,8 @@ var _reposition_blocked: float = 0.0
 @export var charge_push: float = 3.5
 @export var stagger_threshold: float = 45.0
 @export var stagger_time: float = 0.45
+@export var stagger_rearm_time: float = 2.0
+var _stagger_wait: float = 0
 @export var defeat_time: float = 1.5
 @export var stuck_time: float = 2.5
 var state := State.SPAWN
@@ -250,6 +252,7 @@ func begin_telegraph() -> void:
 
 func _physics_process(delta: float) -> void:
 	update_awareness(delta)
+	_stagger_wait = maxf(0, _stagger_wait - delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
 	_recoil_wait = maxf(0, _recoil_wait - delta)
 	_spacing_grace = maxf(0, _spacing_grace - delta)
@@ -358,9 +361,11 @@ func _charge_hit(body: Node) -> void:
 func _on_damage(amount: float) -> void:
 	_flash = 0.18
 	mood.text = "-%.0f" % amount
-	if amount >= stagger_threshold:
+	if amount >= stagger_threshold and _stagger_wait <= 0:
 		state = State.STAGGER
 		_left = stagger_time
+		_stagger_wait = stagger_rearm_time
+		_recoil_wait = maxf(_recoil_wait, stagger_rearm_time) # Damage/push still apply, but do not restart incapacitation.
 
 func _on_defeat() -> void:
 	state = State.DEFEATED

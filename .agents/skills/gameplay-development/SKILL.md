@@ -19,5 +19,6 @@ description: NIGHT SHIFT MART의 gameplay 기능 구현과 기존 gameplay 표�
 - **Provocation:** 주변 생물의 감지·도발·전투 목표 선택은 구분한다. 평소 세계 행동을 유지하고 실제 공격자 또는 지속적인 근접 위협에 반응하며, 환경 피해를 임의의 Player에게 귀속하지 않는다.
 - **Active Combat:** Aggro 이후 이동은 단순 추종보다 다음 공격 위치를 만드는 데 사용한다. 접근·공격·회복·재배치 결정을 분리하고, 피격 우선순위와 중립 복귀 조건을 유지한다.
 - **Physical Weapons:** Weapon도 실제 물리 물체로 Grab·Drop·Throw·Cart 운반이 가능해야 한다. 전용 슬롯으로 물체를 숨기지 않고 Product Throw·Cart·Tool을 보완하는 선택지로 유지한다.
+- **Weapon Identity:** 무기의 역할을 타이밍·사거리·밀침·제어·위험으로 구분한다. Hit-stop은 해당 무기 표현에 한정하고 세계 물리를 멈추지 않는다. Product·Cart·환경 도구와 혼합할 가치를 유지한다.
 - **Prototype Scope:** 요청된 목표를 먼저 완성하고 다음 콘텐츠/복잡한 추상 계층을 만들지 않는다.
 - **Manual Feel Test:** 자동 통과만으로 손맛을 확정하지 않는다. 재미있는가, 답답하지 않은가, 즉각적인가, 다른 시스템과 상황을 만드는가를 직접 확인할 절차를 보고한다. 실제 수행하지 않은 수동 검사를 통과라고 쓰지 않는다.

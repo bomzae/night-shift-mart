@@ -66,7 +66,7 @@ func run_checks() -> void:
 	check(weapon_body.holder == null and weapon_body.linear_velocity.length() > 2, "weapon charged throw remains physical")
 	await frames(70)
 	check(rat.hit_count == 1 and rat.is_aggro, "thrown weapon damage and attribution")
-	check(weapon_body.durability == 14, "prototype throw does not spend melee durability")
+	check(weapon_body.durability == 13, "monster throw hit spends one durability")
 	await setup_thief()
 	player.position = Vector3(8, 0.01, 10)
 	var delivery = mart.get_node("Delivery/WeaponDelivery")

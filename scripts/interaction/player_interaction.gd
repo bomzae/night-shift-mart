@@ -30,6 +30,8 @@ extends Node
 @onready var camera: Camera3D = player.get_node("Head/Camera3D")
 @onready var crosshair: Label = $Feedback/Crosshair
 @onready var charge_bar: ProgressBar = $Feedback/ChargeBar
+var camera_impact: float = 0
+var _camera_rest_position: Vector3
 var weapon_info: Label
 var weapon_notice: float = 0
 var weapon_notice_text: String = ""
@@ -56,6 +58,7 @@ var _last_hold_position: Vector3
 
 
 func _ready() -> void:
+	_camera_rest_position = camera.position
 	product_info = Label.new()
 	product_info.name = "ProductInfo"
 	$Feedback.add_child(product_info)
@@ -127,6 +130,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	camera_impact = move_toward(camera_impact, 0, delta * 0.25)
+	camera.position = _camera_rest_position + Vector3(0, 0, camera_impact)
 	var active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not KnockdownState.blocked(player)
 	if not active:
 		cancel_charge()
@@ -180,7 +185,7 @@ func _physics_process(delta: float) -> void:
 	weapon_info.visible = active and (held_object is WeaponBody or weapon_notice > 0)
 	if active and held_object is WeaponBody:
 		weapon_info.text = "%s  %d / %d\nLMB SWING | Q DROP | RMB THROW" % [held_object.display_name, held_object.durability, held_object.weapon.durability_max]
-		weapon_info.modulate = Color.GOLD if held_object.hit_feedback > 0 else Color.WHITE
+		weapon_info.modulate = Color.GOLD if held_object.hit_feedback > 0 else (Color.SALMON if held_object.durability <= held_object.weapon.durability_max * 0.25 else Color.WHITE)
 	elif weapon_notice > 0:
 		weapon_info.text = weapon_notice_text
 		weapon_info.modulate = Color.ORANGE

@@ -18,3 +18,13 @@ enum WeaponClass { MELEE }
 @export var shaft_size: Vector3 = Vector3(0.12, 0.12, 1.0)
 @export var head_size: Vector3 = Vector3(0.18, 0.18, 0.4)
 @export var color: Color = Color.SANDY_BROWN
+
+@export var windup_time: float = 0.04
+@export var recovery_time: float = 0.10
+@export var sweep_angle: float = 0.65
+@export var hit_stop_time: float = 0.04
+@export var camera_kick: float = 0.008
+@export var windup_offset: Vector3 = Vector3(0.5, -0.27, 0.05)
+@export var followthrough_offset: Vector3 = Vector3(-0.5, -0.4, 0)
+@export var windup_rotation: Vector3 = Vector3(-8, -40, -12)
+@export var followthrough_rotation: Vector3 = Vector3(12, 40, 12)

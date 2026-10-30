@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12 / Physical Melee Weapon 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.1 / Weapon Feel·Balance 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
@@ -86,7 +86,9 @@ Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유�
 **N → 후면 배송 Crate를 바라보고 E → LMB Grab → LMB Swing**. Q로 내려놓고 RMB로 기존 Charge Throw를 사용할 수 있습니다. Swing과 Throw 충전은 동시에 할 수 없습니다. Swing 중에도 이동·피격이 가능합니다.
 1 Crate = 1 Weapon이며 슬롯 3개가 막혀 있으면 주문을 보류합니다. Crate 위에 물건이 있으면 치운 뒤 다시 E를 누르세요. 무기는 매장 초기 배치나 Inventory 없이 실제 RigidBody로 생성됩니다.
 Bat: 피해22 / 0.65초 / 2.2m / 내구도14. Sledgehammer: 피해48 / 1.35초 / 2m / 내구도10. Heavy Broom: 피해12 / 0.55초 / 2.8m / 내구도18.
-Monster 근접 타격 성공 시 내구도1 소모, Miss·벽·일반 손님에는 소모하지 않습니다. 0이면 파손됩니다. 이번 단계에서 Throw는 내구도를 소모하지 않습니다. 우측 하단에 들고 있는 무기 이름·내구도·조작을 표시합니다.
+Monster 근접·투척 타격 성공 시 내구도1 소모, Miss·벽·일반 손님에는 소모하지 않습니다. 0이면 피해 처리 후 파손됩니다. 우측 하단에 들고 있는 무기 이름·내구도·조작을 표시하며 25% 이하 내구도는 작은 색상 경고로 구분합니다.
+Bat은 빠른 대각선 Swing, Hammer는 0.2초 준비 후 큰 궤적과 긴 회복, Broom은 넓고 빠른 Sweep과 강한 Push를 사용합니다. Hit 순간 Weapon 동작만 잠깐 느려지며 Player·Rat·Cart는 계속 움직입니다. 세 무기 모두 Player 이동 속도는 유지합니다.
+Full Charge 투척 피해는 Bat 11.88 / Hammer 24.48 / Broom 6.72이며 Hammer는 무게 때문에 느리게 날아갑니다. Rat은 강한 피격 뒤 2초 동안 Stagger/Recoil 재시작을 막지만 피해·외력은 계속 받습니다.
 설정은 `data/weapons/*.tres`입니다. 주문 가격·구매 UI·총기·장비 슬롯은 아직 없습니다.
 
 ## 빠른 테스트 준비 / Auto Stock

@@ -7,6 +7,7 @@ var cooldown_left: float = 0
 var swing_hits: Dictionary = {}
 var _previous_phase: float = 0
 var hit_feedback: float = 0
+var hit_stop_left: float = 0
 
 func _ready() -> void:
 	display_name = weapon.display_name
@@ -49,7 +50,8 @@ func start_swing() -> bool:
 	if not is_instance_valid(holder) or holder.is_charging or KnockdownState.blocked(holder.player) or cooldown_left > 0 or durability <= 0: return false
 	swing_left = weapon.swing_duration
 	cooldown_left = weapon.swing_cooldown
-	_previous_phase = 0
+	_previous_phase = -1
+	hit_stop_left = 0
 	swing_hits.clear()
 	return true
 
@@ -61,32 +63,60 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(holder) or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or KnockdownState.blocked(holder.player):
 		swing_left = 0
 		return
+	if hit_stop_left > 0:
+		hit_stop_left = maxf(0, hit_stop_left - delta)
+		return # Only this weapon animation pauses; physics, player and boss remain live.
 	if swing_left > 0:
 		swing_left = maxf(0, swing_left - delta)
-		var phase := 1 - swing_left / weapon.swing_duration
+		var phase := sweep_phase()
 		# Subsample the arc, including low-frame-rate sweeps, rather than a single aim ray.
 		for i in range(1, 5):
 			_sample_arc(lerpf(_previous_phase, phase, i / 4.0))
 			if is_queued_for_deletion(): return
 		_previous_phase = phase
 
+func sweep_phase() -> float:
+	var elapsed := weapon.swing_duration - swing_left
+	if elapsed < weapon.windup_time: return -1
+	if elapsed > weapon.swing_duration - weapon.recovery_time: return 1.1
+	return (elapsed - weapon.windup_time) / maxf(0.01, weapon.swing_duration - weapon.windup_time - weapon.recovery_time)
+
+func motion_pose() -> Transform3D:
+	var idle := Vector3(0.25, -0.35, 0)
+	if not swinging(): return Transform3D(Basis.IDENTITY, idle)
+	var elapsed := weapon.swing_duration - swing_left
+	var offset: Vector3
+	var angles: Vector3
+	if elapsed < weapon.windup_time:
+		var t := smoothstep(0, weapon.windup_time, elapsed)
+		offset = idle.lerp(weapon.windup_offset, t)
+		angles = weapon.windup_rotation * t
+	elif elapsed < weapon.swing_duration - weapon.recovery_time:
+		var t := smoothstep(0, 1, sweep_phase())
+		offset = weapon.windup_offset.lerp(weapon.followthrough_offset, t)
+		angles = weapon.windup_rotation.lerp(weapon.followthrough_rotation, t)
+	else:
+		var t := smoothstep(0, weapon.recovery_time, elapsed - (weapon.swing_duration - weapon.recovery_time))
+		offset = weapon.followthrough_offset.lerp(idle, t)
+		angles = weapon.followthrough_rotation * (1 - t)
+	offset.z += 0.06 * hit_feedback / 0.12
+	return Transform3D(Basis.from_euler(angles * PI / 180.0), offset)
+
 func hold_offset() -> Vector3:
-	var phase := 1 - swing_left / weapon.swing_duration if swinging() else 0.5
-	return Vector3(lerpf(0.5, -0.5, phase), -0.35, 0)
+	return motion_pose().origin
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	super._integrate_forces(state)
 	if is_instance_valid(holder):
-		var phase := 1 - swing_left / weapon.swing_duration if swinging() else 0.5
-		var target: Basis = holder.camera.global_basis * Basis(Vector3.UP, lerpf(-0.65, 0.65, phase))
+		var target: Basis = holder.camera.global_basis * motion_pose().basis
 		var error := (target * state.transform.basis.inverse()).get_rotation_quaternion()
 		state.angular_velocity = state.angular_velocity.move_toward(error.get_axis() * error.get_angle() * 10, 35 * state.step)
 
 func _sample_arc(phase: float) -> void:
-	if phase < 0.15 or phase > 0.85: return
+	if phase < 0 or phase > 1: return
 	var camera: Camera3D = holder.camera
 	var origin := camera.global_position - camera.global_basis.y * 0.35
-	var direction := -camera.global_basis.z.rotated(camera.global_basis.y, lerpf(-0.65, 0.65, phase))
+	var direction := -camera.global_basis.z.rotated(camera.global_basis.y, lerpf(-weapon.sweep_angle, weapon.sweep_angle, phase))
 	var length := weapon.range
 	var query := PhysicsShapeQueryParameters3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -107,17 +137,35 @@ func _sample_arc(phase: float) -> void:
 		away.y = 0
 		target.receive_impact(weapon.damage, away.normalized() * weapon.knockback, holder.player)
 		hit_feedback = 0.12
-		durability = maxi(0, durability - weapon.durability_cost)
-		if durability == 0:
-			print("WEAPON BROKEN: ", display_name)
-			holder.weapon_notice = 1.0
-			holder.weapon_notice_text = "BROKEN: " + display_name
-			holder.drop_held()
-			queue_free()
-			return
+		hit_stop_left = weapon.hit_stop_time
+		holder.camera_impact = maxf(holder.camera_impact, weapon.camera_kick)
+		if spend_durability(): return
+
+func spend_durability() -> bool:
+	durability = maxi(0, durability - weapon.durability_cost)
+	if durability > 0: return false
+	print("WEAPON BROKEN: ", display_name)
+	var controller := holder
+	if not is_instance_valid(controller):
+		var attacker = attack_attribution.current()
+		if is_instance_valid(attacker): controller = attacker.get_node_or_null("Interaction")
+	if is_instance_valid(controller):
+		controller.weapon_notice = 1.0
+		controller.weapon_notice_text = "BROKEN: " + display_name
+	if is_instance_valid(holder): holder.drop_held()
+	queue_free()
+	return true
+
+func _deliver_impact(body, damage: float, impulse: Vector3, instigator) -> void:
+	var before: float = body.current_health if is_instance_valid(body) and body is CombatTarget else -1
+	super._deliver_impact(body, damage, impulse, instigator)
+	# Damage completes before break, including a killing hit. World/miss costs nothing.
+	if is_instance_valid(body) and body is CombatTarget and body.current_health < before:
+		spend_durability()
 
 func end_carry() -> void:
 	swing_left = 0
+	hit_stop_left = 0
 	super.end_carry()
 
 func launch(direction: Vector3, speed: float, damage: float) -> void:

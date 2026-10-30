@@ -2,6 +2,60 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.1 — Weapon Feel / Balance Polish
+
+2026-10-30 구현·자동 검증 완료. **기존2,609 + 신규66 = 2,675 PASS / 최종0 FAIL**, 최종 Script/엔진 오류·경고0. 시작 Git clean, 변경은 uncommitted. 사용자가 Prompt12의3종 사용감·물리 조작·배송·Rat/혼합 전투를 수동 확인했다. Prompt12.1의 최종 손맛은 아래 수동 절차로 확인 필요. 새 Weapon/총기/탄약/경제/새 Boss/Networking은 추가하지 않았다.
+
+### 실제 수치 / 역할
+
+| Weapon | Damage | Knockback | Range | Wind-up / Active / Recovery | 전체 motion | Cooldown | 내구도 | 무게 | Throw multiplier |
+|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| Bat | 22 | 18 | 2.2m | 0.04 / 0.16 / 0.10초 | 0.30초 | 0.65초 | 14 | 1.3kg | 1.8 |
+| Sledgehammer | 48 | 40 | 2.0m | 0.20 / 0.22 / 0.38초 | 0.80초 | 1.35초 | 10 | 5.5kg | 2.4 |
+| Heavy Broom | 12 | 150 | 2.8m | 0.025 / 0.165 / 0.09초 | 0.28초 | 0.55초 | 18 | 1kg | 1.4 |
+
+- Damage/사거리/cooldown/내구도/무게 유지. Hammer는 지속 DPS가 Bat보다 압도적이지 않고 긴 준비·Miss 회복 위험이 있으므로 내구도를 임의로 줄이지 않았다. 한 자루 최대 근접 피해는 Bat308, Hammer480, Broom216. HP300 Rat에 필요한 성공 타격14/7/25회로 Broom은 다른 수단 또는 추가 무기가 필요하다.
+- WeaponDefinition에 windup/recovery, sweep_angle, hit_stop, camera_kick, 준비/마무리 offset·rotation 추가. 상품명 if/switch 없이 Resource의 수치로 물리 목표 pose를 보간한다.
+- Bat은 짧은 대각선(-8,-40,-12)→(12,40,12)도, Hammer는 큰 대각선(-55,-35,10)→(25,45,-15)도, Broom은 수평 yaw ±55도. Collider/실제 RigidBody를 유지하고 기존 carry force와 각속도로 이동한다. Hit 판정은 Active 구간에만, frame당4개 arc sample. Sweep half-angle은 Bat0.65/Hammer0.8/Broom0.95rad.
+- Player movement modifier는 세 무기 모두1.0. Hammer 위험은 준비·회복과 근접 거리에서 만든다. 이동 고정/무적 없음. Cart 적재·안정화·Throw 물리 규칙은 유지.
+
+### Hit feedback / Rat 반응
+
+- Hit-stop Bat0.04/Hammer0.075/Broom0.03초. 해당 Weapon motion 진행만 정지하며 Rigidbody force/SceneTree/Player/AI/Cart를 멈추지 않는다. cooldown은 실제 시간으로 계속 감소한다. Hit 때 무기 hold 목표가 최대6cm 뒤로 반응한다.
+- Camera local Z kick 최대 Bat0.008/Hammer0.025/Broom0.005m,0.25m/s로 원위치 복귀. Mouse look/Head Knockdown pose와 분리. Miss에는 Hit-stop/Camera kick 없음. 기존 Target Flash/Damage number/Recoil을 사용한다.
+- 기존 `_on_damage`는 강한 피해마다 Stagger timer를0.45초로 재설정할 수 있었다. `stagger_rearm_time=2.0`을 추가해 강타 후 Stagger/Recoil 재시작을 제한한다. HP 피해·일반 외력·Aggro는 계속 적용한다. 무적이 아니며 기존 Cart 밀착 반복 피해도 그대로다.
+- 4초 동안0.1초마다48 Damage를 주는 강타 검사(시험 HP10000, 방향 교대): HP8080, 비경직186ticks, Telegraph/Charge77ticks. 경직을 계속 갱신하지 않고 Combat Decision으로 복귀했다.
+- UI는 기존 이름/내구도/조작 유지. 내구도25% 이하는 Salmon 색, Hit는 짧은 Gold, Break 알림 유지. N 주문 시 우측 상단에 선택한 무기를2초 표시하고 후면 Crate 표지도 유지한다.
+
+### 10초 DPS / 단발 Control 측정
+
+실제 Main Player/Weapon sweep, 움직이지 않는 Rat을 대상으로10초 성공 타격을 반복했다. **DPS 격리를 위해 시험 Weapon 내구도만1000으로 늘렸으며**, 실제 한 자루 예산은 위308/480/216이다. 정상 플레이의 거리·회피·빗맞힘을 포함한 실전 DPS는 아니다.
+
+| Weapon | 이전/현재 10초 Hit | 이전/현재 DPS | 이전0.25초 밀림 | 현재0.25초 밀림 | Stagger |
+|---|---:|---:|---:|---:|---|
+| Bat | 16 / 16 | 35.2 / 35.2 | 0.342m | 0.342m | 없음 |
+| Hammer | 8 / 8 | 38.4 / 38.4 | 0.740m | 0.740m | 있음 |
+| Broom | 18 / 18 | 21.6 / 21.6 | 0.793m | 0.986m | 없음 |
+
+Control은 이전 외력/속도를0으로 초기화한 같은 Rat의 단발 impulse 후15physics ticks 이동을 측정했다. Broom은 긴 Reach+가장 큰 밀림, Hammer는 높은 burst+Stagger, Bat은 빠르고 안정적인 기본 역할. 최초 진단은 DPS 후 누적 외력이 남아0.94~1m로 오염되어 제외했고, 수정 전 clean 기준 `.godot/p121_before_clean.log`와 변경 후 `p121_new_12_1_measure.log`를 비교했다. 최초 로그도 보존한다.
+
+### Throw / 내구도 정책
+
+- 기존 price/charge 공식과 weight throw penalty 유지. throw_value60/120/30 유지, multiplier만1.8/2.4/1.4. Full Charge 실제 충돌 피해 Bat11.88 / Hammer24.48 / Broom6.72, 발사 속도25.116 / 12.706 / 27m/s. Hammer는 짧고 강한 투척, Broom은 빠르게 날아가지만 낮은 피해. TV Full Charge51 등 기존 상품/Cart의 가치는 유지된다.
+- Melee·Weapon Throw·Cart로 armed된 Weapon이 **실제 Monster HP를 감소시킨 경우** 내구도1 소모. World/바닥/일반 NPC/빗맞힘은 소모 없음. 한 throw의 첫 유효 외부 충돌 규칙은 그대로.
+- GrabbableBody의 기존 deferred impact를 작은 `_deliver_impact` hook으로 분리했다. Weapon은 동일 피해 처리를 완료한 뒤 HP 감소를 확인하고 내구도를 소비한다. 마지막 내구도에서도 Target 피해→파손 순서 보장. 일반 Product의 공식/attribution/충돌 조건은 변경하지 않았다.
+- Prompt12의 “Throw 소모 없음” 검사1개는 새 정책에 맞춰13/14를 기대하도록 변경했다. 기존 Weapon/Cart/제품/손님 회귀는 유지한다.
+
+### 검사 / 수동 / Known Issues
+
+- 신규 `prompt12_1_measure.gd`:10초 실제 sweep DPS, 단발 밀림/강타 비교. `prompt12_1_smoke.gd`: windup 무타격, local hit-stop, bounded camera 복귀, Miss/low durability, 실제 세 Weapon 투척·최종 파손·바닥 무소모, Player 이동/카메라 여유, 반복 강타 경직 방지, 주문 HUD.
+- 최종 회귀 Prompt0~12 전체43개 스크립트2,609 PASS (`.godot/p121_suite.txt`, `p121_reg_*.log`). 신규 smoke56 PASS (`p121_final.log`), 측정10 PASS (`p121_new_12_1_measure.log`). 입력 검사는 실제 창에서 순차 실행했다. 모든 최종 검사 EXIT0, FAIL/ERROR/WARNING0.
+- Main import, headless7,200ticks=120초, window600ticks=10초 EXIT0/오류0 (`p121_main_status.txt`, `p121_main_import/headless/window.log`). `git diff --check` 공백 오류0. Git의 LF→CRLF 안내만 있으며 게임 로그 경고가 아니다.
+- 신규 smoke 첫 실행은 시험 스크립트의 Variant 계산 `expected` 타입 추론 오류로 로드 실패했다. float 명시 후 재실행 통과. `.godot/p121_new_12_1.log` 실패 원본과 `p121_retry1.log` 보존. Gameplay parse 오류는 없었다.
+- 자동 pose 캡처 `.godot/p121_hit_bat/sledgehammer/broom.png`에서 준비·Sweep 시야를 확인했다. 고정 Rat의 시험 장면이며 실제30초 전투 손맛/멀미/리듬을 수동 통과로 간주하지 않는다.
+- 수동: 세 무기 각각30초 전투 및3 Hit 비교, Hammer Miss 회복/큰 피격, Broom Reach/거리 확보, Full Charge Throw, 내구도1의 Melee/Throw 파손, Weapon+상품+Cart 혼합 확인.
+- 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap, Extreme Cart overload Chaos, Simple waypoint navigation limits. Throw/Melee와 경직 보호 간격은 향후 실제 Multiplayer 밸런스에서 재검토한다.
+
 ## Prompt 12 — Weapon Progression Foundation
 
 2026-10-30 구현·자동 검증 완료. 기존 **2,508 + 신규101 = 2,609 PASS / 최종0 FAIL**, 최종 로그 Script/엔진 오류0. 시작 Git clean, 모두 uncommitted. 사용자가11.8의 중립→도발→Active Combat을 수동 확인했다. 이번 단계는 실제 물리 근접 Weapon 3종과 Debug 배송 기반이며, Economy/구매 UI/총기/탄약/신규 Boss/Inventory/Networking은 구현하지 않는다.

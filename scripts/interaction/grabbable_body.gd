@@ -167,7 +167,12 @@ func _on_body_entered(body: Node) -> void:
 		return
 	var impulse := (_incoming_velocity * weight * knockback_multiplier).limit_length(max_knockback_impulse)
 	impact_count += 1
+	call_deferred("_deliver_impact", body, throw_damage, impulse, attack_attribution.current())
+
+
+func _deliver_impact(body, damage: float, impulse: Vector3, instigator) -> void:
+	if not is_instance_valid(body): return
 	if body is CombatTarget:
-		body.call_deferred("receive_impact", throw_damage, impulse, attack_attribution.current())
+		body.receive_impact(damage, impulse, instigator)
 	else:
-		body.call_deferred("receive_impact", throw_damage, impulse)
+		body.receive_impact(damage, impulse)
