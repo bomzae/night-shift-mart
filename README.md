@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 11.8 / KING RAT Active Combat Loop 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12 / Physical Melee Weapon 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
@@ -35,8 +35,10 @@ Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기�
 | move_forward / move_backward | W / S | 이동 |
 | move_left / move_right | A / D | 이동 |
 | jump | Space | 점프 |
-| interact | E | 계산대 뒤에서 바라보는 SCAN / PAY 버튼 사용 |
-| grab | 마우스 왼쪽 | 상품·카트 손잡이·취객 잡기 / 놓기 |
+| interact | E | 계산대 SCAN / PAY 또는 바라보는 Weapon Crate 열기 |
+| grab | 마우스 왼쪽 | 상품·카트 손잡이·취객 잡기 / 놓기, Weapon을 들고 있으면 Swing |
+| drop_item | Q | 들고 있는 물체 내려놓기 / 충전 취소 |
+| debug_order_weapon | N | 후면 배송 구역에 Bat → Sledgehammer → Heavy Broom 순환 주문 |
 | throw | 마우스 오른쪽 | 누르는 동안 충전 → 떼면 상품 투척 또는 카트 발사 |
 | toggle_mouse_capture | Esc | 마우스 잠금 해제/복귀 |
 | debug_spawn_drunk | K | 마트 입구에 테스트 취객 생성(최대 2명) |
@@ -72,16 +74,23 @@ Cart에서 충분히 벗어나면 충돌을 복구합니다. Cart로 NPC를 밀�
 ## KING RAT 테스트
 **F5 → I → U OFF → R**로 단독 보스 테스트를 시작합니다. U OFF는 선택 사항이며 기존 손님은 계속 행동합니다.
 KING RAT는 실제 진열·바닥 상품을 먹어 BOSS LOSS를 증가시킵니다. 상품을 먼저 집으면 다른 대상을 찾습니다.
-22m 이내에서 Player를 보면 4.8m/s로 추적하고, 시야가 끊겨도 마지막 위치를 6초 기억합니다. 막힌 직선 대신 매장 통로를 경유하며 기억이 끝나면 상품/구역 순회로 돌아갑니다.
+중립 상태에서는 지나가는 Player를 무시합니다. 공격이나 지속 근접 방해로 Aggro가 시작되면 4.8m/s로 공격 거리를 확보하고 마지막 위치를 12초 기억합니다. 막힌 직선 대신 매장 통로를 경유하며 기억이 끝나면 상품/구역 순회로 돌아갑니다.
 상품·카트 충격은 피해와 방향에 따라 짧은 Recoil을 줍니다. 소화기는 기존 약한 Push를 유지합니다.
 상품 우클릭 Charge Throw, Cart Launch/Cart Bomb의 기존 피해가 그대로 적용됩니다. 고가 상품일수록 강하지만 무거운 상품은 투척 거리가 짧습니다.
 주황색 `!` 준비 동작 후 고정 방향으로 돌진하므로 옆으로 피할 수 있습니다. 맞으면 HP 30 감소와 기존 Knockdown/Backward Fall이 발생합니다. HP 0이면 DOWNED이며 자동 기상하지 않습니다.
-소화기는 **F 분사로 Push**, Mop은 물리 접촉 도구로 사용할 수 있습니다. 전용 근접무기는 아직 없습니다.
+소화기는 **F 분사로 Push**, Mop은 기존 물리 접촉 도구입니다. Weapon은 별도로 배송받으며 Product Throw와 Cart Bomb도 계속 유효합니다.
 보스 HP는 등장 중에만 표시하며, 처치 후 약 1.5초 뒤 제거됩니다. B로 Rush나 다른 사건을 함께 실행할 수 있습니다.
 Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유지합니다. 실제 전투에서의 재미/악용 여부는 수동 관찰 대상입니다.
 
+## Weapon 배송 / 근접 전투
+**N → 후면 배송 Crate를 바라보고 E → LMB Grab → LMB Swing**. Q로 내려놓고 RMB로 기존 Charge Throw를 사용할 수 있습니다. Swing과 Throw 충전은 동시에 할 수 없습니다. Swing 중에도 이동·피격이 가능합니다.
+1 Crate = 1 Weapon이며 슬롯 3개가 막혀 있으면 주문을 보류합니다. Crate 위에 물건이 있으면 치운 뒤 다시 E를 누르세요. 무기는 매장 초기 배치나 Inventory 없이 실제 RigidBody로 생성됩니다.
+Bat: 피해22 / 0.65초 / 2.2m / 내구도14. Sledgehammer: 피해48 / 1.35초 / 2m / 내구도10. Heavy Broom: 피해12 / 0.55초 / 2.8m / 내구도18.
+Monster 근접 타격 성공 시 내구도1 소모, Miss·벽·일반 손님에는 소모하지 않습니다. 0이면 파손됩니다. 이번 단계에서 Throw는 내구도를 소모하지 않습니다. 우측 하단에 들고 있는 무기 이름·내구도·조작을 표시합니다.
+설정은 `data/weapons/*.tres`입니다. 주문 가격·구매 UI·총기·장비 슬롯은 아직 없습니다.
+
 ## 빠른 테스트 준비 / Auto Stock
-**F5 → I**로 정상 Shelf를 채웁니다. 기본 9종과 호환용 Appliance까지 총 10개 Shelf, 최대 55개입니다.
+**F5 → I**로 18종 상품의 정상 Shelf/Tier를 채웁니다. 현재 전체 Auto Stock 목표는 318개이며, 막힌 슬롯은 건너뜁니다.
 I를 다시 누르면 부족분만 보충합니다. 기존 상품이나 잘못 쌓인 물체는 삭제하지 않으며, 막힌 슬롯은 건너뜁니다.
 상품을 치우고 다시 I를 누르면 남은 공간을 보충할 수 있습니다. Stock 표시는 기존 물리 정착 판정 후 반영됩니다.
 **U OFF → I → T/P/B**로 도둑·화재·관광버스를 각각 테스트할 수 있습니다. 이미 생성된 손님은 계속 행동합니다.

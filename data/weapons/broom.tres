@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/weapons/weapon_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+weapon_id = &"broom"
+display_name = "HEAVY BROOM"
+damage = 12.0
+knockback = 65.0
+swing_cooldown = 0.55
+swing_duration = 0.28
+range = 2.8
+durability_max = 18
+weight = 1.0
+throw_value = 30.0
+shaft_size = Vector3(0.07, 0.07, 1.25)
+head_size = Vector3(0.5, 0.15, 0.25)
+color = Color(0.72, 0.58, 0.21, 1)

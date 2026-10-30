@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="WeaponDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/weapons/weapon_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+weapon_id = &"sledgehammer"
+display_name = "SLEDGEHAMMER"
+damage = 48.0
+knockback = 40.0
+swing_cooldown = 1.35
+swing_duration = 0.55
+range = 2.0
+durability_max = 10
+weight = 5.5
+throw_value = 120.0
+shaft_size = Vector3(0.1, 0.1, 1.0)
+head_size = Vector3(0.55, 0.28, 0.25)
+color = Color(0.4, 0.46, 0.53, 1)

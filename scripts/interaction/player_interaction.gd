@@ -30,6 +30,11 @@ extends Node
 @onready var camera: Camera3D = player.get_node("Head/Camera3D")
 @onready var crosshair: Label = $Feedback/Crosshair
 @onready var charge_bar: ProgressBar = $Feedback/ChargeBar
+var weapon_info: Label
+var weapon_notice: float = 0
+var weapon_notice_text: String = ""
+var _drop_requested: bool = false
+var _interact_requested: bool = false
 var product_info: Label
 var held_object: RigidBody3D
 var is_charging: bool = false
@@ -66,6 +71,19 @@ func _ready() -> void:
 	product_info.add_theme_constant_override("shadow_offset_x", 1)
 	product_info.add_theme_constant_override("shadow_offset_y", 1)
 	product_info.hide()
+	weapon_info = Label.new()
+	weapon_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$Feedback.add_child(weapon_info)
+	weapon_info.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	weapon_info.offset_left = -340
+	weapon_info.offset_top = -100
+	weapon_info.offset_right = -24
+	weapon_info.offset_bottom = -30
+	weapon_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	weapon_info.add_theme_color_override("font_shadow_color", Color.BLACK)
+	weapon_info.add_theme_constant_override("shadow_offset_x", 1)
+	weapon_info.add_theme_constant_override("shadow_offset_y", 1)
+	weapon_info.hide()
 
 func update_product_info(candidate: PhysicsBody3D, active: bool) -> void:
 	product_info.hide()
@@ -86,14 +104,19 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		cancel_charge()
 		return
-	if event.is_action_pressed("consume_item") and not event.is_echo():
+	if event.is_action_pressed("drop_item"):
+		_drop_requested = true
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact"):
+		_interact_requested = true
+	elif event.is_action_pressed("consume_item") and not event.is_echo():
 		_consume_requested = true
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("grab"):
 		_grab_requested = true
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("throw"):
-		if not is_charging and is_instance_valid(held_object) and not held_object is CarryableCharacter and held_object.holder == self:
+		if not is_charging and is_instance_valid(held_object) and not held_object is CarryableCharacter and held_object.holder == self and not (held_object is WeaponBody and held_object.swinging()):
 			is_charging = true
 			charge_ratio = 0.0
 			_charge_object = held_object
@@ -107,8 +130,19 @@ func _physics_process(delta: float) -> void:
 	var active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not KnockdownState.blocked(player)
 	if not active:
 		cancel_charge()
+	if active and _drop_requested: drop_held(true)
+	_drop_requested = false
+	if active and _interact_requested:
+		var ray := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position - camera.global_basis.z * grab_distance)
+		ray.exclude = [player.get_rid()]
+		if is_instance_valid(held_object): ray.exclude = [player.get_rid(), held_object.get_rid()]
+		var hit := camera.get_world_3d().direct_space_state.intersect_ray(ray)
+		if not hit.is_empty() and hit.collider is WeaponCrate: hit.collider.open_crate()
+	_interact_requested = false
 	if active and _grab_requested:
-		toggle_grab()
+		if held_object is WeaponBody:
+			if not is_charging: held_object.start_swing()
+		else: toggle_grab()
 	_grab_requested = false
 	if active and _consume_requested:
 		consume_held_food()
@@ -142,6 +176,14 @@ func _physics_process(delta: float) -> void:
 	var candidate := find_candidate() if active and not is_instance_valid(held_object) else null
 	crosshair.modulate = Color.ORANGE if is_instance_valid(held_object) else (Color.LIME_GREEN if candidate != null else Color.WHITE)
 	update_product_info(candidate, active)
+	weapon_notice = maxf(0, weapon_notice - delta)
+	weapon_info.visible = active and (held_object is WeaponBody or weapon_notice > 0)
+	if active and held_object is WeaponBody:
+		weapon_info.text = "%s  %d / %d\nLMB SWING | Q DROP | RMB THROW" % [held_object.display_name, held_object.durability, held_object.weapon.durability_max]
+		weapon_info.modulate = Color.GOLD if held_object.hit_feedback > 0 else Color.WHITE
+	elif weapon_notice > 0:
+		weapon_info.text = weapon_notice_text
+		weapon_info.modulate = Color.ORANGE
 
 
 func find_candidate() -> PhysicsBody3D:
@@ -276,6 +318,7 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 		_active_hold_distance = hold_distance
 	var origin := camera.global_position
 	var forward := -camera.global_basis.z
+	if held_object is WeaponBody: origin += camera.global_basis * held_object.hold_offset()
 	desired_hold_position = origin + forward * hold_distance
 	hold_obstructed = false
 	# Prefer a conservative camera sweep, but overlap at its origin is NOT a drop.

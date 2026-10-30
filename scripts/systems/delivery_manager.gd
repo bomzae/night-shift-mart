@@ -22,6 +22,10 @@ var products: Node3D
 
 func _ready() -> void:
 	products = get_parent().get_node("Products")
+	var weapons := Node3D.new()
+	weapons.name = "WeaponDelivery"
+	weapons.set_script(preload("res://scripts/weapons/weapon_delivery.gd"))
+	add_child(weapons)
 	_timer = first_delivery_delay
 	Graybox.box(self, "Pallet", Vector3(3.4, 0.3, 2.4), Vector3.ZERO + Vector3(0, 0.15, 0), Color(0.48, 0.38, 0.26))
 	_truck = Node3D.new()

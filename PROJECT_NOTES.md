@@ -2,6 +2,51 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12 — Weapon Progression Foundation
+
+2026-10-30 구현·자동 검증 완료. 기존 **2,508 + 신규101 = 2,609 PASS / 최종0 FAIL**, 최종 로그 Script/엔진 오류0. 시작 Git clean, 모두 uncommitted. 사용자가11.8의 중립→도발→Active Combat을 수동 확인했다. 이번 단계는 실제 물리 근접 Weapon 3종과 Debug 배송 기반이며, Economy/구매 UI/총기/탄약/신규 Boss/Inventory/Networking은 구현하지 않는다.
+
+### 데이터 / 물리 / 조작
+
+- `WeaponDefinition` Resource + `data/weapons/*.tres`: id/name, damage, knockback, swing cooldown/duration, range, durability max/cost, weight, throw modifier/value, MELEE class, tier1, primitive 치수/색. ProductCatalog 18종에 무기를 섞지 않아 Customer/Thief/AutoStock/Boss 먹이 계약을 유지한다.
+- `WeaponBody extends GrabbableBody`: shaft/head Box compound collision과 Primitive Mesh. 실제 RigidBody이며 기존 Carry force·중력 복원·CCD·투척 attribution·Cart cargo·ProductRecovery를 재사용한다. 물체를 Cart에 parent/freeze/snap하지 않는다. 잡은 동안 각속도 보정과 carry target offset으로 Swing을 표현한다.
+- 빈손 LMB=기존 Grab, Weapon held LMB=Swing, Q=`drop_item`(기존 물체도 Drop 가능), RMB=기존 Charge Throw. Swing과 Throw 충전은 상호 배제. Knockdown/Downed/Drop/포커스 해제 시 Swing 중단. 이동 잠금/무적 없음.
+- 이름·내구도·입력은 들고 있을 때만 우측 하단 UI. Hit는 황금색 feedback, Break는 1초 알림. 개별 무기의 상시 상세 3D Label은 꺼져 있으며 기존 Product Aim UI/Customer 아이콘은 유지.
+
+| Weapon | Damage | Knockback impulse | Range | Cooldown / Swing | Durability | Weight | Throw value / modifier |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Baseball Bat | 22 | 18 | 2.2m | 0.65 / 0.30초 | 14 | 1.3kg | 60 / 1 |
+| Sledgehammer | 48 | 40 | 2.0m | 1.35 / 0.55초 | 10 | 5.5kg | 120 / 1 |
+| Heavy Broom | 12 | 65 | 2.8m | 0.55 / 0.28초 | 18 | 1.0kg | 30 / 1 |
+
+Throw value는 기존 price/charge damage 공식에 전달하는 Prototype 값이며 구매 가격/매출이 아니다. Broom은 낮은 Damage를 보완하는 큰 impulse로 거리 확보, Hammer는48 Damage로 기존45 Stagger threshold를 넘는다. Rat의 공통 Damage+impulse Recoil 공식은 변경하지 않는다. Bat14회/Hammer7회/Broom25회로 HP300이 소진되지만 Broom 한 자루 내구도18이므로 다른 수단과 혼합해야 한다.
+
+### Melee / 내구도 / 기존 Combat
+
+- Camera 전방 ±0.65rad의 부채꼴 Arc. Swing 활성15~85% 구간에서 frame 사이를4개 sample로 보간하고, 각 sample의 반경0.22m Capsule shape로 Monster를 찾는다. 별도 중심 Ray 한 개만으로 타격하지 않는다. 타겟으로 향하는 차폐 ray가 Wall/Shelf/Cart/상품에 막히면 피해 없음.
+- 한 Swing의 instance ID set으로 동일 Target1회. `CombatTarget.receive_impact(damage, impulse, player)` 사용→기존 receive_damage/공격자 전달/Recoil/Flash/Aggro/Stagger→11.8 Active Combat. Customer는 CombatTarget이 아니므로 근접 피해 없음. Mop은 변경하지 않는다.
+- 성공한 Monster melee hit마다 내구도1. Miss/World/일반 손님은 소모 없음.0에서 기존 release 후 실제 Weapon 삭제. 이번 Prompt의 Throw/Cart Bomb hit는 내구도를 소모하지 않음. 투척은 기존 무게·충전·첫 외부 충돌 피해에 Weapon modifier를 곱한다.
+
+### Weapon Delivery
+
+- 기존 DeliveryManager의 자식 `WeaponDelivery` 사용. N 주문마다 Bat→Hammer→Broom 순환, 물리 배치 공간이 비어 있을 때1crate 생성. 기존 일반 상품 배송 주기·shipment·회수 통계와 독립적인 즉시 Debug 배송.
+- 후면 Delivery 오른쪽 실제 world `(3, 0.3, -5/-3.4/-1.8)` 3슬롯. 플레이어 물건/Crate가 있으면 다음 빈 슬롯 사용, 모두 막히면 보류하고 순환 index 유지. 후면 벽/직결 문/일반 팔레트와 분리.
+- Player가2.8m 이내 Crate를 조준해 E→상부 생성 공간 확인→Weapon1개 spawn→Crate 제거. 열린 flag로 중복 spawn 차단. 놓여 있는 Player 물건을 삭제하지 않는다. 최초 매장에는 Weapon 없음.
+
+### 검사 / 수동 / Known Issues
+
+- 신규 `prompt12_smoke.gd`: 실제 Main 입력 Grab/Swing/Throw/E/N/Q,3종 정확한 피해·내구도·Aggro·Recoil,Miss,벽,파손,배송.
+- `prompt12_combat_smoke.gd`: 쿨다운/상호 배제,실제 피격 위험·강제 Drop,사거리 차이,움직이는 Rat 복귀,Weapon Cart 적재/충격 산개,기존 Product Cart Bomb,Human 비전투 Target.
+- `prompt12_recovery_smoke.gd`: 좁은 통로의 고정 Weapon을 실제 NPC가 벗어나고 collision pair 복구,배송 슬롯 점유/한도.
+- 초기 검사 수정 이력: 벽 충돌 fixture는 기존 Cart scripted spill 보조의 CombatTarget 조건이 없어 Rat 충돌로 변경했다. Rat에는 실제3회 타격/47.95 Damage가 발생했으나2초 뒤 최종 거리만으로 산개를 판정하던 검사는 실패했다. 충돌 전 구간의 최대 이탈 거리·assist 해제로 측정하여 최종1.038m 이탈/assist off 통과. 배송3슬롯 중 후면 끝 슬롯이 벽과 겹쳐 생성 보류되어 slot간격/중심을 조정했고 최종3개 생성·추가 주문 보류 통과. 실패 로그는 `.godot/p12_combat1.log`, `p12_final_12_combat.log`, `p12_final_12_recovery.log`에 보존.
+- 산개 진단용 headless probe는 최초 CustomerManager의 존재하지 않는 property를 설정해 중단됐다(`p12_cargo_probe.log`). 진단 fixture를 실제 process 중단으로 수정한 후1.453m 이탈을 확인(`p12_cargo_probe2.log`). 이는 추가 진단이며 PASS 합계에는 포함하지 않는다.
+- 같은 Rat에 Bat→실제 Watermelon Grab/Throw→Loaded Cart를 연속 적용: HP300→278→274→267.4. 이 배치는 Cart 본체 hit0, 산개한 Can hit2로 피해가 발생했다. 최초 mixed 검사는 본체 충돌만 요구해 실패(`p12_mixed_final.log`). 혼합 공격 계약을 실제 Cart **또는 armed cargo impact**와 HP 감소로 검사하여 통과했으며, 별도 Cart 본체/Weapon cargo3타격·47.95피해 검사와 기존 Cart damage 공식 검사는 그대로 유지한다. 새 무기가 기존 물리 공격을 대체하지 않음을 같은 Target에서 확인했다.
+- 자동 화면 확인에서 Weapon held UI가 기존 좌측 HUD와 겹쳐 우측 하단으로 이동했다. 수동 손맛은 아직 미확인.
+- 최종 신규 core60 + combat37 + recovery4 PASS. `.godot/p12_retry_12.log`, `p12_mixed_retry.log`, `p12_retry_12_recovery.log` 선택. 기존 Prompt0~11.8의40개 회귀 실행은 모두2,508 PASS. 실패/진단/중복 실행은 합산하지 않는다. 결과 ledger `.godot/p12_results.txt`, 기존 회귀 상태 `.godot/p12_suite.txt`.
+- Import/Headless Main7200 ticks(120초)/창 Main600 ticks 모두 종료0·오류0 (`p12_main_import/headless/window.log`). 기존 Chaos에서도12 Tourist·Shopping/Queue·Fire/Spill·Boss 전투 흐름 유지. 최종 `.godot/p12_held.png`에서 우측 하단 무기 이름/내구도/조작과 기존 HUD 비중첩을 확인했다. `git diff --check` 통과. 실제 수동 전투 feel/밸런스는 별도 사용자 확인 필요.
+- 수동: N/E로3종 배송, LMB Swing·Q Drop·RMB Throw, Miss/파손, Rat 중립→첫 타격 Aggro, Hammer Stagger/Broom 거리, Rat Charge 회피, Weapon+상품+Cart 혼합, 바닥 Drop 후 Tourist 흐름 확인.
+- 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap, 극단적 Cart 과적 Chaos, 단순 waypoint 길찾기 한계. Weapon graybox Swing은 정식 애니메이션이 아니며 Reach/Push/내구도는 수동 밸런스 대상. Throw 내구도 소모는 아직 없음.
+
 ## Prompt 11.8 — KING RAT Active Combat Loop
 
 2026-10-29 구현·자동 검증 완료. 기존 회귀 **2,473 + 신규35 = 2,508 PASS / 최종0 FAIL**, 최종 선택 로그 Script/엔진 오류0. 시작 Git clean, 변경은 uncommitted 유지. 사용자가11.7 중립/Aggro 동작을 수동 확인했다. Neutral·도발·attacker attribution·12초 Aggro decay는 유지하고 Aggro 이후의 의사결정/이동/공격 박자만 변경한다. Weapon/새 공격/새 Boss/Networking/NavMesh는 추가하지 않았다.
