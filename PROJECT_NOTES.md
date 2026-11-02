@@ -2,6 +2,53 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.2 — Combat Hit Feedback / KING RAT Physical Presence
+
+2026-11-02 구현·자동 검증 완료. **Prompt0~12.1 회귀2,676 + 신규142 = 총2,818 PASS / 최종0 FAIL**, 선택된 최종 로그 Script/엔진 오류·경고0. 기존 회귀 수에는11.8의 새 반응 경계 검사1개 추가가 포함된다. 시작 Git clean. `project.godot` 변경 없음. Commit/amend/reset/push 없이 uncommitted로 남긴다. 사용자 수동 손맛 확인은 아래 절차로 필요하다.
+
+### 새 PC 환경
+
+- Project: `C:\Users\JHS\orca\night-shift-mart`
+- Godot: `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`
+- 실제 실행 버전 `4.7.2.stable.official.ed1daf0bf`, Compatibility / RTX 3060 Laptop GPU. README와 이 문서의 이전 실행 경로, godot-testing Skill의 환경 정보를 갱신했다. `res://` 경로는 유지한다.
+
+### 원인과 수정
+
+- 기존 Flash는 0.18초 동안 조명 영향을 받는 몸 재질의 albedo만 흰색으로 바꿨다. 별도 local body pose가 없고 Recoil은 모두 0.25초였다. 이제 몸·머리·귀·눈·꼬리의 7개 Mesh에 unshaded overlay를 즉시 적용한다. 기본 material/색을 Flash용으로 덮어쓰지 않는다. 최초 Hit 때 원래 overlay reference를 저장하고 연속 Hit는 만료 시간만 갱신하며, 종료 시 같은 reference로 복구한다. TELEGRAPH 색도 기존 상태 표현으로 유지한다.
+- Light: Flash 0.10초, pose/reaction 0.10초, 기울기 0.055rad. Medium: 0.12/0.16초, 0.13rad. Heavy: 0.15/0.24초, 0.24rad 및 흰색 Flash. 나머지는 밝은 노란색. visual root만 뒤로 기울고 짧게 이동하며 끝에 정확히 0으로 복귀한다.
+- Melee는 기존 피해량으로 구분: Broom12 Light, Bat22 Medium, Hammer48 Heavy. Product/Cart는 공통 `receive_impact`의 선택적 mass 정보도 전달: 1kg 이상 Medium, 6kg 이상 Heavy. Bread0.5kg Light, Can/Watermelon/Pan Medium, Microwave/TV/Cart Heavy. Damage/impulse 계산과 공격자 귀속은 그대로이며 강한 표현만으로 Stagger를 추가하지 않는다. Stagger는 기존 Damage45 이상 조건과 2초 재발동 제한을 유지한다.
+- 피격 reaction 중 AI 접근/공격 전이는 보류하고 기존 recoil/external velocity를 우선한다. 기존 0.25초 recoil과 0.45초 Stagger를 유지하며 종료 후 기존 Combat Decision으로 복귀한다. AI reaction 재발동 간격은 일반0.35초/Heavy2초이며 연속 접촉으로 무한 정지하지 않는다. 시각적 pose는 별도 timer로 모든 Hit에 갱신하므로 재발동 제한 중에도 피격이 보인다. 기존 무기의 local hit-stop, camera kick, Damage/내구도/리듬, HP bar를 유지한다. SceneTree time scale 변경 없음.
+- 실제 양수 HP Damage signal에서만 Flash/pose를 발생시킨다. Miss/일반 overlap/0 Damage/소화기 같은 단순 외력은 Flash 없음. 마지막 치명타도 Flash 후 기존 defeat 동작을 따른다.
+
+### Body separation과 Combat force
+
+- 수정 전 재현 `.godot/p122_presence_before.log`: AI를 SPAWN에 고정한 Rat은 걷기5m/s·고속10m/s의 3초 몸 접촉에 **이동0m/외력0**이었지만 Player 중심이 Rat 중심 약0.06m까지 통과했다. 즉 이 버전의 실제 body impulse가 보스를 운반한 것은 아니다. Aggro를 켠 동일 전진 실험에서는 Rat이 약5.95m 이동했으며 여전히 외력0이었다. 근접 AI 후퇴와 약한 overlap 대응이 운반처럼 보이는 핵심 원인이다. 이전 대비 Rat body displacement 감소를 허위로 주장하지 않는다.
+- Player motor에서 Rat과 수평1.20m 안으로 향하는 속도를 제한하고, 이미 겹친 경우 Player 쪽만 최대2m/s로 해소한다. 접선 이동/뒤로 빠지기/점프를 유지하고 실제 이동은 `move_and_slide`로 처리해 벽을 통과하지 않는다. Rat 쪽 BODY_SEPARATION displacement/impulse는0. 기존 reciprocal collision exception은 유지한다. 방어적으로 Player의 slide impulse 경로도 KingRat에는 적용하지 않는다.
+- 활성 전투의 밀착 거리에서는 기존 측면 재배치 방향을 선택하고 공격 간격 확보까지 유지한다. 매 frame Player 위치에 맞춰 방향을 돌리면 다시 후방 운반처럼 되는 것을 막는다. 세계 장애물이 있으면 기존 방향/통로 처리로 돌아간다. Combat Approach/Charge/neutral food 행동은 유지한다.
+- COMBAT_IMPACT와 소화기 `receive_impulse`는 body correction을 거치지 않아 정상적으로 Boss를 민다. 일반 접촉은 Damage/Knockdown 없음. Charge 중에는 Player soft separation을 적용하지 않고 기존 Area attack의30 HP/Knockdown/Push가 작동한다. Downed/Knockdown Player의 기존 처리도 유지한다.
+- 프로젝트에 Sprint Input Map은 없다. 신규 검사에서는 Player 속도를 시험 중에만5→10m/s로 바꿔 고속 접촉을 검증한다. 새 Sprint 기능이나 입력은 추가하지 않는다.
+
+### 검사 / 재검사 기록
+
+- 신규 `tests/prompt12_2_smoke.gd`: 실제 melee/6종 product throw/빈 Cart·Cart Bomb, 모든 mesh Flash, 정확한 기존 overlay 복구, 반복 Hit, Miss/무피해 외력, local pose 복원, 연속 강타 중 전투 복귀, 화면 캡처.
+- 신규 `tests/prompt12_2_presence.gd`: 3초 정면/측면 걷기·2배 속도, 후면 밀기, 접선 탈출/깊은 overlap 복구, 활성 AI 측면 탈출, body와 combat impulse 변위 비교, Charge30/Knockdown.
+- 초기 body 검사는 기존 정책에서 Player 통과로4개 실패해 재현을 확인했다. 수정 후 정면/측면 최소 거리1.20m, Rat body displacement0m. 첫 두 AI 측면 수정은3초 뒤 전체 이동거리 기준을 만족하지 못했다(`p122_presence_final.log`, `p122_suite_prompt12_2_presence.log`). 방향을 매번 갱신하지 않고 간격 확보까지 유지하도록 수정했고, AI가 이후 Player를 추적하는 이동과 접촉 탈출을 혼동하지 않도록 검사를 실제 측면 이탈량 기준으로 바꿨다. 일반 body displacement/최소 간격 기준은 그대로 유지한다.
+- 단발 COMBAT_IMPACT 비교는 동일 Rat 위치·외력0, 15physics ticks=0.25초 기준이다. Bat22/18→0.342m, Broom12/150→0.986m, Hammer48/40→0.739m, TV 예시51/18→0.528m, Loaded Cart 예시48/32→0.664m. 뒤 두 수치는 일정한 대표 impulse를 직접 전달한 통제 실험이며 실제 충돌 측정으로 오해하지 않는다. 실제 상품·Cart 충돌 경로는 별도 smoke로 검증한다.
+- 최초 피격 smoke102 PASS/0 ERROR. 화면 캡처가 타격 직전 렌더 프레임을 읽는 것을 발견해 `frame_post_draw` 대기 후 캡처하도록 수정했다. 최종 회귀/신규/임포트/Main 결과는 아래 최종 검증 항목에 기록한다.
+- 11.8 최초 회귀에서2개 실패: direct Damage의 새0.1초 reaction 중 상태가 TRAVEL_ZONE에 남아 비전투0.1초로 집계됐고, 기존2tick 즉시 Telegraph 검사와도 충돌했다. reaction에 RECOIL 상태를 명시해 비전투 상태 잔류를 수정했다. route 검사는2tick에 Aggro+RECOIL, 총0.6초 내 Telegraph를 모두 요구하도록 변경했다. 새로운0.1초 반응+기존0.35초 spacing grace를 인정하면서 과거4초 발견 대기 재발은 계속 차단한다. 30초 관찰의 inactive0/회복1초 미만 기준은 변경하지 않았다. 실패 원본은 `p122_suite_prompt11_8_route_smoke.log`, `p122_suite_prompt11_8_smoke.log`에 보존한다.
+- 최종 신규 smoke111 + presence31 =142 PASS/0 ERROR. 3초 일반 접촉은 정면/측면5·10m/s 모두 Rat0m/최소 간격1.20m, HP100 유지. 후면 밀기·접선 탈출·깊은 overlap 해소·Charge30/Knockdown 통과. 활성 AI는2.574m 측면 탈출 후 전투를 계속했으며3초 전체 이동은5.874m다. 이 전체 이동에는 측면 탈출 후 추적/재배치가 포함되어 있으므로 몸 접촉 변위로 계산하지 않는다. 외력은 계속0이다.
+- 최종 연속 강타4초 검사에서 AI 비정지 전투181ticks, pose는 재발동 제한 중에도 표시됐다. `.godot/p122_hit_sledgehammer.png`와 `p122_restored_sledgehammer.png`를 실제로 열어 흰색 silhouette/피격 표시와 원래 분홍색 재질 복원을 확인했다. Bat/Broom도 같은 방식으로 캡처를 보존한다. 이는 자동 고정 배치 화면 검증이며 사람의30초 혼합 전투 손맛 검사 완료를 뜻하지 않는다.
+- 최종 전체47개 스크립트 선택 목록/합계: `.godot/p122_results.txt`. 실제 창 순차 실행 상태는 `p122_suite.txt`, 재검사·Main 상태는 `p122_final_status.txt`. 모든 선택 검사 EXIT0/FAIL0/ERROR0/WARNING0. 파일명에 smoke가 없는 기존 `prompt11_4_reproduce.gd`의 고정 TV 통로 탈출1개도 실행해 포함했다. 진단 probe/중복 재실행/최초 실패는 PASS 합계에 중복 합산하지 않는다.
+- 11.8 최종 route10 + combat26 PASS. 30초 관찰은 RECOIL0.10초, Telegraph7회, Charge7회, 비전투0초, 최장 회복0.567초, Player HP10000→9790. 기존0~12.1의 Customer/Tourist/군중 통과·Product/Cart·Aggro·Weapon 회귀도 통과했다. 기존10초 Weapon DPS는 Bat35.2/Hammer38.4/Broom21.6으로 유지됐다.
+- 최종 import, Main headless7,200ticks=120초, 실제 창600ticks=10초 모두 종료0·Script/엔진 오류·경고0 (`p122_final_import.log`, `p122_main_headless.log`, `p122_main_window.log`). 배송 도착/출발 정상. `git diff --check` 공백 오류0. Git의 CRLF→LF 안내는 게임 로그 경고가 아니다.
+
+### 수동 확인 / Known Issues
+
+- 자동 검사와 캡처는 실제 사람의 손맛 평가를 대신하지 않는다. HP bar를 보지 않고 Bat·Hammer·Broom 각각의 Hit/Miss, Pan/Watermelon/TV Throw, Cart/Cart Bomb 피격을 확인한다. Hammer가 더 강하게 읽히고 Broom은 작은 피해에도 밀치기가 보여야 한다.
+- Rat 중립 정면/측면/후면에3초씩 걷기, 몸 접촉→Broom 비교, 붙은 상태에서 옆으로 탈출, Rat+Customer/Tourist 근접을 확인한다. 일반 접촉은 무피해·비Knockdown, Charge는30HP·Knockdown이어야 한다. 마지막으로 무기·상품·Cart를 섞어30초 전투의 피격 가독성과 능동 전투 복귀를 확인한다.
+- 유지 TODO: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap Final Combat Polish, Extreme Cart overload Physics Chaos, Simple waypoint navigation limits. 밀집·벽 코너의 시각적 겹침을 완전히 제거하는 Navigation 재작성은 하지 않았다.
+- 수동 결과가 정상이라면 다음 큰 단계인 Round / Day Progression으로 넘어갈 준비 상태다. 이번 변경에는 해당 기능을 추가하지 않는다.
+
 ## Prompt 12.1 — Weapon Feel / Balance Polish
 
 2026-10-30 구현·자동 검증 완료. **기존2,609 + 신규66 = 2,675 PASS / 최종0 FAIL**, 최종 Script/엔진 오류·경고0. 시작 Git clean, 변경은 uncommitted. 사용자가 Prompt12의3종 사용감·물리 조작·배송·Rat/혼합 전투를 수동 확인했다. Prompt12.1의 최종 손맛은 아래 수동 절차로 확인 필요. 새 Weapon/총기/탄약/경제/새 Boss/Networking은 추가하지 않았다.
@@ -732,7 +779,7 @@ Throw value는 기존 price/charge damage 공식에 전달하는 Prototype 값�
 - 기존 전체 회귀: 0=22, 1=48, 1.1=40, 2=41, 2.1=28, 3=32, 3.1=29, 4=54, 5=33, 5.1=36, 5.2=57, 6=40, 6.1=35, 6.2=48, 7=55, 7.1=57, 7.2=26, 7.3=16, 8=59, 8.1=62, 9=62 → **880 PASS**, 각 exit 0 / errors 0.
 - 최종 Prompt 10 **58 PASS / failures 0 / exit 0**. 생성 순간 physics frames = [303,328,353,378,403,428,453,603,753,903]: 최소 25 ticks, 입구 점유 시 더 오래 기다렸다. 총 10명, peak active 9, peak queue 5. 정상 결제 1명, 재고 감소/Patience 손실/중복 Reservation 없음, U 상태 보존, OOS 입구 퇴장, 절대 cap/하차 타임아웃, Fire/Spill 상태 복구, K/L/O/P/T 수동 생성 모두 통과.
 - 외부 바닥 수정 후 6.1=35 PASS, 9=62 PASS 추가 확인. 기존 880개에 중복 재실행 수는 더하지 않는다. 합계 **938 PASS**.
-- 기존 Godot 경로 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe` 사용. 임포트는 `--headless --path . --editor --import --quit`; 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`로 순차 실행(파일명의 소수점은 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`로 120초 시뮬레이션, exit 0.
+- 기존 Godot 경로 `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe` 사용. 임포트는 `--headless --path . --editor --import --quit`; 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`로 순차 실행(파일명의 소수점은 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`로 120초 시뮬레이션, exit 0.
 - 최종 로그: `.godot/p10_import_final.log`, `.godot/p10_regression_*.log`, `.godot/p10_verified_6_1.log`, `.godot/p10_verified_9.log`, `.godot/p10_spawn_verified.log`, `.godot/p10_main_final.log`. 최종 선택 로그에 SCRIPT ERROR/ERROR:/FAIL: 없음. `p10_final.log`(테스트 parse), `p10_recheck.log` 및 `p10_verified_10.log`(간격 측정 실패)은 진단 이력으로 보존한다. `git diff --check` 통과.
 
 ### 수동 테스트 / 알려진 한계 / 다음 단계
@@ -805,7 +852,7 @@ Throw value는 기존 price/charge damage 공식에 전달하는 Prototype 값�
 - 첫 전체 회귀에서 Prompt 6.1의 `unresolved other family collision remains enabled` 1개가 실패했다. 새로운 basic_customers 그룹에 LostParent도 포함되어 미해결 부모를 예외 대상으로 확장한 실제 회귀였다. 그룹 순회에서 LostParent를 제외하여 기존 규칙을 복원했다. 재회한 가족끼리는 원래 departing 목록에서 별도 처리하며, 도둑과의 예외는 유지한다. 기존 테스트는 수정하지 않고 Prompt 6.1(35 PASS), 9(62 PASS)를 재검증해 모두 통과했다. 최초 실패 로그도 보존했다.
 - 최종 Prompt 9: **62 PASS / failures 0**. 실제 입구→Shelf→절도, 실제 밖으로 도주, U OFF T 생성, 예약 OOS, 중복 절도/손실 방지, 좌클릭 Capture, 벽으로 Capture 차단, 넘어져 있을 때 Capture, 인스턴스 설정 복원, 실제 Grab/Throw/재진열/Cart 적재, 소화기/Mop/Cart/Player push 및 Escape 복귀, 출발 가족 예외를 검사했다.
 - 최종 회귀: 0=22, 1=48, 1.1=40, 2=41, 2.1=28, 3=32, 3.1=29, 4=54, 5=33, 5.1=36, 5.2=57, 6=40, 6.1=35, 6.2=48, 7=55, 7.1=57, 7.2=26, 7.3=16, 8=59, 8.1=62, 9=62. 합계 **880 PASS**, 최종 각 실행 failures 0 / exit 0. 수정된 가족 예외 범위를 사용하는 Knockdown/Fire 회귀도 통과했다.
-- Godot 4.7.2 경로는 기존 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 임포트는 `--headless --path . --editor --import --quit`, 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`으로 순차 실행했다(소수점은 파일명에서 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`, 시뮬레이션 120초, 정상 종료 및 배송 도착/출발 확인.
+- Godot 4.7.2 경로는 기존 `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 임포트는 `--headless --path . --editor --import --quit`, 창 테스트는 `--path . --fixed-fps 60 --script res://tests/prompt<번호>_smoke.gd --quit-after 24000`으로 순차 실행했다(소수점은 파일명에서 `_`). Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`, 시뮬레이션 120초, 정상 종료 및 배송 도착/출발 확인.
 - 로그: `.godot/p9_import_final.log`, `.godot/p9_final.log`, `.godot/p9_regression_*.log`, `.godot/p9_recheck_6_1.log`, `.godot/p9_recheck_9.log`, `.godot/p9_main.log`. 최종 선택 로그에서 SCRIPT ERROR/ERROR:/FAIL: 없음. 최초 회귀 6.1 로그는 실패 이력으로 남겨둔다. `git diff --check` 통과(Windows 줄바꿈 안내만 존재).
 
 ### 수동 확인 / 알려진 문제 / 다음 작업
@@ -894,7 +941,7 @@ Throw value는 기존 price/charge damage 공식에 전달하는 Prototype 값�
 
 - `.godot/p81_regression_<번호>.log`, `.godot/p81_complete_verified.log`: 모두 종료 0, FAIL/SCRIPT ERROR/ERROR 0건. 창 모드 fixed-fps 60으로 순차 실행했다.
 - `.godot/p81_import_verified.log`: 최종 임포트 종료 0/오류 없음. `.godot/p81_main.log`: Main headless 7200 tick / 120초 시뮬레이션 종료 0/오류 없음, 배송 도착·출발 확인.
-- 신규 검사 재실행: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_1_smoke.gd --quit-after 10000`.
+- 신규 검사 재실행: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_1_smoke.gd --quit-after 10000`.
 - `git diff --check` 통과. 이전 Prompt 8 변경을 포함한 working tree: tracked 수정 13개 / 신규 19개(UID 포함). 이번 단계 신규 파일은 FireReaction/Prompt 8.1 검사와 각각의 UID다. 전부 uncommitted이며 commit/amend/reset/push는 하지 않았다.
 - 로그/렌더는 `.godot` 로컬 산출물로 Git에 추가하지 않는다. Git global ignore 접근 경고 및 LF→CRLF 안내는 실행 오류와 별개다.
 
@@ -988,7 +1035,7 @@ Known Issues: 단순 바깥 방향 후퇴이므로 벽/상품으로 막힌 화�
 
 - 최종 `.godot/p8_final.log` 및 `.godot/p8_regression_<번호>.log` 전부 종료 0, `FAIL:`/`SCRIPT ERROR`/`ERROR:` 0건. 입력 검사는 창 모드 `--fixed-fps 60` 순차 실행했다.
 - `.godot/p8_main.log`: Main headless 7200 tick / 120초 시뮬레이션, 종료 0, 오류 없음. 배송 6개 도착 및 Left Behind 6개 출발 로그 확인.
-- 재실행 명령: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_smoke.gd --quit-after 16000`. 기존 검사도 같은 방식으로 번호를 바꿔 실행한다. Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`.
+- 재실행 명령: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt8_smoke.gd --quit-after 16000`. 기존 검사도 같은 방식으로 번호를 바꿔 실행한다. Main은 `--headless --path . --fixed-fps 60 --quit-after 7200`.
 - `git diff --check` 통과. tracked 수정 7개 / 신규 15개(UID 포함), 모두 uncommitted. commit/amend/reset/push는 하지 않았다. Git의 global ignore 파일 접근 경고와 LF→CRLF 안내는 Godot 실행 오류와 별개다.
 
 ### 수동 확인 / Known Issues / 다음 작업
@@ -1052,7 +1099,7 @@ Known Issues: 단순 바깥 방향 후퇴이므로 벽/상품으로 막힌 화�
 
 - 기존 회귀 로그 `.godot/p73_regression_<번호>.log`(소수점 대신 `_`), 신규 `.godot/p73_new.log`: 전부 종료 코드 0, `ERROR:`/`SCRIPT ERROR`/`FAIL:` 없음.
 - 임포트 `.godot/p73_import.log` 및 Main 120초 시뮬레이션 `.godot/p73_main.log`도 종료 0/오류 없음. 기존 배송 도착/출발까지 확인했다.
-- 명령 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_3_smoke.gd --quit-after 3000`.
+- 명령 예: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_3_smoke.gd --quit-after 3000`.
 - 이전 Prompt의 실패/재검사 기록은 과거 이력으로 그대로 보존한다. 현재 각종 physics/NPC 검사를 새로 실행한 결과다.
 - `git diff --check` 통과. 이전 변경을 포함한 전체 working tree는 tracked 수정 15 / untracked 23개. 이번 신규 파일은 7.3 검사와 UID이며 자동 commit/amend/reset/push는 하지 않았다.
 
@@ -1126,7 +1173,7 @@ Known Issues: 단순 바깥 방향 후퇴이므로 벽/상품으로 막힌 화�
 - 실패 이력: 최초 전체 실행의 `.godot/p72_regression_7_1.log`는 PAY ray와 그에 따른 판매 확인 2개 실패(55개 통과). 해당 시점의 포커스/충돌 대상 기록이 없어 원인을 단정하지 않는다.
 - 조사: `.godot/p72_pay_probe.gd/.log`로 원래 7.1을 상속하고 동일 assertion을 실행하면서 focus, Head/Camera transform, 실제 ray collider를 추가 기록했다. Scan/Pay 모두 mouse capture=2, operator=true, 실제 Scanner/Payment collider에 명중했고 Player Knockdown은 UPRIGHT, Head 높이는 1.6m, 카메라 위치는 원점이었다. 잔여 Fall offset은 없었다. 진단 실행 57개 통과/종료 0. 게임 코드나 검사 기준을 더 바꾸지 않은 원래 검사 단독 실행도 57개 통과했다. 실패를 삭제하거나 최초부터 모두 통과했다고 보고하지 않는다.
 - 기존 카트/상품/진열/계산/취객/미아/가족 퇴장/Spill/Mop 회귀도 통과했다. 카메라 연출 외의 추가 gameplay 수정은 없었다.
-- 실행 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_2_smoke.gd --quit-after 3000`.
+- 실행 예: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_2_smoke.gd --quit-after 3000`.
 - `git diff --check` 통과. 전체 working tree는 이전 Prompt 변경을 포함해 tracked 수정 15 / untracked 21개. 이번 신규는 Prompt 7.2 검사와 UID이며 commit/amend/reset/push하지 않았다.
 
 ### 수동 확인 / Deferred Final Checks
@@ -1227,7 +1274,7 @@ Parent의 기존 보행 속도 1.5m/s에서도 발생하도록 조건을 1.3으�
 - Cart Bomb 회귀 수정 뒤 기존 Prompt 1/1.1/2/2.1, 3.1, 6.2, 7, 7.1을 재검사했다. Prompt 2에서는 적재 5개, 이탈 2개, 개별 상품 타격 3회, 차체 타격 1회를 기록했다.
 - 추가 실행 `p71_complete_prompt3_1.log`에서 적재 카트 회전/Grab 관련 6개 실패가 있었다. 진단 `p71_control_probe.log`는 창 `FOCUS EXIT`, mouse capture 0, Grab 해제, fall_count 0을 실제 기록했다. 진단 실행의 총 10개 실패 중 앞부분 회전 산포까지 모두 포커스 탓이라고 단정하지 않는다. 게임 제어/회귀 assertion은 변경하지 않고 단독 실행 `p71_isolated_prompt3_1.log`에서 29개 통과를 확인했다.
 - `p71_last_prompt7.log`는 Scan/Pay 조준 실패 3개와 그에 따른 판매/퇴장 실패 2개가 있었다. 해당 실행에는 포커스 계측이 없어 포커스 문제라고 확정하지 않는다. `aimed_action()`의 마우스 캡처/조준 조건과 실제 GUI 의존성을 확인하고, 코드/검사 조건을 바꾸지 않은 단독 실행 `p71_isolated_prompt7.log`에서 55개 통과했다. 입력 검사 중 Alt+Tab이나 실제 마우스 조작을 섞지 않는다.
-- 재실행 명령 예: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_1_smoke.gd --quit-after 16000`. Headless는 임포트/Main에 사용하며 실제 입력 검사를 대체하지 않는다.
+- 재실행 명령 예: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt7_1_smoke.gd --quit-after 16000`. Headless는 임포트/Main에 사용하며 실제 입력 검사를 대체하지 않는다.
 - `git diff --check` 통과. 현재 전체 작업 트리는 이전 Prompt 7 변경을 포함해 tracked 수정 15개 / untracked 19개이며 commit/amend/reset/push하지 않았다. 이 중 이번 신규 파일은 KnockdownState 및 Prompt 7.1 검사와 각각의 UID다. 기존 Prompt 7 파일 일부에도 통합 수정이 들어갔다.
 
 ### 수동 확인 / Known Issues / 다음 단계
@@ -1340,9 +1387,9 @@ Parent의 기존 보행 속도 1.5m/s에서도 발생하도록 조건을 1.3으�
 재실행 예(프로젝트 루트 PowerShell, 기존 ZIP 경로 유지):
 
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --headless --path . --editor --import --quit
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt7_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt3_1_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --headless --path . --editor --import --quit
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt7_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --fixed-fps 60 --script res://tests/prompt3_1_smoke.gd
 ```
 
 전체 회귀는 위 표의 `tests/prompt*_smoke.gd`를 창 하나씩 순차 실행한다. headless는 입력 검사의 대체가 아니다. 이전 테스트를 삭제하거나 실패 로그를 덮어 통과로 만들지 않는다.
@@ -1435,7 +1482,7 @@ Parent의 기존 보행 속도 1.5m/s에서도 발생하도록 조건을 1.3으�
 - 기존 상품 가격/무게/피해/넉백, Cart Bomb, 배송/진열/계산, 취객 운반·카트 제거, 미아 인계·카트 운반, 6.1 가족 교차/퇴장 검사를 모두 통과했다. 사람이 직접 장시간 플레이한 수동 확인으로 해석하지 않는다.
 - Godot 4.7.2 임포트 성공. Main은 headless fixed-fps=60, 7,200프레임(시뮬레이션 120초)으로 실행했고 배송 6개 도착/출발까지 확인했다. 신규/회귀 smoke는 창 모드에서 하나씩 순차 실행했다.
 - `git diff --check` 오류 없음. 이전 Prompt 변경 포함 tracked 수정 9개/untracked 14개이며 전부 uncommitted다. Git의 사용자 전역 ignore 권한 경고/CRLF 안내는 남지만 status/diff 종료 코드는 0이다. commit/amend/reset/push를 실행하지 않았다.
-- 재실행은 기존 실행 파일 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`에 `--path . --script res://tests/prompt6_2_smoke.gd`를 사용한다. 전체 검사 목록은 `0, 1, 1_1, 2, 2_1, 3, 3_1, 4, 5, 5_1, 5_2, 6, 6_1, 6_2`다. import/Main headless와 창 모드 회귀 절차는 아래 기존 실행 예시를 따른다.
+- 재실행은 기존 실행 파일 `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`에 `--path . --script res://tests/prompt6_2_smoke.gd`를 사용한다. 전체 검사 목록은 `0, 1, 1_1, 2, 2_1, 3, 3_1, 4, 5, 5_1, 5_2, 6, 6_1, 6_2`다. import/Main headless와 창 모드 회귀 절차는 아래 기존 실행 예시를 따른다.
 
 ### 수동 확인 / Known Issues / 다음 작업
 
@@ -1550,7 +1597,7 @@ Parent의 기존 보행 속도 1.5m/s에서도 발생하도록 조건을 1.3으�
 재실행(프로젝트 루트 PowerShell, 기존 절대 경로 사용):
 
 ```powershell
-$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+$martGodot = 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 & $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check6_import.log
 foreach ($stage in @('6','0','1','1_1','2','2_1','3','3_1','4','5','5_1','5_2')) {
     & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check6_prompt${stage}.log"
@@ -1602,7 +1649,7 @@ foreach ($stage in @('6','0','1','1_1','2','2_1','3','3_1','4','5','5_1','5_2'))
 전체 재실행 시 아래 명령을 사용한다. 테스트 실행 자체에 사용자 확인을 다시 받지 않으며, 실행 환경이 요구하는 권한 절차만 따른다. 테스트 중 다른 창 클릭/Alt+Tab은 입력 fixture에 영향을 줄 수 있다.
 
 ```powershell
-$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+$martGodot = 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 & $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check52_import.log
 foreach ($stage in @('5_2','0','1','1_1','2','2_1','3','3_1','4','5','5_1')) {
     & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check52_prompt${stage}.log"
@@ -1660,7 +1707,7 @@ foreach ($stage in @('5_2','0','1','1_1','2','2_1','3','3_1','4','5','5_1')) {
 재실행 예시(프로젝트 루트 PowerShell, 입력 검사 중 다른 창 클릭/Alt+Tab 금지):
 
 ```powershell
-$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+$martGodot = 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 & $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object .godot/check51_import.log
 foreach ($stage in @('5_1','0','1','1_1','2','2_1','3','3_1','4','5')) {
     & $martGodot --path . --script "res://tests/prompt${stage}_smoke.gd" 2>&1 | Tee-Object ".godot/check51_prompt${stage}.log"
@@ -1771,7 +1818,7 @@ foreach ($stage in @('5_1','0','1','1_1','2','2_1','3','3_1','4','5')) {
 프로젝트 루트 PowerShell에서 실행한다. Godot 실행은 현재 도구 환경의 권한 정책에 따라 승인 실행이 필요할 수 있다. 다음 스크립트의 실행 파일 경로를 바꾸지 않는다.
 
 ```powershell
-$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+$martGodot = 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 & $martGodot --headless --version
 & $martGodot --headless --path . --editor --import --quit 2>&1 | Tee-Object -FilePath .godot/check_import.log | Out-String
 & $martGodot --path .
@@ -1782,7 +1829,7 @@ $martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 자동 검사는 게임/에디터의 다른 실행을 종료한 후 **창 모드, 순차 실행**한다. 여러 Godot 테스트 창을 동시에 띄우거나 검사 중 마우스/키보드/Alt+Tab을 조작하면 포커스·입력 결과가 달라질 수 있다. 전체 검사는 수 분 이상 걸릴 수 있으며 모든 검사가 20초 안에 끝나는 것은 아니다.
 
 ```powershell
-$martGodot = 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+$martGodot = 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
 $martSuites = @('0','1','1_1','2','2_1','3','3_1','4','5')
 foreach ($suite in $martSuites) {
     & $martGodot --path . --script "res://tests/prompt${suite}_smoke.gd" 2>&1 |
@@ -1849,9 +1896,9 @@ GUI exe 출력을 파이프로 받아 실행 완료를 기다리는 방식이다
 
 ## 이 환경의 Godot 실행 경로
 - ZIP을 압축 해제한 Godot를 사용한다. `godot` 명령/PATH 검색, 파일명 변경, 다른 버전 설치를 하지 않는다.
-- `D:\Godot_v4.7.2-stable_win64.exe`는 폴더다. 실제 실행 파일의 절대 경로는 `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`다.
+- `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe`는 폴더다. 실제 실행 파일의 절대 경로는 `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`다.
 - 확인한 버전: `4.7.2.stable.official.ed1daf0bf`.
-- PowerShell 버전 확인: `& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --headless --version`
+- PowerShell 버전 확인: `& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --headless --version`
 - 자동 검증: 같은 실행 파일에 `--path . --script res://tests/prompt0_smoke.gd`를 전달한다. 프로젝트 루트에서 실행한다. 마우스 잠금이 필요한 테스트이므로 창 모드로 실행하며 검사 완료까지 입력하지 않는다. 헤드리스 모드는 마우스 잠금을 지원하지 않으므로 임포트/씬 로딩 검사에만 사용한다.
 
 ## 한 줄 설명 / Core Gameplay

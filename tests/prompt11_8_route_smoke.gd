@@ -50,7 +50,9 @@ func run_checks() -> void:
 	player.position = Vector3(0, 0.01, 15)
 	rat.receive_damage(1, null, player)
 	await frames(2)
-	check(rat.state == KingRat.State.TELEGRAPH, "fresh damage aggro starts decision without initial four-second wait")
+	check(rat.state == KingRat.State.RECOIL and rat.is_aggro, "fresh damage aggro immediately enters bounded hit reaction")
+	await frames(34) # 0.1s reaction + existing 0.35s spacing grace, never the old 4s wait.
+	check(rat.state == KingRat.State.TELEGRAPH, "fresh damage resumes decision after local reaction without four-second wait")
 	player.position = Vector3(35, 0.01, 35)
 	await frames(800)
 	check(not rat.is_aggro and rat.state in [KingRat.State.TRAVEL_ZONE, KingRat.State.MOVE_TO_FOOD, KingRat.State.SEEK_FOOD, KingRat.State.EAT], "active combat still expires into world behavior")

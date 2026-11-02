@@ -53,6 +53,18 @@ var _blocked: float = 0
 var _last_position: Vector3
 var _ignored_food := {}
 var _flash: float = 0
+var _flash_material := StandardMaterial3D.new()
+var _flash_meshes: Array[MeshInstance3D] = []
+var _saved_overlays: Array[Material] = []
+var _reaction_left: float = 0
+var _pose_left: float = 0
+var _reaction_duration: float = 0.1
+var _reaction_wait: float = 0
+var _reaction_tilt: float = 0
+var _impact_mass: float = 0
+var _body_escape_direction := Vector3.ZERO
+@export var body_contact_radius: float = 1.2
+@export var body_separation_speed: float = 2.0
 var visual: Node3D
 var material := StandardMaterial3D.new()
 var mood: Label3D
@@ -164,6 +176,10 @@ func _ready() -> void:
 		_part(Vector3(0.42, 0.5, 0.2), Vector3(side * 0.43, 1.4, -0.4))
 		Graybox.box(visual, "Eye", Vector3(0.12, 0.12, 0.1), Vector3(side * 0.23, 0.85, -1.1), Color.GOLD, false)
 	Graybox.box(visual, "Tail", Vector3(0.16, 0.16, 1.4), Vector3(0, 0.25, 1.1), Color.SALMON, false)
+	_flash_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_flash_material.albedo_color = Color(1, 0.95, 0.65)
+	for child in visual.find_children("*", "MeshInstance3D", true, false):
+		_flash_meshes.append(child)
 	mood = Graybox.sign(self, "KING RAT", Vector3(0, 2, 0), Color.GOLD)
 	damaged.connect(_on_damage)
 	defeated.connect(_on_defeat)
@@ -255,6 +271,9 @@ func _physics_process(delta: float) -> void:
 	_stagger_wait = maxf(0, _stagger_wait - delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
 	_recoil_wait = maxf(0, _recoil_wait - delta)
+	_reaction_left = maxf(0, _reaction_left - delta)
+	_pose_left = maxf(0, _pose_left - delta)
+	_reaction_wait = maxf(0, _reaction_wait - delta)
 	_spacing_grace = maxf(0, _spacing_grace - delta)
 	_lane_wait = maxf(0, _lane_wait - delta)
 	for id in _push_waits.keys():
@@ -271,7 +290,7 @@ func _physics_process(delta: float) -> void:
 	if state == State.DEFEATED:
 		visual.rotation.z = lerp_angle(visual.rotation.z, 1.3, minf(1, delta * 7))
 		if _left <= 0: queue_free()
-	elif _recoil_left > 0:
+	elif _recoil_left > 0 or _reaction_left > 0:
 		pass # Impact motion owns this tick; no pursuit or charge transitions.
 	elif state == State.RECOIL or state == State.STAGGER:
 		if state == State.RECOIL or _left <= 0:
@@ -342,8 +361,14 @@ func _physics_process(delta: float) -> void:
 		look_at(Vector3(last_known_position.x, global_position.y, last_known_position.z), Vector3.UP)
 	elif desired.length() > 0.1:
 		look_at(global_position + desired, Vector3.UP)
-	material.albedo_color = Color.WHITE if _flash > 0 else (Color.ORANGE_RED if state == State.TELEGRAPH else Color(0.5, 0.27, 0.45))
+	material.albedo_color = Color.ORANGE_RED if state == State.TELEGRAPH else Color(0.5, 0.27, 0.45)
+	if _flash <= 0: _restore_flash()
 	visual.position.y = sin(Time.get_ticks_msec() * 0.025) * 0.06 if state == State.EAT else 0
+	if not is_defeated:
+		# Local pose only: collision, player and world clocks keep running.
+		var reaction := _pose_left / _reaction_duration
+		visual.rotation.x = -_reaction_tilt * reaction
+		visual.position.z = _reaction_tilt * 0.35 * reaction
 	if _flash <= 0: mood.text = "✓" if is_defeated else ("!" if state == State.TELEGRAPH else ("COMBAT_APPROACH" if state == State.PURSUIT else State.keys()[state]))
 
 func _charge_hit(body: Node) -> void:
@@ -359,13 +384,53 @@ func _charge_hit(body: Node) -> void:
 		else: PhysicsPush.apply(body, charge_direction * charge_push * 3)
 
 func _on_damage(amount: float) -> void:
-	_flash = 0.18
+	var heavy := amount >= stagger_threshold or _impact_mass >= 6
+	var medium := amount >= 15 or _impact_mass >= 1
+	_flash = 0.15 if heavy else (0.12 if medium else 0.1)
+	_flash_material.albedo_color = Color.WHITE if heavy else Color(1, 0.95, 0.65)
+	if _saved_overlays.is_empty():
+		for mesh in _flash_meshes:
+			_saved_overlays.append(mesh.material_overlay)
+			mesh.material_overlay = _flash_material
+	# Every hit has a visual response; only AI interruption has a rearm gate.
+	_reaction_duration = 0.24 if heavy else (0.16 if medium else 0.1)
+	_pose_left = _reaction_duration
+	_reaction_tilt = 0.24 if heavy else (0.13 if medium else 0.055)
+	visual.rotation.x = -_reaction_tilt
+	visual.position.z = _reaction_tilt * 0.35
+	# Do not extend AI interruption every frame when a cart rubs or hits arrive in a burst.
+	if _reaction_wait <= 0:
+		_reaction_left = _reaction_duration
+		_reaction_wait = maxf(0.35, stagger_rearm_time if heavy else 0.35)
+		if state != State.STAGGER: state = State.RECOIL
 	mood.text = "-%.0f" % amount
 	if amount >= stagger_threshold and _stagger_wait <= 0:
 		state = State.STAGGER
 		_left = stagger_time
 		_stagger_wait = stagger_rearm_time
 		_recoil_wait = maxf(_recoil_wait, stagger_rearm_time) # Damage/push still apply, but do not restart incapacitation.
+
+func _restore_flash() -> void:
+	for i in range(_saved_overlays.size()):
+		_flash_meshes[i].material_overlay = _saved_overlays[i]
+	_saved_overlays.clear()
+
+# BODY_SEPARATION never enters receive_impulse / COMBAT_IMPACT. The player's
+# motor removes inward motion, retains tangent/escape input, and resolves any
+# existing overlap through move_and_slide, so world walls remain authoritative.
+func constrain_player_body(body: CharacterBody3D, motion: Vector3, delta: float) -> Vector3:
+	if is_defeated or state == State.CHARGE or delta <= 0: return motion
+	var offset := body.global_position - global_position
+	if offset.y > 1.5 or offset.y < -1.8: return motion
+	offset.y = 0
+	var distance := offset.length()
+	var normal := offset / distance if distance > 0.001 else global_basis.x
+	var radial := motion.dot(normal)
+	var allowed := (distance - body_contact_radius) / delta
+	if distance >= body_contact_radius and radial >= -allowed: return motion
+	var outward := minf(body_separation_speed, maxf(0, -allowed))
+	var minimum := outward if distance < body_contact_radius else -allowed
+	return motion + normal * maxf(0, minimum - radial)
 
 func _on_defeat() -> void:
 	state = State.DEFEATED
@@ -388,7 +453,7 @@ func _sync_character_exceptions() -> void:
 				body.tree_exiting.connect(_forget_character.bind(body), CONNECT_ONE_SHOT)
 
 func _character_contacts(_delta: float) -> void:
-	if is_defeated or _recoil_left > 0 or state in [State.STAGGER, State.RECOIL, State.REPOSITION, State.CHARGE_RECOVERY]: return
+	if is_defeated or _recoil_left > 0 or _reaction_left > 0 or state in [State.STAGGER, State.RECOIL, State.REPOSITION, State.CHARGE_RECOVERY]: return
 	for body in character_zone.get_overlapping_bodies():
 		if body.get_node_or_null("Knockdown") == null: continue
 		if body is CarryableCharacter and is_instance_valid(body.holder): continue
@@ -488,6 +553,7 @@ func clear_aggro() -> void:
 	zone_age = 0
 	zone_eaten = 0
 	_retreating = false
+	_body_escape_direction = Vector3.ZERO
 	if state not in [State.RECOIL, State.STAGGER, State.DEFEATED]: state = State.SEEK_FOOD
 
 func receive_damage(amount: float, source: Node = null, instigator = null) -> void:
@@ -517,7 +583,7 @@ func pursue_player(delta: float) -> Vector3:
 		return Vector3.ZERO
 	return offset.normalized() * minf(pursuit_speed, offset.length() * 4)
 
-func receive_impact(amount: float, impulse: Vector3, instigator = null) -> void:
+func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_mass: float = 0) -> void:
 	if is_defeated: return
 	# Combat impacts have direction; continuous spray remains receive_impulse only.
 	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and _recoil_wait <= 0:
@@ -528,7 +594,9 @@ func receive_impact(amount: float, impulse: Vector3, instigator = null) -> void:
 		_recoil_wait = recoil_cooldown
 		state = State.RECOIL
 	# Preserve shared damage/weak external-force contract without stacking recoil.
-	super.receive_impact(amount, impulse, instigator)
+	_impact_mass = impact_mass
+	super.receive_impact(amount, impulse, instigator, impact_mass)
+	_impact_mass = 0
 
 func combat_distance() -> float:
 	var offset := last_known_position - global_position
@@ -555,7 +623,9 @@ func combat_move(delta: float) -> Vector3:
 	var lane := _sees_player and _clear_attack_lane
 	var ready := _charge_wait <= 0 and _spacing_grace <= 0
 	if distance < too_close_distance and _sees_player: _retreating = true
-	if distance >= desired_attack_distance: _retreating = false
+	if distance >= desired_attack_distance:
+		_retreating = false
+		_body_escape_direction = Vector3.ZERO
 	var action := CombatDecision.choose(distance, lane, ready, too_close_distance, charge_range)
 	if _retreating and _sees_player: action = CombatDecision.Action.REPOSITION
 	match action:
@@ -580,6 +650,13 @@ func reposition_move(delta: float, distance: float) -> Vector3:
 		_reposition_side *= -1
 		_reposition_blocked = 0
 	var side := away.cross(Vector3.UP) * _reposition_side
+	if not _retreating: _body_escape_direction = Vector3.ZERO
+	if _retreating and distance < body_contact_radius + 0.5 and _body_escape_direction == Vector3.ZERO:
+		_body_escape_direction = side
+	# Keep the chosen exit until attack spacing; rotating it with a rubbing player
+	# every tick would turn the lateral step back into backwards herding.
+	if _body_escape_direction != Vector3.ZERO and not test_move(global_transform, _body_escape_direction * 0.7):
+		return _body_escape_direction * reposition_speed
 	var radial := 1.0 if _retreating else clampf((desired_attack_distance + 0.8 - distance) * 1.5, -0.8, 0.8)
 	var direction := (away * radial + side * (0.45 if _retreating else 1.0)).normalized()
 	if test_move(global_transform, direction * 0.7):

@@ -173,6 +173,6 @@ func _on_body_entered(body: Node) -> void:
 func _deliver_impact(body, damage: float, impulse: Vector3, instigator) -> void:
 	if not is_instance_valid(body): return
 	if body is CombatTarget:
-		body.receive_impact(damage, impulse, instigator)
+		body.receive_impact(damage, impulse, instigator, mass)
 	else:
 		body.receive_impact(damage, impulse)

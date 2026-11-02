@@ -293,7 +293,7 @@ func _on_body_entered(body: Node) -> void:
 		impact_count += 1
 		var impulse := (incoming * effective_mass * impact_knockback_multiplier).limit_length(max_knockback_impulse)
 		if body is CombatTarget:
-			body.call_deferred("receive_impact", last_impact_damage, impulse, attack_attribution.current())
+			body.call_deferred("receive_impact", last_impact_damage, impulse, attack_attribution.current(), effective_mass)
 		else:
 			body.call_deferred("receive_impact", last_impact_damage, impulse)
 		print("CART impact speed=%.2f mass=%.2f damage=%.2f impulse=%.2f" % [speed, effective_mass, last_impact_damage, impulse.length()])

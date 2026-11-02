@@ -89,6 +89,9 @@ func _physics_process(delta: float) -> void:
 		velocity.y = jump_velocity
 
 	velocity += external_velocity
+	for monster in get_tree().get_nodes_in_group("monsters"):
+		if monster is KingRat:
+			velocity = monster.constrain_player_body(self, velocity, delta)
 	var incoming_velocity := velocity
 	move_and_slide()
 	# Sliding can zero the actual velocity at a heavy body. Continue applying
@@ -114,6 +117,7 @@ func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
 		direction.y = 0
 		direction = direction.normalized()
 		if body is CharacterBody3D:
+			if body is KingRat: continue # Body contact is player-side separation, never combat force.
 			if body.has_method("apply_external_impulse"):
 				body.apply_external_impulse(direction * minf(max_player_push_impulse, maxf(0, incoming.dot(direction)) * player_push_strength * delta))
 			continue

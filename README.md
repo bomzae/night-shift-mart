@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.1 / Weapon Feel·Balance 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.2 / Combat Hit Feedback·Boss Physical Presence 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
@@ -13,6 +13,8 @@ Prompt 11.2 이후 사용자 수동 검사에서 Food Self Heal과 Shelf 뒤 탈
 KING RAT은 피격 후 가까운 Player에게 계속 밀착하지 않고 공격 간격을 확보한 뒤 다시 추적·돌진합니다.
 KING RAT은 평소 상품을 먹으며 이동합니다. Player의 상품·카트 공격이나 2.5m 안에서 1.25초 지속되는 근접 방해에 반응하며, 시야와 추가 공격을 12초간 잃으면 주변 상품 탐색으로 돌아갑니다.
 도발 후에는 멀면 빠르게 접근하고, 2.5~7m의 열린 공격 경로에서는 Telegraph→Charge를 선택합니다. 쿨다운 동안에는 공격 거리를 유지하며 옆으로 재배치합니다.
+실제 피격은 0.10~0.15초의 밝은 Flash와 강도별 짧은 몸 반응으로 표시됩니다. Broom은 작은 반응과 큰 Push, Bat은 중간 반응, Hammer는 강한 반응과 기존 Stagger를 사용합니다.
+일반 몸 접촉은 Player 쪽에서 간격을 확보하며 피해·Knockdown이 없습니다. 무기·상품·Cart의 전투 외력과 Charge의30 HP/Knockdown은 유지합니다. 사람과 Monster의 hard collision은 복구하지 않습니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
 
@@ -24,10 +26,11 @@ Godot 4.x에서 `project.godot`를 Import한 뒤 **F5**로 실행합니다.
 Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기존 룸에 들어갈 수 있습니다.
 
 이 PC의 ZIP Godot 실행 경로는 아래와 같습니다. 프로젝트 루트의 PowerShell에서 실행합니다.
-`D:\Godot_v4.7.2-stable_win64.exe` 자체는 폴더이므로 내부 실행 파일을 지정합니다.
+Project root: `C:\Users\JHS\orca\night-shift-mart`
+`C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe` 자체는 폴더이므로 내부 실행 파일을 지정합니다.
 
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --editor
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --editor
 ```
 
 | Action | 기본 입력 | 상태 |
@@ -281,8 +284,8 @@ Customers Inspector에서 생성 간격·최대 수·Patience·Queue 간격을 �
 통로를 완전히 막으면 고정 waypoint 손님이 막힐 수 있습니다. 취객·미아 외 특수 손님과 Scanner 장난 반응은 아직 없습니다.
 
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt4_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt5_2_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt4_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt5_2_smoke.gd
 ```
 
 ## 입고와 진열
@@ -301,8 +304,8 @@ Customers Inspector에서 생성 간격·최대 수·Patience·Queue 간격을 �
 Tap/Full Launch와 Cart Bomb은 유지했습니다. 카트 밀착 반복 피해는 의도적으로 수정하지 않았습니다.
 
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_1_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_1_smoke.gd
 ```
 
 ## 검증
@@ -324,10 +327,10 @@ Prompt 5에서는 직접 운반/카트 발사 제거 각 1명, 파손 금액 $50
 실제 키보드/마우스 조작감과 Alt+Tab 동작은 PROJECT_NOTES.md의 수동 검증 순서로 확인하세요.
 
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt0_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_1_smoke.gd
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt0_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_1_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_smoke.gd
 ```
 
 각 테스트는 수십 초 동안 자동 입력을 적용하므로 실행 중 입력하거나 창을 전환하지 않습니다.
@@ -342,7 +345,7 @@ Prompt 5에서는 직접 운반/카트 발사 제거 각 1명, 파손 금액 $50
 
 추가 검사:
 ```powershell
-& 'D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_1_smoke.gd
+& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_1_smoke.gd
 ```
 
 수동 확인: 빈 카트 전후진·회전 → B/E 적재 후 반복 → 벽까지 밀고 놓기 →

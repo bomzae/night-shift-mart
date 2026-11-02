@@ -5,6 +5,9 @@ description: NIGHT SHIFT MART에서 Godot 실행, 임포트, 신규 자동 검�
 # Godot Testing
 
 ## Godot Version
+Project: `C:\Users\JHS\orca\night-shift-mart`
+Godot: `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`
+
 Godot 4.7.2 stable. PROJECT_NOTES.md에 기록된 정확한 기존 ZIP 실행 파일 절대 경로를 사용한다. godot PATH 검색, 새 버전 설치, 실행 파일 이름 변경을 하지 않는다.
 
 ## Regression First
