@@ -52,10 +52,10 @@ func run_checks() -> void:
 		for side in [false, true]:
 			var result := await body_trial(speed, side)
 			check(result.rat_distance < 0.08 and result.minimum_gap >= 1.05, "body cannot carry or pass through rat")
-			check(result.hp == 100 and not player.knockdown.active() and rat._flash == 0, "normal contact no damage knockdown or flash")
+			check(result.hp >= 70 and result.hp <= 90 and not player.knockdown.active() and rat._flash == 0, "normal contact bounded damage without knockdown or rat flash")
 	var active := await body_trial(5, false, true)
 	check(active.external == 0 and active.minimum_gap >= 1.05, "active AI motion remains independent of body impulses")
-	check(active.lateral > 2, "close combat takes lateral exit instead of being herded forwards")
+	check(not rat._retreating and active.hp < 100, "normal contact damages player instead of triggering retreat")
 	var bat := await force_trial("Bat", 22, 18)
 	var broom := await force_trial("Broom", 12, 150)
 	var hammer := await force_trial("Hammer", 48, 40)
@@ -85,6 +85,7 @@ func run_checks() -> void:
 	check(player.position.distance_to(rat.position) >= 1.15, "existing deep overlap resolves through player motor")
 	player.set_physics_process(false)
 	player.position = rat.position + Vector3.BACK * 0.8
+	player.health.current_health = 100 # Isolate charge from the preceding ordinary-contact trials.
 	rat.state = KingRat.State.CHARGE
 	rat._left = 0.5
 	rat.charge_direction = Vector3.BACK

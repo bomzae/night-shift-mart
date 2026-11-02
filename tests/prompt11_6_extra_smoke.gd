@@ -49,7 +49,7 @@ func run_checks() -> void:
 	Graybox.box(mart, "SpacingWall", Vector3(3, 2, 0.3), Vector3(0, 1, 9), Color.GRAY)
 	rat.provoke(player) # Explicit combat fixture; neutral LOS no longer provokes.
 	rat.update_awareness(0)
-	rat.resume_combat()
+	rat.receive_impact(2, Vector3.FORWARD) # Rear-wall spacing is a post-hit action, not ordinary body retreat.
 	await frames(180)
 	check(rat.combat_distance() > 2.8 and rat.position.is_finite(), "reposition uses lateral space at rear wall")
 	quit(0 if failures == 0 else 1)

@@ -38,8 +38,12 @@ func run_checks() -> void:
 	check(telegraphed, "moving target triggers attack when range closes")
 	await combat_at(1, 4)
 	check(rat.state == KingRat.State.REPOSITION, "close target immediately repositions")
-	await frames(90)
-	check(rat.combat_distance() >= 3 and rat.separation_push_count <= 1, "close combat opens space without body push follow")
+	start = rat.position
+	var player_start := player.position
+	player.set_physics_process(true)
+	await frames(10)
+	check(player.position.distance_to(player_start) > 0.2 and rat.position.distance_to(start) < 0.1, "close contact moves player instead of retreating boss")
+	player.set_physics_process(false)
 	await combat_at(5, 4)
 	start = rat.position
 	await frames(60)

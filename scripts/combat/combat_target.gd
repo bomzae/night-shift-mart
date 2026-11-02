@@ -49,7 +49,7 @@ func receive_damage(amount: float, _source: Node = null, _instigator = null) -> 
 		is_defeated = true
 		defeated.emit()
 
-func receive_impact(amount: float, impulse: Vector3, instigator = null, _impact_mass: float = 0) -> void:
+func receive_impact(amount: float, impulse: Vector3, instigator = null, _impact_mass: float = 0, _melee_hit: bool = false) -> void:
 	if is_defeated: return
 	receive_impulse(impulse)
 	receive_damage(amount, null, instigator)

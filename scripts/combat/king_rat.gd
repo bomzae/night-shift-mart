@@ -62,9 +62,15 @@ var _reaction_duration: float = 0.1
 var _reaction_wait: float = 0
 var _reaction_tilt: float = 0
 var _impact_mass: float = 0
-var _body_escape_direction := Vector3.ZERO
 @export var body_contact_radius: float = 1.2
 @export var body_separation_speed: float = 2.0
+@export var contact_damage: float = 10.0
+@export var contact_knockback: float = 2.4
+@export var contact_damage_cooldown: float = 1.0
+var _contact_waits: Dictionary = {}
+var contact_damage_count: int = 0
+var last_ai_velocity := Vector3.ZERO
+var last_impact_impulse := Vector3.ZERO
 var visual: Node3D
 var material := StandardMaterial3D.new()
 var mood: Label3D
@@ -279,6 +285,9 @@ func _physics_process(delta: float) -> void:
 	for id in _push_waits.keys():
 		_push_waits[id] -= delta
 		if _push_waits[id] <= 0: _push_waits.erase(id)
+	for id in _contact_waits.keys():
+		_contact_waits[id] -= delta
+		if _contact_waits[id] <= 0: _contact_waits.erase(id)
 	_sync_character_exceptions()
 	_character_contacts(delta)
 	contact_push(delta)
@@ -343,9 +352,12 @@ func _physics_process(delta: float) -> void:
 				_ignored_food[food.get_instance_id()] = Time.get_ticks_msec() + 5000
 				state = State.SEEK_FOOD
 	_last_position = global_position
+	last_ai_velocity = desired
 	var motion := desired + external_velocity
 	if _recoil_left > 0 and not is_defeated:
-		motion = (recoil_velocity * (_recoil_left / recoil_duration) + external_velocity).limit_length(max_recoil_speed)
+		var direction := recoil_velocity.normalized()
+		var impact_external := external_velocity - direction * minf(0, external_velocity.dot(direction))
+		motion = (recoil_velocity * (_recoil_left / recoil_duration) + impact_external).limit_length(max_recoil_speed)
 	velocity.x = motion.x
 	velocity.z = motion.z
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
@@ -377,7 +389,9 @@ func _charge_hit(body: Node) -> void:
 	if knockdown == null: return
 	_hit_targets[body.get_instance_id()] = true
 	var health := body.get_node_or_null("PlayerHealth") as PlayerHealth
-	if health != null: health.receive_damage(charge_damage, self)
+	if health != null:
+		health.receive_damage(charge_damage, self)
+		_contact_waits[body.get_instance_id()] = contact_damage_cooldown
 	if is_aggro and body == aggro_target and state == State.CHARGE: _left = minf(_left, 0.12)
 	if knockdown.try_start(charge_direction):
 		if body is CharacterBody3D: body.velocity += charge_direction * charge_push
@@ -408,7 +422,6 @@ func _on_damage(amount: float) -> void:
 		state = State.STAGGER
 		_left = stagger_time
 		_stagger_wait = stagger_rearm_time
-		_recoil_wait = maxf(_recoil_wait, stagger_rearm_time) # Damage/push still apply, but do not restart incapacitation.
 
 func _restore_flash() -> void:
 	for i in range(_saved_overlays.size()):
@@ -453,7 +466,7 @@ func _sync_character_exceptions() -> void:
 				body.tree_exiting.connect(_forget_character.bind(body), CONNECT_ONE_SHOT)
 
 func _character_contacts(_delta: float) -> void:
-	if is_defeated or _recoil_left > 0 or _reaction_left > 0 or state in [State.STAGGER, State.RECOIL, State.REPOSITION, State.CHARGE_RECOVERY]: return
+	if not contact_enabled(): return
 	for body in character_zone.get_overlapping_bodies():
 		if body.get_node_or_null("Knockdown") == null: continue
 		if body is CarryableCharacter and is_instance_valid(body.holder): continue
@@ -461,7 +474,11 @@ func _character_contacts(_delta: float) -> void:
 		if health != null and health.is_downed: continue
 		if state == State.CHARGE:
 			_charge_hit(body)
+		elif health != null:
+			# Resolve after this tick's weapon sweeps. A successful hit cancels the bump.
+			_resolve_body_contact.call_deferred(weakref(body))
 		else:
+			if state in [State.REPOSITION, State.CHARGE_RECOVERY]: continue
 			if _push_waits.has(body.get_instance_id()): continue
 			_push_waits[body.get_instance_id()] = separation_push_interval
 			separation_push_count += 1
@@ -470,9 +487,35 @@ func _character_contacts(_delta: float) -> void:
 			if away.length_squared() < 0.001: away = Vector3.RIGHT
 			PhysicsPush.apply(body, away.normalized() * minf(overlap_push / 60.0, 0.3))
 
+func contact_enabled() -> bool:
+	return not is_defeated and _recoil_left <= 0 and _reaction_left <= 0 and state not in [State.RECOIL, State.STAGGER, State.DEFEATED]
+
+func _resolve_body_contact(reference: WeakRef) -> void:
+	var body := reference.get_ref() as CharacterBody3D
+	if not is_instance_valid(body) or body.is_queued_for_deletion() or not contact_enabled() or state == State.CHARGE: return
+	var id := body.get_instance_id()
+	if _contact_waits.has(id): return
+	var health := body.get_node_or_null("PlayerHealth") as PlayerHealth
+	if health == null or health.is_downed or KnockdownState.blocked(body): return
+	var away := body.global_position - global_position
+	if away.y > 1.5 or away.y < -1.8: return
+	away.y = 0
+	if away.length() > body_contact_radius + 0.03 or not can_see(body): return
+	if away.length_squared() < 0.001: away = global_basis.x
+	var before := health.current_health
+	health.receive_damage(contact_damage, self)
+	if health.current_health >= before: return
+	_contact_waits[id] = contact_damage_cooldown
+	contact_damage_count += 1
+	if body.has_method("receive_body_bump"):
+		body.receive_body_bump(away.normalized() * contact_knockback)
+	else:
+		PhysicsPush.apply(body, away.normalized() * contact_knockback)
+
 func _forget_character(body: PhysicsBody3D) -> void:
 	if not is_instance_valid(body): return
 	_character_pairs.erase(body.get_instance_id())
+	_contact_waits.erase(body.get_instance_id())
 	remove_collision_exception_with(body)
 	body.remove_collision_exception_with(self)
 
@@ -553,7 +596,6 @@ func clear_aggro() -> void:
 	zone_age = 0
 	zone_eaten = 0
 	_retreating = false
-	_body_escape_direction = Vector3.ZERO
 	if state not in [State.RECOIL, State.STAGGER, State.DEFEATED]: state = State.SEEK_FOOD
 
 func receive_damage(amount: float, source: Node = null, instigator = null) -> void:
@@ -583,19 +625,23 @@ func pursue_player(delta: float) -> Vector3:
 		return Vector3.ZERO
 	return offset.normalized() * minf(pursuit_speed, offset.length() * 4)
 
-func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_mass: float = 0) -> void:
+func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_mass: float = 0, melee_hit: bool = false) -> void:
 	if is_defeated: return
+	last_impact_impulse = impulse
 	# Combat impacts have direction; continuous spray remains receive_impulse only.
-	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and _recoil_wait <= 0:
+	# Fresh once-per-swing melee is never suppressed by the environmental/stagger rearm gate.
+	var can_recoil := melee_hit or (_recoil_wait <= 0 and (amount < stagger_threshold or _stagger_wait <= 0))
+	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and can_recoil:
 		var direction := Vector3(impulse.x, 0, impulse.z).normalized()
 		last_recoil_speed = minf(max_recoil_speed, amount * recoil_damage_scale + impulse.length() / target_mass * 0.25)
 		recoil_velocity = direction * last_recoil_speed
 		_recoil_left = recoil_duration
 		_recoil_wait = recoil_cooldown
-		state = State.RECOIL
+		if state != State.STAGGER: state = State.RECOIL
+		external_velocity -= direction * minf(0, external_velocity.dot(direction))
 	# Preserve shared damage/weak external-force contract without stacking recoil.
 	_impact_mass = impact_mass
-	super.receive_impact(amount, impulse, instigator, impact_mass)
+	super.receive_impact(amount, impulse, instigator, impact_mass, melee_hit)
 	_impact_mass = 0
 
 func combat_distance() -> float:
@@ -622,11 +668,13 @@ func combat_move(delta: float) -> Vector3:
 		_lane_wait = 0.2
 	var lane := _sees_player and _clear_attack_lane
 	var ready := _charge_wait <= 0 and _spacing_grace <= 0
-	if distance < too_close_distance and _sees_player: _retreating = true
+	if distance < too_close_distance and _sees_player and _spacing_grace > 0: _retreating = true
 	if distance >= desired_attack_distance:
 		_retreating = false
-		_body_escape_direction = Vector3.ZERO
-	var action := CombatDecision.choose(distance, lane, ready, too_close_distance, charge_range)
+	# Contact now moves the player, not the boss. Once clear of the body shell,
+	# the existing telegraphed charge can resume without a compulsory retreat.
+	var attack_minimum := too_close_distance if _retreating else body_contact_radius + 0.15
+	var action := CombatDecision.choose(distance, lane, ready, attack_minimum, charge_range)
 	if _retreating and _sees_player: action = CombatDecision.Action.REPOSITION
 	match action:
 		CombatDecision.Action.ATTACK:
@@ -650,14 +698,9 @@ func reposition_move(delta: float, distance: float) -> Vector3:
 		_reposition_side *= -1
 		_reposition_blocked = 0
 	var side := away.cross(Vector3.UP) * _reposition_side
-	if not _retreating: _body_escape_direction = Vector3.ZERO
-	if _retreating and distance < body_contact_radius + 0.5 and _body_escape_direction == Vector3.ZERO:
-		_body_escape_direction = side
-	# Keep the chosen exit until attack spacing; rotating it with a rubbing player
-	# every tick would turn the lateral step back into backwards herding.
-	if _body_escape_direction != Vector3.ZERO and not test_move(global_transform, _body_escape_direction * 0.7):
-		return _body_escape_direction * reposition_speed
+	if distance <= body_contact_radius + 0.15 and not _retreating: return Vector3.ZERO
 	var radial := 1.0 if _retreating else clampf((desired_attack_distance + 0.8 - distance) * 1.5, -0.8, 0.8)
+	if distance < too_close_distance and not _retreating: radial = 0
 	var direction := (away * radial + side * (0.45 if _retreating else 1.0)).normalized()
 	if test_move(global_transform, direction * 0.7):
 		direction = side if not test_move(global_transform, side * 0.7) else -side

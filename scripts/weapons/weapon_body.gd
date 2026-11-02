@@ -135,7 +135,11 @@ func _sample_arc(phase: float) -> void:
 		swing_hits[target.get_instance_id()] = true
 		var away: Vector3 = target.global_position - holder.player.global_position
 		away.y = 0
-		target.receive_impact(weapon.damage, away.normalized() * weapon.knockback, holder.player)
+		if away.length_squared() < 0.0025:
+			away = Vector3(direction.x, 0, direction.z)
+		if away.length_squared() < 0.0025:
+			away = -holder.player.global_basis.z
+		target.receive_impact(weapon.damage, away.normalized() * weapon.knockback, holder.player, 0, true)
 		hit_feedback = 0.12
 		hit_stop_left = weapon.hit_stop_time
 		holder.camera_impact = maxf(holder.camera_impact, weapon.camera_kick)

@@ -2,6 +2,52 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.3 — Sledgehammer Recoil Reliability / KING RAT Contact Damage
+
+2026-11-02 구현·자동 검증 완료. **Prompt0~12.2 회귀2,818 + 신규137 = 총2,955 PASS / 최종0 FAIL**, 49개 스크립트의 선택된 최종 로그 오류·경고0. 시작 Git clean. 아래 정책은12.2의 무피해 일반 접촉·밀착 측면 탈출 정책을 대체한다. 새 Weapon/Boss/Attack/Navigation/Multiplayer/Round 기능은 추가하지 않는다. `project.godot` 변경 없음, commit/amend/reset/push 없음.
+
+### 재현과 원인
+
+- 실제 Main·Player·물리 Hammer Grab→Swing 경로를 사용했다. 첫 성공 Hit 뒤 실제 무기 cooldown이 끝나면 두 번째 Swing을 하고, Player 정지/5m/s 걷기/10m/s 고속 접근과 Rat 정지/Approach/Reposition/Charge Recovery를 비교했다. Sprint Input Map은 없으므로 시험 중 이동속도만 변경했다. 관찰 시 Rat HP만10000으로 늘렸다.
+- 핵심 원인: 강타의 `_on_damage`가 Stagger 재발동 보호를 위해 `_recoil_wait`까지2초로 올렸다. Hammer cooldown1.35초 뒤 다음 실제 Hit 때에는 대기0.65~0.68초가 남아 `_recoil_left=0`이었다. Damage48/impulse40/Flash는 발생해도 Recoil 상태에 들어가지 않아 일반 external velocity만 AI에 합산됐다. 첫 강타의 오래된 recoil_velocity 값이 남아 있어 값만 보면 적용된 것으로 오인할 수도 있었다.
+- 수정 전 실제 Approach 속도 약4.8m/s에서 두 번째 Hit의0.2초 투영 변위는 정지 Player0.143m / 걷기0.156m / 고속0.156m. Rat 정지·Player 정지 fixture에서는 Recoil이 누락돼도 피격 뒤 AI 후퇴가 같은 방향으로 움직여0.948m로 보였다. 따라서 거리만 보지 않고 recoil timer/상태/AI 속도를 함께 검사한다.
+- Player body correction은 Player에만 적용됐으며 Rat 외력을 직접 상쇄하는 경로가 아니었다. Stagger가 velocity를0으로 초기화하는 문제도 아니었다. 보조 취약점으로 Melee 방향이 Player→Rat 벡터 하나뿐이어서 중심이 겹치면0벡터가 될 수 있었다.
+- 실패 원본: `.godot/p123_recoil_before.log`, `p123_recoil_before2.log`, `p123_recoil_approach_before.log`. 초기 Approach fixture가 가까운 거리의 Reposition 분기를 타는 것을 로그에서 확인하고, 시험용 거리/경로 조건을 명시해 실제4.8m/s Approach를 재현했다. Reposition 조건의 정상 Miss는 더 가까운1.5m 배치로 타격 자체를 보장하고 검사했다. 성공할 때까지 무조건 반복한 것이 아니다.
+
+### Recoil 우선순위 / 무기
+
+- Melee 성공 이벤트에만 공통 `receive_impact`의 선택적 `melee_hit=true`를 전달한다. 기존 once-per-swing 대상 집합과 무기 cooldown이 중복을 제한하므로, 새로운 Swing의 성공 Hit는 Stagger/environment rearm과 별개로0.25초 Recoil을 시작한다. 단순 외력·상품/Cart의 환경 충돌은 기존 재발동 보호와 Stagger2초 보호를 유지한다. 무적을 추가하지 않는다.
+- 우선순위는 Defeated → Combat Recoil → Stagger/짧은 reaction → Charge → AI movement. Recoil 동안 AI desired velocity는0이며, 반대 방향의 잔여 external velocity가 현재 recoil을 상쇄하지 못하게 투영 성분만 제외한다. 실제 `move_and_slide`의 Wall/Shelf/Cart 충돌은 유지해 장애물을 관통하지 않는다. Player body correction은 계속 Rat velocity에 쓰지 않는다.
+- 방향은 기존 안정적인 Player→Rat 수평 방향을 유지하고, 중심이 거의 같으면 해당 sweep 방향→Player facing 순으로 fallback한다. Player 이동속도를 impulse에서 빼지 않는다. `last_ai_velocity`, `last_impact_impulse`는 검사·진단을 위한 마지막 적용값이다.
+- Bat22 Damage/18 Knockback, Hammer48/40, Broom12/150을 유지했다. Hammer Stagger45 이상/0.45초와 재발동2초도 유지한다. Broom의 거리 확보 역할을 Hammer로 대체하지 않는다. Flash/pose/기존 weapon hit-stop·camera kick·내구도 규칙은 그대로다.
+
+### 일반 Contact / Neutral / Charge
+
+- 기본 `contact_damage=10`, `contact_knockback=2.4`, `contact_damage_cooldown=1.0초`. Rat의 CharacterHitArea 후보 중 수평거리1.23m 이내·수직 범위·가림을 검사한다. 넓은 HitArea에 들어온 것만으로 피해를 주지 않는다. Player별 cooldown dictionary는 대상 제거 시 정리하며 Cart Contact Repeated Damage와 공유하지 않는다.
+- 피해 성공 시 Player motor에0.2초 동안 바깥 방향 속도2.4m/s를 보장한다. 안쪽 입력으로 즉시 상쇄하지 못하지만 옆 이동·시점·점프는 유지하고 실제 world 충돌로 이동한다. 기존 camera_impact0.02m를 재사용한다. 별도 Audio system/공격 animation 없음. 일반 접촉은 Knockdown을 시작하지 않는다(HP0의 기존 Downed는 유지).
+- 접촉 후보는 해당 physics tick의 무기 sweep이 끝난 뒤 deferred로 재확인한다. 그 사이 성공한 Hit가 Recoil/Stagger를 시작했다면 피해를 취소한다. Recoil/Stagger/짧은 AI reaction/Defeated/Downed·Knockdown Player에게는 일반 Contact 피해 없음. 정상 Roam/Seek/Approach/Reposition/Recovery에는 가능하다.
+- Charge는 기존 전용 HitArea logic으로30HP·Push·Knockdown을 적용한다. 같은 Charge 대상의 일반 Contact cooldown도 채워30+10 중복을 막는다. 일반 Contact cooldown이 있어도 이후의 명확한 Charge 공격을 무효화하지는 않는다.
+- 몸 접촉은 `provoke`를 호출하지 않는다. 한 번 부딪혔다고 즉시 Aggro하지 않으며, 기존2.5m 내1.25초 연속 가까운 위협 감지는 유지한다. 계속 달라붙으면 Aggro할 수 있다.
+- 12.2의 밀착 측면 탈출 방향 기억을 제거했다. 정상 밀착에서는 Rat이 버티고 Player가 튕겨나며, Contact 때문에 후퇴하는 radial reposition을 시작하지 않는다. 의도적인 피격 뒤 spacing grace에서는 기존 후퇴·측면 장애물 회피로 다음 공격 간격을 만든다. 몸 접촉 이외의 능동 AI orbit/Approach/Charge와 non-blocking character exceptions는 유지한다.
+- 후퇴하지 않는 일반 상태에서는 Player가 body shell+0.15m=1.35m 바깥으로 분리되면 기존 Telegraph→Charge를 선택할 수 있다. 이전처럼 반드시2.5m를 확보하도록 두면 가까운 거리에서 오래 옆으로 돌며 공격하지 않는 문제가 생겼다. Telegraph0.65초/Charge30HP/4.5초 cooldown은 유지하고 새 Attack을 추가하지 않았다. 피격 뒤 retreat 중에는 기존 공격 간격을 확보한다.
+
+### 검사와 알려진 사항
+
+- 신규 `prompt12_3_recoil.gd`: 실제 Swing 반복·12개 이동/AI 조합,0.5/1.5m 근접, 세 무기, 뒤 Wall, 정확한 중심 겹침 fallback, 직전 환경 외력/반대 외력. Hit/Damage/impulse/recoil/전후 velocity/AI/body correction/상태/투영 변위를 출력한다.
+- 신규 `prompt12_3_contact.gd`:10HP·Player 이동·camera,1초 cooldown/다음 접촉/Player별 독립성/제거 정리, 정상 상태/피격 상태/Defeated, Charge 중복 배제, Neutral/harassment, 같은 틱 Hit 우선,3초 몸밀기.
+- 첫 수정 후 일반12개 Hammer 조합의0.2초 변위0.631~0.673m, 실제0.5m 근접0.334m. 일반 접촉3초 검사 HP100→60,4회 피해, Rat 이동0m, Knockdown 없음. 신규 Recoil96 + Contact41 =137 PASS. 전체 회귀 최종 결과는 아래와 같다.
+- 실제 Main의0.2초 Swing 변위는 Bat0.274/Hammer0.673/Broom0.559m였다. 들고 있는 실제 Weapon collider와의 접촉까지 포함하므로 이 수치를 순수 knockback 비교로 사용하지 않는다. 무기별 고유 외력 비교는 기존 동일 초기 상태·15ticks의 단발 통제 측정도 함께 수행한다. Hammer 데이터를 키워 Broom보다 큰 힘을 주는 수정은 하지 않았다.
+- 기존11.6의 Player 일반 overlap2~3회 push/초 검사는 새 명시적1초 cooldown 피해 계약으로 변경했다.11.8의 피격 전 밀착 후퇴 검사는 Player가 밀려나고 Rat이 버티는 계약으로 변경했다.11.6 rear-wall spacing fixture는 실제 가벼운 Hit 후의 spacing으로 명시해 장애물 회피 계약을 보존했다.12.2의 no-damage/측면 도주 기대만 새 접촉 정책에 맞췄으며 일반 접촉 이동거리·non-blocking·Flash·Charge 피해 기준은 유지한다.
+- 최초11.8 관찰은 Player motor를 끈 고정 fixture였다. Charge 후 Knockdown이 영구히 끝나지 않아 접촉 밀침/회복이 작동하지 않고 Rat이 몸 범위에 머무는 실패를 확인했다(`p123_target_11_8_smoke.log`). Player motor를 켜 실제 밀침과 회복을 시뮬레이션하도록 변경했지만, 여전히 최소 공격 거리2.5m 때문에 Charge3회에 그쳤다(`p123_11_8_live.log`). 위1.35m 분리 후 Charge 판단을 수정한 뒤 기존6회 이상/긴 idle 없음/회복1초 미만 기준을 그대로 통과했다(`p123_11_8_cadence.log`): Telegraph7/Charge7, inactive0, 최장 idle0.017초, 회복0.567초, HP10000→9790.
+- 전체 회귀 최초10.1에서 Scan/Pay/Bread Grab·Throw 관련6개 실패. 모두 `mouse=0`(VISIBLE), Knockdown=false였고, 입력 비활성화 상태에서 발생했다(`p123_suite_prompt10_1_smoke.log`). 해당 fixture에는 Rat이 없으며 새 body bump timer도0이다. Focus를 강제로 되잡는 코드를 추가하거나 검사 기준을 낮추지 않고, 동일 검사를 독립된 새 창에서 재실행하여216 PASS/종료0/오류0을 확인했다(`p123_retry_prompt10_1_smoke.log`). 원래 실패 로그를 보존한다.
+- 전체 회귀의11.5 Chaos도 같은 고정 Player motor 문제로 Charge 후 영구 Knockdown 상태에 머물렀다(`p123_suite_prompt11_5_chaos_smoke.log`, shopper12/queue10 정상, combat 검사1개 실패). 이 fixture 역시 실제 Player motor를 켜고, 이벤트 준비 동안만 Rat을 정지했다가 관찰 시작 시 켜 초기 Approach부터 측정한다. Tourist6명 이상/queue2명 이상/Approach60ticks 초과/경로20m 초과/실제 피해 조건은 유지한다.
+- Chaos 재검사8 PASS/종료0/오류0: 구매 손님11명/최대 queue10/Approach208ticks/보스 이동63.526m/Player HP10000→9750 (`p123_retry_prompt11_5_chaos_smoke.log`). 실제 Player motor와 초기 Approach 관찰을 복원했으며 기존 합격 기준을 완화하지 않았다.
+- 최종 단발 동일 초기 상태15ticks=0.25초 통제 측정: Bat0.342m/Hammer0.739m/Broom0.986m, TV 대표 impulse0.528m/Loaded Cart 대표 impulse0.664m. 직접 `receive_impact`를 전달한 외력 비교이며 실제 Swing 경로 수치는 위와 구분한다. 몸밀기만의 Rat 이동은0m. 무기10초 DPS Bat35.2/Hammer38.4/Broom21.6 유지.
+- 전체49개 최종 선택 목록 `.godot/p123_results.txt`: 2,955 PASS/0 FAIL/Script·엔진 오류·경고0, 모두 종료0. 중복 실행·최초 실패·진단 probe는 합계에 포함하지 않는다. 신규2개137 + 기존 회귀2,818. Product/Cart/Customer/Tourist/non-blocking 군중 회귀 통과. 최초 실패2개 스크립트/7개 assertion과 최종 재검사를 함께 보존한다.
+- 새 PC Project `C:\Users\JHS\orca\night-shift-mart`, Godot `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`로 실행. Import, Main headless7,200ticks(120초 분량 시뮬레이션), 실제 창600ticks 모두 종료0/오류·경고0 (`p123_final_import.log`, `p123_main_headless.log`, `p123_main_window.log`). `git diff --check` 공백 오류0. `project.godot` 변경 없음. 변경은 모두 uncommitted.
+- 수동 미확인: 정지/전진/접근 Rat Hammer, 세 무기 각각3회, 맨몸 접촉과 지속 밀착, 일반 접촉 vs Charge, 최대 Reach Broom 안전성, Hammer Miss 위험/Hit spacing, Product/Cart를 포함한30초 혼합 전투.
+- 유지 TODO6개: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap Final Combat Polish, Extreme Cart overload Chaos, Simple waypoint navigation limits. Contact10/2.4/1초는 수동 feel 조정 대상이다.
+
 ## Prompt 12.2 — Combat Hit Feedback / KING RAT Physical Presence
 
 2026-11-02 구현·자동 검증 완료. **Prompt0~12.1 회귀2,676 + 신규142 = 총2,818 PASS / 최종0 FAIL**, 선택된 최종 로그 Script/엔진 오류·경고0. 기존 회귀 수에는11.8의 새 반응 경계 검사1개 추가가 포함된다. 시작 Git clean. `project.godot` 변경 없음. Commit/amend/reset/push 없이 uncommitted로 남긴다. 사용자 수동 손맛 확인은 아래 절차로 필요하다.

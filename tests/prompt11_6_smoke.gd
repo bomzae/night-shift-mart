@@ -39,6 +39,10 @@ func run_checks() -> void:
 	check(rat.state == KingRat.State.CHARGE, "charge retains attack phase")
 	await frames(75)
 	check(rat.state != KingRat.State.CHARGE and rat.state != KingRat.State.STAGGER, "charge hit recovers AI")
+	rat.clear_aggro()
+	rat.close_threat_time = 100
+	player.knockdown.finish_recovery()
+	player.health.current_health = 100
 	rat.state = KingRat.State.SPAWN
 	rat._left = 10
 	rat.player_awareness_radius = 0
@@ -46,17 +50,17 @@ func run_checks() -> void:
 	rat.external_velocity = Vector3.ZERO
 	rat.position = player.position + Vector3(0.1, 0, 0)
 	await frames(3)
-	rat._push_waits.clear()
-	var pushes := rat.separation_push_count
+	var pushes := rat.contact_damage_count
 	await frames(60)
-	var push_count := rat.separation_push_count - pushes
-	check(push_count >= 2 and push_count <= 3, "real one-second overlap limited to 2-3 pushes")
+	var push_count := rat.contact_damage_count - pushes
+	check(push_count == 1 and player.health.current_health == 80, "ordinary player overlap uses one-second damage cooldown")
 	rat.set_physics_process(false)
 	var health: PlayerHealth = player.get_node("PlayerHealth")
 	health.is_downed = true
-	rat._push_waits.clear()
-	pushes = rat.separation_push_count
+	rat._contact_waits.clear()
+	pushes = rat.contact_damage_count
 	rat._character_contacts(1.0 / 60)
-	check(rat.separation_push_count == pushes, "downed player never separation-pushed")
+	await frames(2)
+	check(rat.contact_damage_count == pushes, "downed player never contact-damaged")
 	health.is_downed = false
 	quit(0 if failures == 0 else 1)

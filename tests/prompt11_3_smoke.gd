@@ -78,11 +78,11 @@ func run_checks() -> void:
 	departing.queue_free()
 	await frames(2)
 	check(not rat._character_pairs.has(departing_id) and rat.get_collision_exceptions().has(player), "departing human releases pair before physics RID deletion")
-	check(player.health.current_health == 100, "ordinary overlap no damage")
+	check(player.health.current_health == 100, "staggered overlap has no contact damage")
 	var contact_start := player.position
 	player.set_physics_process(true)
 	await frames(30)
-	check(player.position.distance_to(contact_start) > 0.1 and player.health.current_health == 100, "ordinary overlap visibly pushes live player without damage")
+	check(player.position.distance_to(contact_start) > 0.1 and player.health.current_health == 100, "staggered overlap separates live player without damage")
 	player.set_physics_process(false)
 	player.position = rat.position
 	await frames(2)

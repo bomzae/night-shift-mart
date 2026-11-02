@@ -12,6 +12,8 @@ extends CharacterBody3D
 
 @onready var head: Node3D = $Head
 var external_velocity := Vector3.ZERO
+var body_bump_velocity := Vector3.ZERO
+var body_bump_left: float = 0
 var health := PlayerHealth.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
@@ -52,6 +54,7 @@ func _notification(what: int) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	body_bump_left = maxf(0, body_bump_left - delta)
 	external_velocity *= exp(-5.0 * delta)
 	fire_reaction.tick(delta)
 	if knockdown.tick(delta):
@@ -89,6 +92,9 @@ func _physics_process(delta: float) -> void:
 		velocity.y = jump_velocity
 
 	velocity += external_velocity
+	if body_bump_left > 0:
+		var bump_direction := body_bump_velocity.normalized()
+		velocity += bump_direction * maxf(0, body_bump_velocity.length() - velocity.dot(bump_direction))
 	for monster in get_tree().get_nodes_in_group("monsters"):
 		if monster is KingRat:
 			velocity = monster.constrain_player_body(self, velocity, delta)
@@ -132,3 +138,9 @@ func _push_physics_bodies(incoming: Vector3, delta: float) -> void:
 
 func apply_external_impulse(impulse: Vector3) -> void:
 	if impulse.is_finite(): external_velocity = (external_velocity + impulse).limit_length(2.0)
+
+func receive_body_bump(impulse: Vector3) -> void:
+	if not impulse.is_finite() or health.is_downed or knockdown.active(): return
+	body_bump_velocity = Vector3(impulse.x, 0, impulse.z).limit_length(3.2)
+	body_bump_left = 0.2
+	$Interaction.camera_impact = maxf($Interaction.camera_impact, 0.02)

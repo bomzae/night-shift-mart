@@ -6,6 +6,7 @@ func observe_combat() -> Dictionary:
 	player.position = Vector3(0, 0.01, 19)
 	player.health.max_health = 10000
 	player.health.current_health = 10000
+	player.set_physics_process(true) # Body knockback and knockdown recovery now create attack spacing.
 	rat._charge_wait = 0
 	rat.receive_damage(1, null, player)
 	var seconds := {}

@@ -5,12 +5,14 @@ func run_checks() -> void:
 	manager._rng.seed = 115
 	manager.patience_time = 90
 	player.position = Vector3(0, 0.01, 20)
-	# Keep the single stationary test player alive for a full business observation.
+	# Keep the no-input player alive, but tick real knockback/knockdown recovery.
 	player.health.max_health = 10000
 	player.health.current_health = 10000
+	player.set_physics_process(true)
 	var bus: TouristBus = mart.get_node("TouristBus")
 	bus.tourist_count = 12
 	rat = mart.get_node("Bosses").spawn_boss()
+	rat.set_physics_process(false) # Assemble events before measuring the full approach/combat path.
 	rat.receive_damage(1, null, player) # Business-under-combat fixture.
 	check(mart.get_node("Thieves").spawn_thief() != null, "chaos thief active")
 	# Respect the existing safe entrance spawn volume, as separate debug presses do.
@@ -32,6 +34,7 @@ func run_checks() -> void:
 	var pursuit_ticks := 0
 	var movement := 0.0
 	var previous := rat.position
+	rat.set_physics_process(true)
 	for tick in range(7200):
 		await frames(1)
 		movement += rat.position.distance_to(previous)

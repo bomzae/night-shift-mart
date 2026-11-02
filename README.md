@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.2 / Combat Hit Feedback·Boss Physical Presence 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.3 / Hammer Recoil·KING RAT Contact 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
@@ -14,7 +14,7 @@ KING RAT은 피격 후 가까운 Player에게 계속 밀착하지 않고 공격 
 KING RAT은 평소 상품을 먹으며 이동합니다. Player의 상품·카트 공격이나 2.5m 안에서 1.25초 지속되는 근접 방해에 반응하며, 시야와 추가 공격을 12초간 잃으면 주변 상품 탐색으로 돌아갑니다.
 도발 후에는 멀면 빠르게 접근하고, 2.5~7m의 열린 공격 경로에서는 Telegraph→Charge를 선택합니다. 쿨다운 동안에는 공격 거리를 유지하며 옆으로 재배치합니다.
 실제 피격은 0.10~0.15초의 밝은 Flash와 강도별 짧은 몸 반응으로 표시됩니다. Broom은 작은 반응과 큰 Push, Bat은 중간 반응, Hammer는 강한 반응과 기존 Stagger를 사용합니다.
-일반 몸 접촉은 Player 쪽에서 간격을 확보하며 피해·Knockdown이 없습니다. 무기·상품·Cart의 전투 외력과 Charge의30 HP/Knockdown은 유지합니다. 사람과 Monster의 hard collision은 복구하지 않습니다.
+일반 몸 접촉은10 HP와 Player 밀침을 주며 Player별1초 cooldown을 사용합니다. 일반 접촉에는 Knockdown이 없고, Charge는30 HP와 기존 Knockdown을 유지합니다. Rat은 몸 접촉 때문에 후퇴하지 않습니다. 성공한 Melee는 Stagger 재발동 대기와 별개로 Recoil을 시작하며 무기·상품·Cart의 전투 외력과 사람/Monster의 non-blocking 구조를 유지합니다.
 
 먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
 
