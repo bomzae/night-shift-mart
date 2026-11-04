@@ -62,7 +62,10 @@ func run_checks() -> void:
 		await frames(1)
 		if absf(rat.position.x) > 2.8: detour = true
 	print("PURSUIT AROUND shelf position=", rat.position, " distance=", rat.position.distance_to(player.position))
-	check(detour and rat.position.z > 15.8, "actual boss passes shelf via aisle instead of hard blocking")
+	# Hold Ground stops once the swept attack lane opens, rather than crossing an arbitrary Z plane.
+	rat._charge_wait = 0
+	await frames(3)
+	check(detour and rat._clear_attack_lane and rat.state == KingRat.State.TELEGRAPH, "actual boss escapes shelf into a usable attack lane without hard blocking")
 	barrier.queue_free()
 
 	await boss_setup()

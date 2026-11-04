@@ -24,13 +24,13 @@ func observe_combat() -> Dictionary:
 		seconds[label] = seconds.get(label, 0.0) + 1.0 / 60
 		if previous != rat.state: entries[label] = entries.get(label, 0) + 1
 		previous = rat.state
-		if rat.state not in [KingRat.State.PURSUIT, KingRat.State.TELEGRAPH, KingRat.State.CHARGE, KingRat.State.CHARGE_RECOVERY, KingRat.State.REPOSITION, KingRat.State.RECOIL, KingRat.State.STAGGER]: inactive += 1.0 / 60
+		if rat.state not in [KingRat.State.PURSUIT, KingRat.State.TELEGRAPH, KingRat.State.CHARGE, KingRat.State.CHARGE_RECOVERY, KingRat.State.REPOSITION, KingRat.State.RECOIL, KingRat.State.STAGGER, KingRat.State.HOLD]: inactive += 1.0 / 60
 		if rat.state == KingRat.State.CHARGE_RECOVERY:
 			recovery_gap += 1.0 / 60
 			max_recovery_gap = maxf(max_recovery_gap, recovery_gap)
 		else: recovery_gap = 0
 		var moving := Vector2(rat.velocity.x, rat.velocity.z).length() > 0.25
-		if rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] and not moving:
+		if (rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] or (rat.state == KingRat.State.HOLD and rat._charge_wait <= 0 and rat._spacing_grace <= 0 and rat.combat_distance() >= 1.35)) and not moving:
 			idle += 1.0 / 60
 			idle_total += 1.0 / 60
 			longest_idle = maxf(longest_idle, idle)

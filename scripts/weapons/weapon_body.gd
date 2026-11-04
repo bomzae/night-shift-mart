@@ -1,5 +1,6 @@
 class_name WeaponBody
 extends GrabbableBody
+signal carry_ended
 @export var weapon: WeaponDefinition
 var durability: int
 var swing_left: float = 0
@@ -171,6 +172,7 @@ func end_carry() -> void:
 	swing_left = 0
 	hit_stop_left = 0
 	super.end_carry()
+	carry_ended.emit()
 
 func launch(direction: Vector3, speed: float, damage: float) -> void:
 	super.launch(direction, speed, damage * weapon.throw_damage_multiplier)

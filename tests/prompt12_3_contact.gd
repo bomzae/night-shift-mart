@@ -19,12 +19,13 @@ func run_checks() -> void:
 	check(not player.knockdown.active() and not rat.is_aggro and rat._flash == 0, "body bump has no knockdown instant aggro or rat flash")
 	check(player.body_bump_left > 0 and interaction.camera_impact > 0, "movement and existing camera feedback start")
 	var start := player.position
+	var bump_direction: Vector3 = player.body_bump_velocity.normalized()
 	var rat_start := rat.position
 	player.set_physics_process(true)
 	Input.action_press("move_forward")
 	await frames(10)
 	Input.action_release("move_forward")
-	check(player.position.z > start.z + 0.2, "contact pushes player away despite held forward input")
+	check((player.position-start).dot(bump_direction) > 0.2, "contact pushes outside nearest body surface despite held forward input")
 	check(rat.position.distance_to(rat_start) < 0.03, "body collision does not retreat or push rat")
 	player.set_physics_process(false)
 	await contact_setup()
@@ -43,7 +44,7 @@ func run_checks() -> void:
 	await frames(2)
 	check(not rat._contact_waits.has(second_id), "departing player clears cooldown and collision pair")
 	await contact_setup()
-	player.position.z += 0.12
+	player.position = rat.position + Vector3.RIGHT * 1.32 # Outside body side; rear now includes the visible tail.
 	player.health.current_health = 100
 	rat._contact_waits.clear()
 	await frames(5)

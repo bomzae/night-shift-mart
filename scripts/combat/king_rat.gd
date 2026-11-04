@@ -1,6 +1,6 @@
 class_name KingRat
 extends CombatTarget
-enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY, REPOSITION, RECOIL }
+enum State { SPAWN, SEEK_FOOD, MOVE_TO_FOOD, EAT, TELEGRAPH, CHARGE, STAGGER, DEFEATED, TRAVEL_ZONE, PURSUIT, CHARGE_RECOVERY, REPOSITION, RECOIL, HOLD }
 @export var desired_attack_distance: float = 3.2
 @export var too_close_distance: float = 2.5
 @export var combat_repath_interval: float = 0.4
@@ -10,7 +10,7 @@ var _retreating: bool = false
 var _lane_wait: float = 0
 var _clear_attack_lane: bool = false
 @export var reposition_speed: float = 3.5
-@export var post_hit_grace: float = 0.35
+@export var post_hit_grace: float = 0.2
 @export var separation_push_interval: float = 0.4
 var _spacing_grace: float = 0
 var _push_waits: Dictionary = {}
@@ -65,12 +65,13 @@ var _impact_mass: float = 0
 @export var body_contact_radius: float = 1.2
 @export var body_separation_speed: float = 2.0
 @export var contact_damage: float = 10.0
-@export var contact_knockback: float = 2.4
+@export var contact_knockback: float = 2.8
 @export var contact_damage_cooldown: float = 1.0
 var _contact_waits: Dictionary = {}
 var contact_damage_count: int = 0
 var last_ai_velocity := Vector3.ZERO
 var last_impact_impulse := Vector3.ZERO
+var _recoil_weapon: WeakRef
 var visual: Node3D
 var material := StandardMaterial3D.new()
 var mood: Label3D
@@ -276,6 +277,10 @@ func _physics_process(delta: float) -> void:
 	update_awareness(delta)
 	_stagger_wait = maxf(0, _stagger_wait - delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
+	if _recoil_weapon != null:
+		var held_weapon := _recoil_weapon.get_ref() as WeaponBody
+		if _recoil_left <= 0 or not is_instance_valid(held_weapon) or not is_instance_valid(held_weapon.holder):
+			_release_recoil_weapon()
 	_recoil_wait = maxf(0, _recoil_wait - delta)
 	_reaction_left = maxf(0, _reaction_left - delta)
 	_pose_left = maxf(0, _pose_left - delta)
@@ -304,7 +309,10 @@ func _physics_process(delta: float) -> void:
 	elif state == State.RECOIL or state == State.STAGGER:
 		if state == State.RECOIL or _left <= 0:
 			_spacing_grace = post_hit_grace
-			resume_combat()
+			state = State.HOLD
+			_retreating = false
+	elif state == State.HOLD and _spacing_grace > 0:
+		pass # Recover at the impact position; do not add automatic retreat.
 	elif state == State.SPAWN:
 		if _left <= 0: state = State.SEEK_FOOD
 	elif state == State.TELEGRAPH:
@@ -369,7 +377,7 @@ func _physics_process(delta: float) -> void:
 			PhysicsPush.apply(body, desired.normalized() * (60 if state == State.CHARGE else 12) * delta)
 		elif body is BasicCustomer and desired.length() > 0.1:
 			PhysicsPush.apply(body, desired.normalized() * 12 * delta)
-	if state in [State.TELEGRAPH, State.PURSUIT, State.REPOSITION] and target_memory > 0 and combat_distance() > 0.1:
+	if state in [State.TELEGRAPH, State.PURSUIT, State.REPOSITION, State.HOLD] and target_memory > 0 and combat_distance() > 0.1:
 		look_at(Vector3(last_known_position.x, global_position.y, last_known_position.z), Vector3.UP)
 	elif desired.length() > 0.1:
 		look_at(global_position + desired, Vector3.UP)
@@ -435,15 +443,28 @@ func constrain_player_body(body: CharacterBody3D, motion: Vector3, delta: float)
 	if is_defeated or state == State.CHARGE or delta <= 0: return motion
 	var offset := body.global_position - global_position
 	if offset.y > 1.5 or offset.y < -1.8: return motion
-	offset.y = 0
-	var distance := offset.length()
-	var normal := offset / distance if distance > 0.001 else global_basis.x
+	var sample := body_contact_sample(body.global_position)
+	var normal := Vector3(sample.x, 0, sample.z)
 	var radial := motion.dot(normal)
-	var allowed := (distance - body_contact_radius) / delta
-	if distance >= body_contact_radius and radial >= -allowed: return motion
+	var allowed := sample.w / delta
+	if sample.w >= 0 and radial >= -allowed: return motion
 	var outward := minf(body_separation_speed, maxf(0, -allowed))
-	var minimum := outward if distance < body_contact_radius else -allowed
+	var minimum := outward if sample.w < 0 else -allowed
 	return motion + normal * maxf(0, minimum - radial)
+
+func body_contact_sample(at: Vector3) -> Vector4:
+	# Horizontal body shell plus the visible tail; radii include the player capsule.
+	var local := to_local(at)
+	local.y = 0
+	var offset := local
+	var gap := offset.length() - body_contact_radius
+	var tail_offset := local - Vector3(0, 0, clampf(local.z, 0.65, 1.8))
+	var tail_gap := tail_offset.length() - 0.42
+	if tail_gap < gap:
+		offset = tail_offset
+		gap = tail_gap
+	var normal := global_basis * (offset.normalized() if offset.length_squared() > 0.0001 else Vector3.RIGHT)
+	return Vector4(normal.x, 0, normal.z, gap)
 
 func _on_defeat() -> void:
 	state = State.DEFEATED
@@ -467,6 +488,10 @@ func _sync_character_exceptions() -> void:
 
 func _character_contacts(_delta: float) -> void:
 	if not contact_enabled(): return
+	# Tail contact is normal body contact only; the charge hit area stays unchanged.
+	if state != State.CHARGE:
+		for health in get_tree().get_nodes_in_group("player_health"):
+			_resolve_body_contact.call_deferred(weakref(health.get_parent()))
 	for body in character_zone.get_overlapping_bodies():
 		if body.get_node_or_null("Knockdown") == null: continue
 		if body is CarryableCharacter and is_instance_valid(body.holder): continue
@@ -475,8 +500,7 @@ func _character_contacts(_delta: float) -> void:
 		if state == State.CHARGE:
 			_charge_hit(body)
 		elif health != null:
-			# Resolve after this tick's weapon sweeps. A successful hit cancels the bump.
-			_resolve_body_contact.call_deferred(weakref(body))
+			continue # Deferred above, after this tick's weapon sweeps.
 		else:
 			if state in [State.REPOSITION, State.CHARGE_RECOVERY]: continue
 			if _push_waits.has(body.get_instance_id()): continue
@@ -500,8 +524,9 @@ func _resolve_body_contact(reference: WeakRef) -> void:
 	var away := body.global_position - global_position
 	if away.y > 1.5 or away.y < -1.8: return
 	away.y = 0
-	if away.length() > body_contact_radius + 0.03 or not can_see(body): return
-	if away.length_squared() < 0.001: away = global_basis.x
+	var sample := body_contact_sample(body.global_position)
+	if sample.w > 0.03 or not can_see(body): return
+	away = Vector3(sample.x, 0, sample.z)
 	var before := health.current_health
 	health.receive_damage(contact_damage, self)
 	if health.current_health >= before: return
@@ -520,6 +545,7 @@ func _forget_character(body: PhysicsBody3D) -> void:
 	body.remove_collision_exception_with(self)
 
 func _exit_tree() -> void:
+	_release_recoil_weapon()
 	for ref: WeakRef in _character_pairs.values():
 		var body := ref.get_ref() as PhysicsBody3D
 		if is_instance_valid(body):
@@ -637,12 +663,32 @@ func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_m
 		recoil_velocity = direction * last_recoil_speed
 		_recoil_left = recoil_duration
 		_recoil_wait = recoil_cooldown
+		if melee_hit and is_instance_valid(instigator):
+			var interaction: Node = instigator.get_node_or_null("Interaction")
+			if interaction != null and interaction.held_object is WeaponBody:
+				_release_recoil_weapon()
+				var weapon: WeaponBody = interaction.held_object
+				_recoil_weapon = weakref(weapon)
+				add_collision_exception_with(weapon)
+				weapon.add_collision_exception_with(self)
+				weapon.carry_ended.connect(_release_recoil_weapon)
+				weapon.tree_exiting.connect(_release_recoil_weapon)
 		if state != State.STAGGER: state = State.RECOIL
 		external_velocity -= direction * minf(0, external_velocity.dot(direction))
 	# Preserve shared damage/weak external-force contract without stacking recoil.
 	_impact_mass = impact_mass
 	super.receive_impact(amount, impulse, instigator, impact_mass, melee_hit)
 	_impact_mass = 0
+
+func _release_recoil_weapon() -> void:
+	if _recoil_weapon == null: return
+	var weapon := _recoil_weapon.get_ref() as WeaponBody
+	if is_instance_valid(weapon):
+		if weapon.carry_ended.is_connected(_release_recoil_weapon): weapon.carry_ended.disconnect(_release_recoil_weapon)
+		if weapon.tree_exiting.is_connected(_release_recoil_weapon): weapon.tree_exiting.disconnect(_release_recoil_weapon)
+		remove_collision_exception_with(weapon)
+		weapon.remove_collision_exception_with(self)
+	_recoil_weapon = null
 
 func combat_distance() -> float:
 	var offset := last_known_position - global_position
@@ -668,46 +714,39 @@ func combat_move(delta: float) -> Vector3:
 		_lane_wait = 0.2
 	var lane := _sees_player and _clear_attack_lane
 	var ready := _charge_wait <= 0 and _spacing_grace <= 0
-	if distance < too_close_distance and _sees_player and _spacing_grace > 0: _retreating = true
-	if distance >= desired_attack_distance:
-		_retreating = false
-	# Contact now moves the player, not the boss. Once clear of the body shell,
-	# the existing telegraphed charge can resume without a compulsory retreat.
-	var attack_minimum := too_close_distance if _retreating else body_contact_radius + 0.15
-	var action := CombatDecision.choose(distance, lane, ready, attack_minimum, charge_range)
-	if _retreating and _sees_player: action = CombatDecision.Action.REPOSITION
+	_retreating = false
+	# Only a blocked attack path warrants local repositioning, never proximity alone.
+	if not lane and _sees_player and distance < charge_range and _pursuit_detour_left <= 0:
+		state = State.REPOSITION
+		return reposition_move(delta, distance)
+	_reposition_blocked = 0
+	var action := CombatDecision.choose(distance, lane, ready, body_contact_radius + 0.15, charge_range)
 	match action:
 		CombatDecision.Action.ATTACK:
 			begin_telegraph()
 			return Vector3.ZERO
-		CombatDecision.Action.REPOSITION:
-			state = State.REPOSITION
-			return reposition_move(delta, distance)
+		CombatDecision.Action.HOLD:
+			state = State.HOLD
+			return Vector3.ZERO
 		_:
-			# Retain the legacy enum value; this motor now only creates attack range.
 			state = State.PURSUIT
 			return pursue_player(delta)
 
-func reposition_move(delta: float, distance: float) -> Vector3:
+func reposition_move(delta: float, _distance: float) -> Vector3:
 	var away := global_position - last_known_position
 	away.y = 0
 	if away.length_squared() < 0.01: away = global_basis.z
 	away = away.normalized()
-	_reposition_blocked = _reposition_blocked + delta if global_position.distance_to(_last_position) < 0.008 else 0
-	if _reposition_blocked > 0.6:
-		_reposition_side *= -1
-		_reposition_blocked = 0
 	var side := away.cross(Vector3.UP) * _reposition_side
-	if distance <= body_contact_radius + 0.15 and not _retreating: return Vector3.ZERO
-	var radial := 1.0 if _retreating else clampf((desired_attack_distance + 0.8 - distance) * 1.5, -0.8, 0.8)
-	if distance < too_close_distance and not _retreating: radial = 0
-	var direction := (away * radial + side * (0.45 if _retreating else 1.0)).normalized()
-	if test_move(global_transform, direction * 0.7):
-		direction = side if not test_move(global_transform, side * 0.7) else -side
-		if test_move(global_transform, direction * 0.7):
-			# Both lateral exits are obstructed: use the existing aisle graph.
-			_route_wait = 0
-			_clear_attack_lane = false
-			state = State.PURSUIT
-			return pursue_player(delta)
-	return direction * (reposition_speed if _retreating else orbit_speed)
+	_reposition_blocked += delta
+	# Bound one adjustment to 0.75m at the default speed, then reuse aisle escape.
+	if _reposition_blocked >= 0.375 or (test_move(global_transform, side * 0.7) and test_move(global_transform, -side * 0.7)):
+		_reposition_blocked = 0
+		_pursuit_detour_left = 1.0
+		_route_wait = 0
+		state = State.PURSUIT
+		return pursue_player(delta)
+	if test_move(global_transform, side * 0.7):
+		_reposition_side *= -1
+		side = -side
+	return side * orbit_speed

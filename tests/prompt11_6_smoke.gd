@@ -25,12 +25,12 @@ func run_checks() -> void:
 	await frames(10)
 	check(rat.position.z < start.z and rat.state == KingRat.State.STAGGER, "strong hit interrupts pursuit and opens space")
 	check(rat.separation_push_count == 0, "no normal push during hit interruption")
-	var saw_reposition := false
+	var saw_hold := false
 	for i in range(120):
 		await frames(1)
-		saw_reposition = saw_reposition or rat.state == KingRat.State.REPOSITION
-	check(saw_reposition and rat.combat_distance() >= rat.desired_attack_distance - 0.2, "post-stagger reposition establishes attack spacing")
-	check(rat.target_memory > 0 and rat.state == KingRat.State.REPOSITION, "target retained while actively positioning during cooldown")
+		saw_hold = saw_hold or rat.state == KingRat.State.HOLD
+	check(saw_hold and rat.combat_distance() < rat.desired_attack_distance, "post-stagger holds recoil position without extra retreat")
+	check(rat.target_memory > 0 and rat.state == KingRat.State.HOLD, "target retained while holding during cooldown")
 	check(rat.separation_push_count <= 1, "cooldown does not generate push loop")
 	rat._charge_wait = 0
 	await frames(3)

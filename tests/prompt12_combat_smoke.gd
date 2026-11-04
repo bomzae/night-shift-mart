@@ -20,7 +20,7 @@ func run_checks() -> void:
 	check(not weapon_body.start_swing(), "cooldown belongs to physical weapon")
 	rat.set_physics_process(true)
 	await frames(90)
-	check(rat.is_aggro and rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION, KingRat.State.TELEGRAPH, KingRat.State.CHARGE], "melee recoil resumes active combat")
+	check(rat.is_aggro and rat.state in [KingRat.State.HOLD, KingRat.State.PURSUIT, KingRat.State.REPOSITION, KingRat.State.TELEGRAPH, KingRat.State.CHARGE], "melee recoil resumes active combat")
 	# Re-enter melee while an actual attack overlaps: no invulnerability.
 	rat.position = player.position + Vector3(0, 0, -0.8)
 	rat.state = KingRat.State.CHARGE

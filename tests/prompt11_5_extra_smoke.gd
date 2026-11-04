@@ -34,7 +34,7 @@ func run_checks() -> void:
 	await frames(85)
 	check(rat.charge_direction.is_equal_approx(direction) and player.health.current_health == 100, "charge direction locks and lateral dodge avoids damage")
 	await frames(ceili(rat.charge_recovery_time * 60) + 5)
-	check(rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] and rat.target_memory > 0, "miss recovers briefly then resumes active combat")
+	check(rat.state in [KingRat.State.HOLD, KingRat.State.PURSUIT, KingRat.State.REPOSITION] and rat.target_memory > 0, "miss recovers briefly then resumes active combat")
 	rat.current_health = 2000
 	rat.receive_impact(1000, Vector3.RIGHT * 1000)
 	check(rat.last_recoil_speed == rat.max_recoil_speed, "extreme combat recoil clamps")

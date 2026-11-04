@@ -14,6 +14,7 @@ extends CharacterBody3D
 var external_velocity := Vector3.ZERO
 var body_bump_velocity := Vector3.ZERO
 var body_bump_left: float = 0
+const BODY_BUMP_DURATION: float = 0.24
 var health := PlayerHealth.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
@@ -73,6 +74,8 @@ func _physics_process(delta: float) -> void:
 		cart = interaction.held_object
 	var speed_multiplier: float = interaction.held_object.carrier_speed_multiplier if interaction != null and is_instance_valid(interaction.held_object) and interaction.held_object is CarryableCharacter else 1.0
 	var movement_acceleration := acceleration if cart == null else cart.push_acceleration()
+	speed_multiplier *= body_control_multiplier()
+	movement_acceleration *= body_control_multiplier()
 	if is_on_floor():
 		movement_acceleration *= SlipState.control(self)
 	velocity.x = move_toward(velocity.x, direction.x * move_speed * speed_multiplier, movement_acceleration * delta)
@@ -94,7 +97,8 @@ func _physics_process(delta: float) -> void:
 	velocity += external_velocity
 	if body_bump_left > 0:
 		var bump_direction := body_bump_velocity.normalized()
-		velocity += bump_direction * maxf(0, body_bump_velocity.length() - velocity.dot(bump_direction))
+		var impact_speed := body_bump_velocity.length() * (0.3 + 0.7 * body_bump_left / BODY_BUMP_DURATION)
+		velocity += bump_direction * maxf(0, impact_speed - velocity.dot(bump_direction))
 	for monster in get_tree().get_nodes_in_group("monsters"):
 		if monster is KingRat:
 			velocity = monster.constrain_player_body(self, velocity, delta)
@@ -142,5 +146,14 @@ func apply_external_impulse(impulse: Vector3) -> void:
 func receive_body_bump(impulse: Vector3) -> void:
 	if not impulse.is_finite() or health.is_downed or knockdown.active(): return
 	body_bump_velocity = Vector3(impulse.x, 0, impulse.z).limit_length(3.2)
-	body_bump_left = 0.2
-	$Interaction.camera_impact = maxf($Interaction.camera_impact, 0.02)
+	body_bump_left = BODY_BUMP_DURATION
+	var away := body_bump_velocity.normalized()
+	var horizontal := Vector3(velocity.x, 0, velocity.z)
+	horizontal = (horizontal - away * horizontal.dot(away)) * 0.35 + body_bump_velocity
+	velocity.x = horizontal.x
+	velocity.z = horizontal.z
+	$Interaction.camera_impact = maxf($Interaction.camera_impact, 0.045)
+
+func body_control_multiplier() -> float:
+	# 0.16 seconds of reduced control, then a quick 0.08 second recovery.
+	return lerpf(1.0, 0.35, clampf(body_bump_left / 0.08, 0, 1))

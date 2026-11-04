@@ -35,21 +35,22 @@ func run_checks() -> void:
 	await frames(10)
 	check(rat.state == KingRat.State.RECOIL, "charge cannot start during light recoil")
 	await frames(20)
-	check(rat.state == KingRat.State.REPOSITION, "light recoil near player repositions")
+	check(rat.state == KingRat.State.HOLD, "light recoil near player briefly holds")
 	for i in range(4):
 		rat.receive_impact(60, Vector3.FORWARD * 10)
 		await frames(20)
 	await frames(150)
 	check(rat.state not in [KingRat.State.STAGGER, KingRat.State.RECOIL], "repeated hits recover instead of locking state")
 	check(rat.position.is_finite() and rat.target_memory > 0, "repeated impacts preserve finite aggressive AI")
-	# A rear wall forces the spacing motor to use its stable lateral escape.
+	# A rear wall alone does not obstruct the forward attack lane.
 	await boss_setup()
 	rat.position = Vector3(0, 0.01, 10)
 	player.position = Vector3(0, 0.01, 11)
 	Graybox.box(mart, "SpacingWall", Vector3(3, 2, 0.3), Vector3(0, 1, 9), Color.GRAY)
 	rat.provoke(player) # Explicit combat fixture; neutral LOS no longer provokes.
 	rat.update_awareness(0)
-	rat.receive_impact(2, Vector3.FORWARD) # Rear-wall spacing is a post-hit action, not ordinary body retreat.
+	rat.receive_impact(2, Vector3.FORWARD)
+	var wall_start := rat.position
 	await frames(180)
-	check(rat.combat_distance() > 2.8 and rat.position.is_finite(), "reposition uses lateral space at rear wall")
+	check(rat.position.distance_to(wall_start) < 0.3 and rat.position.is_finite() and rat.state == KingRat.State.HOLD, "rear wall does not require escape when forward lane is open")
 	quit(0 if failures == 0 else 1)

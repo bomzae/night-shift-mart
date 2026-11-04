@@ -81,7 +81,7 @@ func run_checks() -> void:
 	await frames(5)
 	check(rat._reaction_left > 0 and rat.velocity.length() < 0.1 and rat.state != KingRat.State.CHARGE, "local reaction suppresses approach even without directional recoil")
 	await frames(20)
-	check(rat._reaction_left == 0 and rat.state in [KingRat.State.REPOSITION, KingRat.State.TELEGRAPH], "reaction expiry immediately resumes combat decision")
+	check(rat._reaction_left == 0 and rat.state in [KingRat.State.HOLD, KingRat.State.REPOSITION, KingRat.State.TELEGRAPH], "reaction expiry immediately resumes combat decision")
 	rat.current_health = 10000
 	rat.provoke(player)
 	rat._charge_wait = 0
@@ -89,7 +89,7 @@ func run_checks() -> void:
 	for tick in range(240):
 		if tick % 6 == 0: rat.receive_impact(48, Vector3.RIGHT * (1 if tick % 12 == 0 else -1), player)
 		await frames(1)
-		if rat.state in [KingRat.State.TELEGRAPH, KingRat.State.CHARGE, KingRat.State.REPOSITION, KingRat.State.PURSUIT] and rat._reaction_left == 0: active_ticks += 1
+		if rat.state in [KingRat.State.HOLD, KingRat.State.TELEGRAPH, KingRat.State.CHARGE, KingRat.State.REPOSITION, KingRat.State.PURSUIT] and rat._reaction_left == 0: active_ticks += 1
 	check(active_ticks > 60, "repeated heavy hits do not lock active combat")
 	check(rat._pose_left > 0 and rat.visual.rotation.x < 0, "rearm gate still allows every-hit visual reaction")
 	check(not paused and Engine.time_scale == 1, "target feedback never freezes world")

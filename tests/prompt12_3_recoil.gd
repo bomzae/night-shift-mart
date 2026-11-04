@@ -32,8 +32,11 @@ func trial(data: WeaponDefinition, speed: float, mode: String, gap: float, repea
 	player.position = Vector3(0, 0.01, 20)
 	player.velocity = Vector3.ZERO
 	player.external_velocity = Vector3.ZERO
+	player.body_bump_left = 0 # Frozen preparation cannot tick a tail bump; start each trial at rest.
+	player.body_bump_velocity = Vector3.ZERO
 	player.move_speed = speed if speed > 0 else 5
 	rat.position = Vector3(0, 0.01, 20-gap)
+	rat.rotation.y = PI # Face the player; tail-side impacts have their own directional tests.
 	rat.clear_aggro()
 	rat.velocity = Vector3.ZERO
 	rat.external_velocity = Vector3.ZERO
@@ -43,6 +46,7 @@ func trial(data: WeaponDefinition, speed: float, mode: String, gap: float, repea
 		rat.provoke(player)
 		rat._charge_wait = 100
 		if mode == "approach":
+			rat.charge_range = 0.1 # Explicit approach fixture, outside the new hold/attack range.
 			rat.too_close_distance = 0.1
 			rat.desired_attack_distance = 0.1
 			rat._clear_attack_lane = false # Approach the actor, not the ready attack position.
@@ -65,6 +69,9 @@ func trial(data: WeaponDefinition, speed: float, mode: String, gap: float, repea
 		return 0
 	await frames(2)
 	trace["velocity_next_tick"] = rat.velocity
+	for i in range(rat.get_slide_collision_count()):
+		var collider := rat.get_slide_collision(i).get_collider()
+		print("RECOIL_COLLIDER ", collider, " position=", collider.global_position if collider is Node3D else Vector3.ZERO)
 	await frames(10)
 	Input.action_release("move_forward")
 	player.set_physics_process(false)
@@ -76,6 +83,11 @@ func trial(data: WeaponDefinition, speed: float, mode: String, gap: float, repea
 	return projected
 
 func run_checks() -> void:
+	if OS.get_cmdline_user_args().has("--contact-diagnostic"):
+		await trial(WEAPONS[1], 0, "static", 2.0, true)
+		await trial(WEAPONS[1], 0, "reposition", 1.5, true)
+		quit(1 if failures else 0)
+		return
 	if OS.get_cmdline_user_args().has("--approach-only"):
 		for speed in [0.0, 5.0, 10.0]: await trial(WEAPONS[1], speed, "approach", 2.0, true)
 		quit(1 if failures else 0)
