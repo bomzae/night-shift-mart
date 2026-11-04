@@ -24,6 +24,20 @@ var _reposition_blocked: float = 0.0
 @export var charge_cooldown: float = 4.5
 @export var charge_range: float = 7.0
 @export var telegraph_time: float = 0.65
+@export var minimum_resume_warning: float = 0.25
+@export var committed_path_timeout: float = 1.25
+var attack_committed: bool = false
+var _charge_started: bool = false
+var telegraph_remaining: float = 0
+var resume_warning_left: float = 0
+var attack_commit_count: int = 0
+var attack_cancel_count: int = 0
+var attack_resume_count: int = 0
+var charge_count: int = 0
+var last_attack_cancel: String = ""
+var _attack_target: CharacterBody3D
+var _attack_resume_pending: bool = false
+var _attack_path_blocked: float = 0
 @export var charge_speed: float = 7.5
 @export var charge_duration: float = 0.8
 @export var charge_damage: float = 30.0
@@ -265,15 +279,25 @@ func finish_eating() -> bool:
 	return true
 
 func begin_telegraph() -> void:
+	if attack_committed or not is_aggro or not valid_attacker(aggro_target): return
+	attack_committed = true
+	_charge_started = false
+	_attack_target = aggro_target
+	telegraph_remaining = telegraph_time
+	resume_warning_left = 0
+	_attack_resume_pending = false
+	_attack_path_blocked = 0
+	attack_commit_count += 1
 	state = State.TELEGRAPH
 	_left = telegraph_time
-	charge_direction = player.global_position - global_position
+	charge_direction = _attack_target.global_position - global_position
 	charge_direction.y = 0
 	charge_direction = charge_direction.normalized()
 	_hit_targets.clear()
 	_charge_wait = charge_cooldown
 
 func _physics_process(delta: float) -> void:
+	if attack_committed and not valid_attacker(_attack_target): cancel_attack("target_invalid")
 	update_awareness(delta)
 	_stagger_wait = maxf(0, _stagger_wait - delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
@@ -306,6 +330,10 @@ func _physics_process(delta: float) -> void:
 		if _left <= 0: queue_free()
 	elif _recoil_left > 0 or _reaction_left > 0:
 		pass # Impact motion owns this tick; no pursuit or charge transitions.
+	elif state == State.STAGGER and _left > 0:
+		pass
+	elif attack_committed and state != State.CHARGE:
+		advance_committed_attack(delta)
 	elif state == State.RECOIL or state == State.STAGGER:
 		if state == State.RECOIL or _left <= 0:
 			_spacing_grace = post_hit_grace
@@ -316,12 +344,21 @@ func _physics_process(delta: float) -> void:
 	elif state == State.SPAWN:
 		if _left <= 0: state = State.SEEK_FOOD
 	elif state == State.TELEGRAPH:
-		if _left <= 0:
-			state = State.CHARGE
-			_left = charge_duration
+		state = State.HOLD # A canceled preparation cannot execute a stale charge.
 	elif state == State.CHARGE:
+		if attack_committed and not _charge_started:
+			# Keep intent through the ready-to-move boundary: a hit in that boundary
+			# must delay the attack, not consume it before any charge can execute.
+			var offset := _attack_target.global_position - global_position
+			offset.y = 0
+			if offset.length_squared() > 0.01: charge_direction = offset.normalized()
+			_charge_started = true
+			charge_count += 1
 		desired = charge_direction * charge_speed
 		if _left <= 0:
+			attack_committed = false
+			_attack_target = null
+			_charge_started = false
 			state = State.CHARGE_RECOVERY
 			_left = charge_recovery_time
 	elif state == State.CHARGE_RECOVERY:
@@ -430,6 +467,9 @@ func _on_damage(amount: float) -> void:
 		state = State.STAGGER
 		_left = stagger_time
 		_stagger_wait = stagger_rearm_time
+	if attack_committed and (state in [State.RECOIL, State.STAGGER] or _recoil_left > 0 or _reaction_left > 0):
+		_attack_resume_pending = true
+		_charge_started = false
 
 func _restore_flash() -> void:
 	for i in range(_saved_overlays.size()):
@@ -467,6 +507,7 @@ func body_contact_sample(at: Vector3) -> Vector4:
 	return Vector4(normal.x, 0, normal.z, gap)
 
 func _on_defeat() -> void:
+	cancel_attack("defeated")
 	state = State.DEFEATED
 	_left = defeat_time
 	food = null
@@ -608,6 +649,7 @@ func provoke(attacker) -> void:
 	_lane_wait = 0
 
 func clear_aggro() -> void:
+	cancel_attack("aggro_ended")
 	is_aggro = false
 	aggro_target = null
 	player = null
@@ -704,6 +746,9 @@ func resume_combat() -> void:
 		combat_move(0)
 
 func combat_move(delta: float) -> Vector3:
+	if attack_committed:
+		advance_committed_attack(delta)
+		return Vector3.ZERO
 	if not is_aggro or not valid_attacker(aggro_target):
 		state = State.SEEK_FOOD
 		return Vector3.ZERO
@@ -750,3 +795,55 @@ func reposition_move(delta: float, _distance: float) -> Vector3:
 		_reposition_side *= -1
 		side = -side
 	return side * orbit_speed
+
+func cancel_attack(reason: String) -> void:
+	# Explicit cancellation is reserved for impossible attacks, never ordinary damage.
+	if attack_committed:
+		attack_cancel_count += 1
+		last_attack_cancel = reason
+	attack_committed = false
+	_charge_started = false
+	_attack_target = null
+	_attack_resume_pending = false
+	_attack_path_blocked = 0
+	telegraph_remaining = 0
+	resume_warning_left = 0
+	if state in [State.TELEGRAPH, State.CHARGE]: state = State.HOLD
+
+func advance_committed_attack(delta: float) -> void:
+	if not is_aggro or not valid_attacker(_attack_target):
+		cancel_attack("target_invalid")
+		return
+	# Recheck from the recoil position, including the full boss width, before execution.
+	pursuit_planner.refresh_exclusions()
+	var destination := _attack_target.global_position
+	var offset := destination - global_position
+	offset.y = 0
+	var clear := offset.length_squared() > 0.01 and can_see(_attack_target) and pursuit_planner.clear_segment(global_position, destination)
+	if not clear:
+		_attack_path_blocked += delta
+		state = State.HOLD
+		if _attack_path_blocked >= committed_path_timeout:
+			cancel_attack("path_blocked")
+			_lane_wait = 0
+		return
+	last_known_position = destination
+	if _attack_resume_pending or _attack_path_blocked > 0:
+		resume_warning_left = maxf(resume_warning_left, minimum_resume_warning)
+		_attack_resume_pending = false
+		_attack_path_blocked = 0
+		attack_resume_count += 1
+		state = State.TELEGRAPH
+		_left = maxf(telegraph_remaining, resume_warning_left)
+		return # This frame establishes the resumed warning; countdown starts next tick.
+	state = State.TELEGRAPH
+	telegraph_remaining = maxf(0, telegraph_remaining - delta)
+	resume_warning_left = maxf(0, resume_warning_left - delta)
+	_left = maxf(telegraph_remaining, resume_warning_left)
+	if _left > 0: return
+	# The warning tracks the current target. Only actual charge motion locks direction.
+	charge_direction = offset.normalized()
+	look_at(global_position + charge_direction, Vector3.UP)
+	# A resumed execution belongs to the same attack: do not damage one target twice.
+	state = State.CHARGE
+	_left = charge_duration

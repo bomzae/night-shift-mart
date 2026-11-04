@@ -18,9 +18,10 @@ func run_checks() -> void:
 	check(CombatDecision.choose(5, true, false, 2.5, 7) == CombatDecision.Action.HOLD, "cooldown retains attack position")
 	await combat_at(5)
 	check(rat.state == KingRat.State.TELEGRAPH, "aggro mid range has no discovery wait")
+	await frames(40) # Charge launch locks direction; telegraph may reface.
 	var direction := rat.charge_direction
 	player.position.x += 4
-	await frames(42)
+	await frames(12)
 	check(rat.state == KingRat.State.CHARGE and rat.charge_direction.is_equal_approx(direction), "telegraph and dodge direction lock preserved")
 	await frames(95)
 	check(rat.state in [KingRat.State.HOLD, KingRat.State.PURSUIT, KingRat.State.REPOSITION, KingRat.State.TELEGRAPH], "miss recovery returns active decision")

@@ -2,6 +2,39 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.5 — Persistent Attack Intent / Anti-Stunlock
+
+2026-11-04 구현·자동 검증 완료. Prompt12.4 완료 커밋의 clean tree에서 시작했다. **Prompt0~12.4 회귀3,046 + 신규87 = 총3,133 PASS / 최종0 FAIL**, 선택된55개 스크립트 모두 종료0·오류0·경고0. 사람의 수동 전투 손맛 검사는 미확인이다. Contact physics/Screen/Sound는 확장하지 않는다. `project.godot` 변경 없음, commit/amend/reset/push 없음.
+
+### 재현과 원인
+
+- 실제 Main의 Grab→Swing으로 Telegraph 도중 Bat/Hammer/Broom을 맞히고 frying_pan 실제 투척도 재현했다. 기존에는 별도 공격 의도가 없고 `state`와 `_left` 하나에 준비/피격 시간을 함께 담았다. `receive_impact`/`_on_damage`가 TELEGRAPH를 RECOIL/STAGGER로 바꾸며, Hammer는 `_left`까지 Stagger 시간으로 덮었다. 이후 HOLD→일반 Decision으로 돌아가지만 Charge cooldown은 약4초 남아 있었다. 보존할 Telegraph progress가 없으므로 준비가 사라졌다.
+- 수정 전 단발 시험은 피격 후3초 안에 공격이 재개되지 않았다(`p125_before.log`, `p125_before_product.log`). 수정 전 짧은 연속 압박은 Bat14hit/Charge0, Broom16hit/Charge0, Hammer4hit/Charge2였다(`p125_pressure_before.log`). Hammer도 모든 조건에서 공격 불가였다고 해석하지 않는다.
+
+### 공격 의도 / 재개 정책
+
+- 일반 Combat Decision이 Aggro·유효 대상·공격 거리·준비된 cooldown·열린 lane을 만족해 `begin_telegraph()`를 호출하면 commit한다. `attack_committed`, `_attack_target`, `telegraph_remaining`을 Damage Reaction의 state/_left와 분리했다. commit/resume/cancel/실제 Charge motor 실행 횟수를 진단용으로 기록한다.
+- 우선순위는 Defeated→Recoil/Reaction→Stagger→기존 committed attack 재개→Charge/일반 Decision이다. 피격 중 Telegraph 진행을 멈추고, 남은 시간은 되돌리지 않는다. 복귀 시 별도 `resume_warning_left=0.25초`를 보장하며 두 타이머의 최댓값이 끝나야 실행한다. 준비된 공격은 추가0.2초 HOLD 대신 제자리 재예고로 복귀하고, 아직 commit하지 않은 일반 피격의12.4 HOLD는 유지한다.
+- Bat/Hammer/Broom/Product의 Damage/Flash/Recoil/Stagger 값·조건은 그대로다. World 충돌을 무시하거나 원래 위치로 되돌리지 않는다. 새 위치에서 현재 대상을 바라보고 매 준비 tick LOS와 boss 폭을 포함한 swept lane을 다시 검사한다. 공격 거리 밖으로 밀려났다는 이유만으로 취소하지 않는다.
+- 실제 Charge motor 시작 순간 방향을 확정하고 그 실행 중에는 추적하지 않는다. 시작 직후 피격으로 중단돼도 의도는 완료 전까지 유지하고, Recoil 후 최소0.25초 재예고를 거쳐 실행한다. 이는 준비 완료 직후 첫 이동이 거의 없는 시점에 Broom이 다시 맞아 공격이 소모되던 경계 문제도 막는다. 재개한 동일 공격의 `_hit_targets`는 유지해 같은 Player에게30HP를 중복 적용하지 않는다. Charge 정상 종료 시 의도를 완료 처리한다.
+- 명시적 `cancel_attack(reason)`는 Defeated, 유효하지 않거나 Downed/삭제된 대상, Aggro 종료, 준비 중 경로가1.25초 연속 막힌 경우에만 호출한다. 일시적 가림은 진행을 보존하고 열린 뒤 최소 경고를 다시 준다. 일반 피격은 취소 API를 호출하지 않는다. 실제 막힘 취소 뒤에는 기존 route/reposition Decision으로 복귀한다.
+- Neutral Food/Zone Roam, 지속 harassment, Hold Ground, non-blocking 군중, Contact10HP/1초 cooldown/입력 감쇠/camera/no Knockdown, Charge30HP/Knockdown은 유지한다. Contact 손맛의 최종 Sound/Screen polish는 별도 단계다.
+
+### 검사 이력 / 수동 확인
+
+- 신규3개: `prompt12_5_intent.gd`(실제3무기+상품, 진행 보존, 늦은 피격0.25초, 방향 lock/dodge, 실행 경계 및 중복 피해), `prompt12_5_validity.gd`(Downed/삭제/Defeat/Aggro 종료, 일시/지속 geometry, range 밖 recoil), `prompt12_5_pressure.gd`(무기별30초 실제 Grab/Swing/전진).
+- 지속 압박 fixture는 Rat/Player HP와 무기 내구도만 늘리고 실제 Charge Knockdown은 유지한다. Charge에 떨어뜨린 무기를 다시 실제 LMB로 줍도록 가까이 재배치한다. 사람의 무중단 공격/DPS 측정이 아니라 반복 피격과 반격을 함께 관찰하는 통제 시뮬레이션이다. 실제 motor 실행 횟수와 이동 tick도 요구한다.
+- 최초 pressure fixture는 루프 안 입력 대기로 관찰 시간이 늘고, Knockdown 후 떨어진 무기를 줍지 않아 Bat/Hammer의 타격 수가 부족했다. physics-frame 기준30초와 재획득으로 수정했다. Broom은 별개의 실제 결함으로 준비 종료 직후 피격이 실행 의도를 소모했다. 완료 전까지 의도를 유지하고 재예고하도록 수정했다. 실패 로그 `p125_first_prompt12_5_pressure.log`, `p125_broom_diagnostic.log`, `p125_broom_boundary_fixed.log`를 보존한다.
+- 기존11/11.5/11.8의 dodge fixture는 Telegraph 시작이 아니라 실제 Charge 시작 뒤 옆으로 피하도록 변경했다. 방향 lock 이후 비유도/회피/Knockdown 검증은 유지한다.11의 직접 Telegraph 호출은 명시적 provoke를 추가했다. 최초 NPC Knockdown 검사는 새 launch 대기41ticks를 더한 만큼 관찰 시각이 늦어졌으므로 기존 전체70ticks를 유지하도록 후속 대기를29ticks로 조정했다(`p125_target_prompt11_smoke.log`).
+- 전체 회귀에서도 NPC 검사1개가 남아 시간 조정만으로는 불충분함을 확인했다(`p125_suite_prompt11_smoke.log`). 입력 없는 Main 물리 진단에서 LOS/world lane은 모두true였지만, Telegraph 대기 중 겹쳐 둔 NPC가 frozen Player 위 y1.809m로 올라가 Player의 x5m 회피를 platform 이동으로 따라갔다(`p125_npc_physics.log`). NPC를 대기 중 별도 위치에 두고, Charge가 시작된 뒤 Player collision transform을2ticks 갱신한 다음 원래 공격 경로에 배치하고 NPC motor를 재개하도록 fixture를 수정했다. 총70ticks 관찰·실제 Charge contact·NPC event state/Knockdown/회복 계약은 유지한다. 진단은 정상fall_count1을 확인했으며(`p125_npc_staged.log`) 실제 창 재검사 결과는 아래 최종 목록에 반영한다. 가림 로직은 원인이 아니므로 게임 코드 변경은 하지 않았다.
+- 최종 신규 검사87 PASS(의도44/유효성25/압박18), 오류0. 30초 실제 전진 압박에서 Bat32hit/Telegraph 진입21/commit7/Charge 실행6/최대 실행 공백4.80초, Hammer16hit/진입16/commit6/실행6/공백5.52초, Broom39hit/진입32/commit7/실행20/공백5.40초. 모두 의도 취소0. Broom 실행20에는 피격으로 중단된 동일 공격의 재예고·재실행이 포함되므로20개의 독립 Charge나20회 피해를 의미하지 않는다. 상태 진입/이동 tick은 입력 대기 사이의 표본이며 실제 실행은 motor counter로 센다. Rat/Player 수동 손맛 검증과 구분한다(`p125_suite_prompt12_5_*.log`).
+- 최종 결과: 기존52개3,046 PASS + 신규3개87 PASS =55개3,133 PASS/0 FAIL/0 SCRIPT ERROR/0 ERROR/0 WARNING. 최종 선택 로그 목록은 `.godot/p125_results.txt`, 전체 실행 상태는 `p125_suite_status.txt`, NPC 실제 창 재검사는 `p125_final_status.txt`와 `p125_final_prompt11_smoke.log`(62 PASS/종료0)이다. 첫 실패 로그를 덮어쓰지 않았으며 진단·중복 재검사는 합계에서 제외한다.
+- 환경: Project `C:\Users\JHS\orca\night-shift-mart`, Godot `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. Import, Main headless7,200ticks(120초 분량 시뮬레이션), 실제 창600ticks 모두 종료0·오류·경고0 (`p125_final_import.log`, `p125_main_headless.log`, `p125_main_window.log`). 저장한 PowerShell runner는 로컬 execution policy 때문에 직접 실행되지 않아 동일 명령을 도구 셸에서 실행했으며 정책을 변경하지 않았다.
+- 회귀 측정: 동일0.25초 통제 impact의 Bat0.342m/Hammer0.739m/Broom0.986m, TV0.528m/Loaded Cart0.664m 유지.10초 DPS35.2/38.4/21.6 유지. 일반30초 Active Combat은 Telegraph7/Charge7/불필요 idle0/최대 recovery0.567초/HP10000→9790.12.4 압박의 세 무기 모두 AI 후퇴0m/Reposition0ticks이며 Customer/Tourist·Neutral/Food·Product/Cart·Contact/Charge·Hammer 근접 Recoil 회귀도 통과했다.
+- 최종 `git diff --check` 공백 오류0, `project.godot` 변경 없음. KING RAT script, 신규3개 검사와 UID, 기존3개 dodge/NPC fixture, PROJECT_NOTES/README/gameplay skill 변경을 uncommitted로 남긴다. commit/amend/reset/push 없음. 수동 검사가 정상이라면 KING RAT/Melee Combat Foundation을 고정하고 Round/Day Progression으로 넘어갈 준비 상태이며 해당 기능은 구현하지 않았다.
+- 수동 미확인: Bat 압박, Telegraph 중 Hammer/Broom, 연속 근접 전투, 재예고 후 dodge, 예고 종료 직전 Hit,30초 혼합 전투. 자동 검사만으로 공격 타이밍 가독성이나 최종 손맛을 확정하지 않는다.
+- 유지 TODO: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap, Extreme Cart overload Chaos, Simple waypoint navigation limits, KING RAT contact sound/screen feedback final polish.
+
 ## Prompt 12.4 — Contact Impact / Hold-Ground Combat
 
 2026-11-04 신규 작업. 사용자 reset/clean 이후 Prompt12.3 commit `7970a02`의 clean tree를 확인하고 새로 재현·구현했다. 이전 중단 작업의 구현·검사 결과를 이어받지 않는다. **구현·자동 검증 완료: 기존 Prompt0~12.3 회귀2,955 + 신규91 = 총3,046 PASS / 최종0 FAIL.** 선택된52개 스크립트 모두 종료0·오류·경고0. 사람의 수동 손맛 검사는 미확인이다. `project.godot` 변경 없음. commit/amend/reset/push 없음.

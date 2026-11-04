@@ -132,6 +132,8 @@ func run_checks() -> void:
 	player.set_physics_process(true)
 	player.global_position = Vector3(0, 0.01, 4.2)
 	rat.global_position = Vector3(0, 0.01, 2)
+	rat.provoke(player)
+	rat.update_awareness(0)
 	rat.begin_telegraph()
 	var direction := rat.charge_direction
 	await frames(20)
@@ -145,7 +147,10 @@ func run_checks() -> void:
 	await boss_setup()
 	player.global_position = Vector3(0, 0.01, 4.2)
 	rat.global_position = Vector3(0, 0.01, 2)
+	rat.provoke(player)
+	rat.update_awareness(0)
 	rat.begin_telegraph()
+	await frames(41) # Dodge after launch; warning now tracks the target.
 	player.global_position.x = 3
 	await frames(90)
 	check(player.knockdown.fall_count == 0 and absf(rat.global_position.x) < 0.2, "side dodge avoids fixed charge")
@@ -154,12 +159,20 @@ func run_checks() -> void:
 	if child != null:
 		var parent: LostParent = child.parent_npc
 		var old_state := parent.state
-		parent.global_position = Vector3(0, 0.01, 4.2)
+		parent.set_physics_process(false) # Stage the NPC only after the player has dodged.
+		parent.global_position = Vector3(8, 0.01, 4.2)
 		rat.global_position = Vector3(0, 0.01, 2)
-		player.global_position = parent.global_position
+		player.global_position = Vector3(0, 0.01, 4.2)
+		rat.provoke(player)
+		rat.update_awareness(0)
 		rat.begin_telegraph()
+		await frames(41)
 		player.global_position.x = 5
-		await frames(70)
+		await frames(2) # Flush the old player collision transform before placing the NPC.
+		parent.global_position = Vector3(0, 0.01, 4.2)
+		parent.velocity = Vector3.ZERO
+		parent.set_physics_process(true)
+		await frames(27) # Keep original total 70-tick knockdown observation window.
 		check(parent.knockdown.active() and parent.state == old_state, "human hit uses shared knockdown without resetting event")
 		await frames(100)
 		check(not parent.knockdown.active() and parent.state == old_state, "human event state survives recovery")

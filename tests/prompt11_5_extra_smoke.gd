@@ -29,6 +29,7 @@ func run_checks() -> void:
 	rat._charge_wait = 0
 	await frames(2)
 	check(rat.state == KingRat.State.TELEGRAPH, "pursuit range triggers telegraphed attack")
+	await frames(40) # Dodge after actual launch, not during target tracking.
 	var direction := rat.charge_direction
 	player.position.x = 4
 	await frames(85)
