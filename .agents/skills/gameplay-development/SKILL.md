@@ -24,4 +24,4 @@ description: NIGHT SHIFT MART의 gameplay 기능 구현과 기존 gameplay 표�
 - **Prototype Scope:** 요청된 목표를 먼저 완성하고 다음 콘텐츠/복잡한 추상 계층을 만들지 않는다.
 - **Manual Feel Test:** 자동 통과만으로 손맛을 확정하지 않는다. 재미있는가, 답답하지 않은가, 즉각적인가, 다른 시스템과 상황을 만드는가를 직접 확인할 절차를 보고한다. 실제 수행하지 않은 수동 검사를 통과라고 쓰지 않는다.
 
-- **Persistent Attack Intent:** Damage reactions may delay a committed boss attack, but ordinary player hits should not repeatedly erase attack intent. Preserve readable telegraphs while preventing melee stun-lock.
+- **Persistent Attack Intent:** Boss attack commitment begins at the readable telegraph, not during ordinary approach. Hits may interrupt approach, but once the telegraph begins, ordinary damage should displace or delay the boss without making the same attack appear to restart.

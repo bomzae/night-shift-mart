@@ -2,6 +2,40 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.6 — Attack Phase Separation / True Telegraph Continuity
+
+2026-11-07 구현·자동 검증 완료. Prompt12.5 완료 상태의 clean working tree에서 시작했다. **58개 스크립트 / 3,207 PASS / 0 FAIL / 최종 오류·경고0**, 모두 종료0. 실제 창 캡처의 경고 표시는 확인했지만 사람의 실시간 수동 전투 손맛 검사는 미확인이다. `project.godot` 변경 없음. commit/amend/reset/push 없음. 아래 정책은12.5의 반복 최소0.25초 재예고와 Charge→Telegraph→재실행 정책을 대체한다.
+
+### 12.5의 실제 동작과 사용자 의도 차이
+
+- 실제 Main에서 Bat/Hammer/Broom Grab→Swing으로 Telegraph 도중 Hit을 재현했다(`.godot/p126_before.log`). 피격 직후 Bat/Broom은 RECOIL, Hammer는 STAGGER, 경고 text는 각각 `-22/-12/-48`로 바뀌었다. 세 경우 모두 Commit1/Resume1이지만 관찰된 Telegraph 재진입1이었다. **새 Commit이 발생한 것이 아니라**, 별도 intent만 살아 있고 상태·주황색·`!` 표시가 끊겼다가 다시 나타난 것이 문제였다. 경고 연속성6개 및 Charge 재Telegraph1개, 총7 FAIL을 수정 전 확인했다.
+- `receive_impact/_on_damage`의 상태 치환, `advance_committed_attack`의 TELEGRAPH 재설정과0.25초 resume timer, Charge 피격 시 `_charge_started=false`가 원인이었다. 후자는 동일 intent라도 실행을 다시 시작하고 방향·duration을 다시 만들었다. 이전 완료 보고의 “재예고/재실행 포함”은 실제로 이 동작을 포함했다.
+
+### Phase별 Hit 규칙
+
+- `attack_phase`는 COMBAT_APPROACH/TELEGRAPH/CHARGE와 비공격 NONE을 구분한다. 기존 PURSUIT/REPOSITION은 미확정 Approach다. `interrupt_approach()`는 실제 Damage 때 접근 count를1회 올리고 route를 폐기한다. 정상 Recoil/Stagger→기존0.2초 HOLD→새 Combat Decision을 거친다. 저장된 intent/Telegraph는 없으며 다음 Telegraph가 생기면 전체0.65초의 새 Commit이다. HP만 깎는 damage 경로와 Weapon/Product impact 모두 같은 정책이다.
+- 유효 대상·거리·cooldown·World lane을 통과한 기존 Decision의 `begin_telegraph()`가 true Commit point다. `attack_instance_id`를 그때 생성하며 Approach에서는 생성하지 않는다. ID는 진단용으로 마지막 값을 유지하지만 활성 여부는 `attack_committed/telegraph_active`로 구분한다.
+- Committed Telegraph는 피격돼도 **State.TELEGRAPH 그대로**다. Recoil/Reaction timer와 `_attack_stagger_left`가 별도 반응을 적용하며 AI 이동보다 우선한다. Hammer의 기존0.45초 Stagger와0.25초 recoil, Flash/몸 tilt/실제 world collision을 유지한다. 강한 overlay 중 Contact Damage는 비활성화한다. 원래 공격 위치로 복귀하거나 추가 backward reposition하지 않는다.
+- Telegraph body 기본색은 주황색으로 유지하고 Flash overlay를 잠깐 올린다. 기존 Label3D는 피격 중 `! -피해량`, Flash 종료 후 `!`를 유지한다. 흰 Flash가 몸 색을 가려도 경고 표시는 사라지지 않는다. Approach는 기존 보라색 몸/COMBAT_APPROACH, 피격 후 RECOIL/STAGGER 표시여서 확정 공격과 구분된다. 새 UI/Audio/Animation 시스템은 없다.
+- Telegraph timer는 반응 동안 pause하고 `resume_telegraph()`는 pending/counter만 처리한다. full duration·minimum warning·enter 이벤트를 다시 설정하지 않는다. 경고를 계속 표시하므로 별도0.1~0.15초 보정도 넣지 않았다. 실제 통제 검사에서0.65초 중0.30초 사용→남은0.35초→Hammer 반응→0.35초 그대로, 이어 Bat Hit 후에도 같은 ID로 남은 시간이 보존됐다. 늦은 Hit의 남은0.0333초도 반응 후0.0333초에 실제 motor가 시작했으며, 반응 동안에도 `!`가 계속 보였다.
+- Charge phase·방향 lock·start count·실제 motor를 같은 physics tick에 시작한다. Charge 중 피격은 기존 Damage/Flash/Recoil/Stagger를 적용하고 **동일 실행의 남은 시간만 pause**한다. 실행 방향·duration·start count·대상별 hit guard를 새로 만들거나 Telegraph로 돌아가지 않는다. 반응 종료 후 남은 실행만 이어가므로 새 launch로 집계하지 않는다.30HP/Knockdown/동일 대상 중복 방지/비유도 dodge 유지.
+- Target Downed/삭제, Defeated, Aggro 종료, 준비 경로1.25초 연속 불가 시 기존 cancel 정책을 유지한다. 일시적인 경로 차단도 동일 경고와 남은 시간을 유지한다. Neutral Food/Zone Roam, harassment, Hold Ground, Contact10HP/1초 cooldown/control/camera/no Knockdown, Weapon/Product/Cart 수치는 변경하지 않았다.
+
+### 계수 / 검사 / 수동 기준
+
+- 새 이름 `new_attack_commit_count`, `telegraph_resume_count`, `charge_start_count`는 기존 실제 계수의 읽기 alias이며 `telegraph_start_count`, `approach_interrupt_count`, `attack_instance_id`를 추가했다. Resume는 Start/Commit을 올리지 않는다. 실제 Hammer→반응 완료→Bat→반응 완료→Charge 통제 검사: **ID1 / Commit1 / Start1 / Resume2 / Charge1**. 반응 중 여러 hit이 겹치면 반응이 끝나는 실제 Resume 이벤트만 센다.
+- 신규3개: `prompt12_6_phase.gd`는 세 무기의 실제 Grab/Swing 및 State/경고/ID 연속성·물리 변위·단일 Charge, `prompt12_6_approach.gd`는 세 무기 접근 중단과 실제 frying_pan 투척, `prompt12_6_continuity.gd`는 정확한 timer·중첩 stagger·반복 hit 계수·늦은 hit·Charge clock/direction/no retelegraph를 검사한다. 초기 신규71 PASS/오류0.
+- 근접 Approach fixture는 Telegraph가 먼저 시작되지 않도록 시험에서만 charge_range/desired_attack_distance를0.1m로 두고 실제 pursuit motor와 held Swing을 사용한다. 피격 후 즉시 정상 범위를 복원해 HOLD 뒤 실제 Decision을 검사한다. 세 무기 모두 interrupt1/Hold13ticks/새 Telegraph0.65초였고 recoil Z 변위는 Bat0.420m/Hammer0.990m/Broom1.372m. 이 값은 진행 중 접근 fixture의 반응 전체 변위이며0.25초 단발 통제 force 측정과 혼동하지 않는다. Product는 정상9m 거리에서 실제 투척으로 Approach 중단을 확인했다.
+- 기존12.5 intent 검사는 reaction 종료를 state 재진입이 아닌 overlay 종료로 관찰한다. 사용자 정책 변경에 따라 늦은 Hit의0.25초 재예고 기대를 “반응 중 경고 유지+정확한 remainder”로, Charge2 기대를 “단일 Charge+no Telegraph Resume”로 교체했다. 경로 차단의 HOLD/재예고 기대도 동일 Telegraph 연속성으로 바꿨다. Damage/Push/대상 유효성/경로 차단/Charge 피해 중복 방지 기준은 유지한다. pressure에는 Commit=Start 및 Charge≤Start 검증3개를 추가했다.
+- 최종30초 지속 압박(`p126_suite_prompt12_5_pressure.log`): Bat32Hit/Commit7/Start7/Resume14/Charge7/최대 실행 공백4.62초, Hammer14Hit/Commit7/Start7/Resume4/Charge7/공백5.25초, Broom39Hit/Commit6/Start6/Resume12/Charge6/공백5.32초. 의도 취소는 모두0. 관찰된 TELEGRAPH 상태 진입도7/7/6으로 Start와 일치한다. 이번 Charge count에는 피격 재실행이 포함되지 않는다. 기존과 같이 HP/내구도를 늘리고 Knockdown으로 떨어진 무기를 가까이 재배치해 실제 LMB로 다시 줍는 통제 압박 시험이며 사람의 무중단 공격/DPS 측정이 아니다.
+- 실제 창 캡처 `p126_approach_sledgehammer.png`, `p126_telegraph_sledgehammer.png`를 직접 확인했다. Approach 표시와 피격 중 흰 몸/`! -48` 경고가 구분된다. 이는 정지 화면 확인이며 사람의 실시간 전투 손맛·읽기 쉬움 확정은 아니다. 신규 시험의 `-- --capture` 옵션으로 재생성할 수 있다.
+- 최종 전체 결과: 기존55개3,136 PASS(기존3,133의 정책 변경 반영 및 계수 검증3 추가) + 신규3개71 PASS(Phase26/Approach28/Continuity17) =58개3,207 PASS. 최종0 FAIL/0 SCRIPT ERROR/0 ERROR/0 WARNING, 모두 종료0. 선택 로그 목록 `.godot/p126_results.txt`, 전체 실행 상태 `p126_suite_status.txt`, 최종 Phase/Continuity 재검사 `p126_final_status.txt`. 중복 실행은 PASS 합계에 포함하지 않았다. 수정 전7 FAIL 로그는 그대로 보존했다.
+- 실행 환경: Project `C:\Users\JHS\orca\night-shift-mart`, Godot `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. Import, Main headless7,200ticks(120초 분량), 실제 창600ticks 모두 종료0·오류·경고0 (`p126_final_import.log`, `p126_main_headless.log`, `p126_main_window.log`). 실제 창 입력 검사는 순차 실행했다.
+- 기존 무기0.25초 통제 force 측정은 Bat0.342m/Hammer0.739m/Broom0.986m, TV0.528m/Loaded Cart0.664m 유지.12.3 Hammer Recoil96 PASS,12.4 Contact45 PASS, Hold41 PASS이며 세 무기 압박 모두 AI 후퇴0m/Reposition0ticks. Neutral/Aggro/Food/Zone/Active Combat, Customer/Tourist/가족 이벤트, Product/Cart, 피해·내구도·비차단 군중 회귀도 통과했다.
+- `git diff --check` 공백 오류0, `project.godot` 변경 없음. KING RAT script, 신규3개 검사와 UID, 기존12.5 검사3개, PROJECT_NOTES/README/gameplay skill 변경은 모두 uncommitted. commit/amend/reset/push하지 않았다. 수동 검사가 정상이라면 KING RAT/Melee Combat Foundation을 고정하고 Round/Day Progression으로 넘어갈 준비 상태이며 새 기능은 구현하지 않았다.
+- 수동 미확인: Approach Hammer interrupt, Telegraph 중 Bat/Hammer/Broom, 같은 무기의 Phase별 비교, Telegraph 반복 Bat,30초 근접 전투. Approach는 접근을 끊고 다시 판단하는지, Telegraph는 몸만 반응하면서 동일 경고가 계속 보이는지, Charge 뒤 재Telegraph가 없는지 확인한다.
+- 유지 TODO: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap, Extreme Cart overload Chaos, Simple waypoint navigation limits, KING RAT contact sound/screen feedback final polish.
+
 ## Prompt 12.5 — Persistent Attack Intent / Anti-Stunlock
 
 2026-11-04 구현·자동 검증 완료. Prompt12.4 완료 커밋의 clean tree에서 시작했다. **Prompt0~12.4 회귀3,046 + 신규87 = 총3,133 PASS / 최종0 FAIL**, 선택된55개 스크립트 모두 종료0·오류0·경고0. 사람의 수동 전투 손맛 검사는 미확인이다. Contact physics/Screen/Sound는 확장하지 않는다. `project.godot` 변경 없음, commit/amend/reset/push 없음.

@@ -4,7 +4,7 @@ func snapshot() -> Dictionary:
 	return {"state": KingRat.State.keys()[rat.state], "committed": rat.get("attack_committed"),
 		"remaining": rat.get("telegraph_remaining"), "legacy_left": rat._left,
 		"cooldown": rat._charge_wait, "recoil": rat._recoil_left,
-		"stagger": rat.state == KingRat.State.STAGGER}
+		"stagger": rat.state == KingRat.State.STAGGER or rat._attack_stagger_left > 0}
 
 func during_telegraph(data: WeaponDefinition) -> void:
 	await weapon_setup(data)
@@ -34,7 +34,7 @@ func during_telegraph(data: WeaponDefinition) -> void:
 	var resumed := false
 	for tick in range(180):
 		await frames(1)
-		if rat.state == KingRat.State.TELEGRAPH and not resumed:
+		if rat.state == KingRat.State.TELEGRAPH and not rat.damage_reaction_active() and not resumed:
 			resumed = true
 			reaction_end = tick
 			print("INTENT_RESUME ", data.weapon_id, " ", snapshot())
@@ -66,14 +66,14 @@ func boundary_checks() -> void:
 	while rat.telegraph_remaining > 0.04: await frames(1)
 	weapon_body.start_swing()
 	weapon_body._sample_arc(0.5)
-	check(rat.hit_count == 1 and rat.attack_committed and rat.telegraph_remaining < 0.05, "late real sweep preserves almost-complete warning")
-	while rat.state != KingRat.State.TELEGRAPH: await frames(1)
+	check(rat.hit_count == 1 and rat.attack_committed and rat.telegraph_remaining < 0.05 and rat.mood.text.begins_with("!"), "late real sweep preserves almost-complete visible warning")
+	while rat.damage_reaction_active(): await frames(1)
 	var resumed_frame := Engine.get_physics_frames()
 	var saved_progress := rat.telegraph_remaining
-	await frames(10)
-	check(rat.state == KingRat.State.TELEGRAPH and rat.telegraph_remaining <= saved_progress, "late hit does not create instant charge or rewind progress")
+	check(rat.state == KingRat.State.TELEGRAPH and rat.mood.text == "!" and saved_progress > 0, "late hit keeps its warning throughout reaction instead of hiding it")
 	while rat.state != KingRat.State.CHARGE: await frames(1)
-	check(Engine.get_physics_frames()-resumed_frame >= 15, "late reaction guarantees at least quarter-second visible warning")
+	var elapsed := (Engine.get_physics_frames()-resumed_frame)/60.0
+	check(elapsed >= saved_progress-0.02 and elapsed <= saved_progress+0.04, "continuous visible warning resumes exact remainder without added quarter-second")
 	# Aim can change while warning; after execution it cannot home.
 	await boss_setup()
 	rat.position = Vector3(0,0.01,14)
@@ -140,7 +140,7 @@ func execution_boundary() -> void:
 	check(rat.attack_committed and rat._recoil_left > 0, "execution-boundary hit still displaces and delays boss")
 	for tick in range(90):
 		await frames(1)
-		if rat.charge_count > 1: break
-	check(rat.charge_count == 2 and rat.attack_commit_count == 1 and rat.attack_cancel_count == 0, "interrupted execution resumes the same intent after readable warning")
+		if not rat.attack_committed: break
+	check(rat.charge_count == 1 and rat.attack_commit_count == 1 and rat.attack_cancel_count == 0 and rat.telegraph_resume_count == 0, "execution reaction never creates another telegraph or charge start")
 	rat._charge_hit(player)
 	check(rat._hit_targets.has(target_id) and player.health.current_health == 70, "resuming same attack cannot reset per-target charge damage guard")

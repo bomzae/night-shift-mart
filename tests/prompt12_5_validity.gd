@@ -40,10 +40,10 @@ func run_checks() -> void:
 	var saved := rat.telegraph_remaining
 	var wall := Graybox.box(mart, "TemporaryBlock", Vector3(4,2,0.3), Vector3(0,1,16.5), Color.GRAY)
 	await frames(12)
-	check(rat.attack_committed and rat.state == KingRat.State.HOLD and is_equal_approx(saved, rat.telegraph_remaining), "temporary obstruction pauses without losing progress")
+	check(rat.attack_committed and rat.telegraph_active and rat.state == KingRat.State.TELEGRAPH and is_equal_approx(saved, rat.telegraph_remaining), "temporary obstruction pauses the same visible warning without losing progress")
 	wall.queue_free()
 	await frames(2)
-	check(rat.state == KingRat.State.TELEGRAPH and rat.resume_warning_left > 0.2, "cleared obstruction restores visible warning")
+	check(rat.state == KingRat.State.TELEGRAPH and rat.mood.text == "!" and rat.telegraph_start_count == 1 and absf(rat.telegraph_remaining-saved) < 0.04, "cleared obstruction continues the same visible warning and remainder")
 	var charged := false
 	for tick in range(60):
 		await frames(1)
