@@ -51,6 +51,7 @@ func run_checks() -> void:
 		check(weapon_body.durability == data.durability_max and weapon_body._armed_seconds == 0, "floor throw impact preserves durability")
 		await weapon_setup(data)
 		rat.position.x = 8
+		await frames(30) # Let the physical carry target settle after relocating the boss.
 		player.set_physics_process(true)
 		var start := player.position
 		Input.action_press("move_forward")
@@ -62,6 +63,7 @@ func run_checks() -> void:
 		Input.action_release("move_forward")
 		check(start.distance_to(player.position) > 1.5 and Vector2(player.velocity.x, player.velocity.z).length() > 4.5, "swing preserves player movement " + String(data.weapon_id))
 		check(clearance > 0.1, "physical swing remains outside camera")
+		print("SWING_CLEARANCE127 ", data.weapon_id, " clearance=", clearance)
 		player.set_physics_process(false)
 	# Alternating high damage sources must not keep restarting incapacitation.
 	await boss_setup()

@@ -9,6 +9,7 @@ func approach_hit(data: WeaponDefinition) -> void:
 	# A controlled approach inside melee reach; normal decision/velocity remain active.
 	rat.charge_range = 0.1
 	rat.desired_attack_distance = 0.1
+	rat.pursuit_speed = 1.5 # Held weapons no longer stop approach before the sweep.
 	rat._charge_wait = 0
 	rat.set_physics_process(true)
 	await frames(2)
@@ -21,7 +22,7 @@ func approach_hit(data: WeaponDefinition) -> void:
 		await frames(1)
 		if rat.hit_count > 0: break
 	check(rat.hit_count == 1 and rat._recoil_left > 0 and rat.approach_interrupt_count == 1, "actual approach hit interrupts once " + data.weapon_id)
-	check(not rat.attack_committed and not rat.telegraph_active and rat.attack_instance_id == 0 and not rat.mood.text.begins_with("!"), "approach hit has no saved warning or intent " + data.weapon_id)
+	check(rat.is_aggro and rat.aggro_target == player and not rat.attack_committed and not rat.telegraph_active and rat.attack_instance_id == 0 and not rat.mood.text.begins_with("!"), "approach retains combat intent without a committed warning " + data.weapon_id)
 	var at_hit := rat.position
 	var held := 0
 	var charged_early := false
@@ -41,7 +42,7 @@ func approach_hit(data: WeaponDefinition) -> void:
 			break
 	print("APPROACH126 ",data.weapon_id," interrupted=",rat.approach_interrupt_count," hold_ticks=",held," recoil_z=",at_hit.z-rat.position.z," commit=",rat.new_attack_commit_count," warning=",rat.telegraph_remaining)
 	check(at_hit.z-rat.position.z > 0.15, "approach hit creates recoil space " + data.weapon_id)
-	check(held >= 8 and held <= 25 and not moved_in_hold and not charged_early, "approach reaction has stationary brief hold and no sudden charge " + data.weapon_id)
+	check(rat.is_aggro and rat.aggro_target == player and not moved_in_hold and not charged_early, "approach reaction retains target and cannot skip telegraph " + data.weapon_id)
 	check(reached_decision and rat.telegraph_start_count == 1 and rat.telegraph_resume_count == 0 and rat.telegraph_remaining > 0.6, "fresh decision starts a full new warning " + data.weapon_id)
 
 func approach_product() -> void:

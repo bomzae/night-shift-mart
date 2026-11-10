@@ -2,6 +2,57 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.7 — Attack Phase Correction / Held Weapon Collision
+
+2026-11-10 구현·자동 검증 완료. Prompt 12.6 커밋의 clean working tree에서 시작. 아래 정책은 12.6의 Approach 복귀 및 Charge 실행 pause/resume 정책을 대체한다. 62개 스크립트 / 3,358 PASS / 0 FAIL / 최종 오류·경고0, 최종 선택 실행 모두 종료0. 사람의 실시간 수동 검사는 미수행. `project.godot` 변경 없음. commit/amend/reset/push 없음.
+
+환경: Project C:\Users\JHS\orca\night-shift-mart, Godot C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe. res:// 경로 변경 없음.
+
+### 실제 원인과 수정 전 재현
+
+- Main의 실제 Grab→Hammer Swing으로 Approach/Telegraph/Charge를 각각 재현했다. `.godot/p127_before_prompt12_7_phase.log`에 before/after state, attack instance, target ID, velocity, AI velocity, recoil, remaining을 기록했다. Approach 후 HOLD, Telegraph 후 동일 TELEGRAPH, Charge 후 동일 CHARGE 복귀를 확인했다. Approach 재개/Charge 취소 기대 검사 2 FAIL. 기존 Approach도 Aggro/target 자체를 지우지는 않았지만 HOLD→새 Decision이었으며 같은 대상의 명시적 접근 재개가 없었다.
+- 12.6은 `attack_committed`가 Charge까지 살아 있고, 피격 시 `state=CHARGE`를 보존하며 `_left`를 반응 동안 pause했다. 따라서 recoil 이후 남은 같은 돌진을 다시 실행했다. 12.7에서는 양수 유효 Damage가 Charge에 들어오는 순간 `cancel_attack("combat_hit")`로 실행을 끝낸다.
+- Held 무기는 기존 RigidBody World layer를 유지했다. Rat↔Weapon 예외는 성공한 melee hit 이후 recoil 동안만 존재해, 그냥 들고 있는 무기는 여전히 movement body를 막았다. 수정 전 3초 idle held 검사에서 Bat/Hammer/Broom의 무기 slide contact가 각각 102/111/117 ticks, symmetric pair=false였다(총 6 FAIL). 이번 평평한 시험 배치에서는 최종 중심 거리는 약1.33m였으므로 항상 긴 거리에서 완전히 멈췄다고 주장하지 않는다. 실제 물리 길막 접촉과 누락된 pair policy를 재현한 것이다.
+
+### 최종 Phase 정책: CONTINUE / CONTINUE / INTERRUPT
+
+- **APPROACH:** `is_aggro/aggro_target`가 전투 의도이며 아직 Telegraph instance는 없다. `interrupt_approach()`는 이동 interruption 계수만 올리고 `_approach_resume_target`을 저장한다. Damage/Flash/Recoil/Stagger 동안 움직임을 멈춘 뒤 같은 Player의 PURSUIT로 복귀한다. 다른 damage instigator도 이 복귀 대상을 교체하지 않는다. 다음 거리/경로 판단에서 전체 Telegraph를 시작해야 Charge할 수 있다. Aggro 종료/대상 무효 시에는 기존 유효성 정책을 따른다.
+- **TELEGRAPH:** 기존 12.6 overlay 정책 유지. 같은 state/attack instance/주황색/`!` 신호를 유지하고 반응 중 timer pause. `resume_telegraph()`는 남은 시간을 그대로 사용하며 Commit/Start count를 올리지 않는다. 새 위치에서 Player 방향을 다시 확인하고 실제 Charge 시작 순간 방향 lock.
+- **CHARGE:** 실제 양수 유효 Combat Damage에서 수평 velocity/AI velocity를 즉시0으로 만들고 current instance를 끝낸다. `ended_attack_instance_id`와 `charge_interrupt_count`로 추적한다. Charge started/resume/pending과 남은 실행 시간을 제거한다. incoming recoil은 정상 적용하고 environmental rearm 때문에 첫 interrupt recoil이 사라지지 않게 한다. Recoil/Stagger→기존 Brief Hold→새 Combat Decision. 기존 charge cooldown을 보존하며 다음 공격은 새 ID와 전체 Telegraph를 사용한다. Damage 없는 외력은 취소하지 않는다.
+- Hold Ground, Contact10HP/1초 cooldown/입력 감쇠/카메라/no Knockdown, Charge30HP/Knockdown, Neutral/Aggro/Food, Weapon 수치 및 non-blocking Character 정책은 변경하지 않았다.
+
+### Held melee collision lifecycle
+
+- WeaponBody가 Grab 성공 시 현재 모든 Monster와 양방향 pair exception을 소유한다. 새 Monster 생성도 이미 Held인 무기에 즉시 등록한다. Monster removal은 weak reference와 tree-exiting callback을 정리한다.
+- Held 동안 예외는 recoil 종료와 무관하게 유지된다. Drop/Throw의 `end_carry()`에서 즉시 양쪽 예외를 제거한다. Break/직접 Delete/Monster Delete도 정리한다. Rat의 이전 임시 recoil-weapon 예외 코드는 제거하여 두 주체가 서로의 예외를 해제하지 않게 했다.
+- CombatTarget의 Area 기반 `contact_push()`도 Held melee를 제외한다. 물리 pair만 제외하고 Area의 가상 몸밀기를 남기는 문제를 방지한다. Sweep/ShapeCast는 기존 Monster query로 Damage를 주며, 들고만 있으면 Damage가 없다. World/Shelf/Cart/Product layer/mask와 실제 RigidBody 운반·낙하·투척은 유지한다.
+
+### 검사 계약 변경 / 실패 이력
+
+- 12.4 hold 검사의 recoil 만료 collision restore 기대를 Held 전체 예외 및 Drop restore로 변경했다. 12.5/12.6의 Charge 피격 후 동일 실행 유지 기대는 이번 명세에 따라 interrupt/end로 변경했다. Telegraph continuity, 피해량, 물리 recoil, target/path 유효성, neutral/contact 검사 기준은 유지한다.
+- Held 길막 제거 뒤 접근 시험의 Hammer swing 중 Rat이 몸 접촉 HOLD 거리까지 도달해 첫 수정 재검사에 Approach 1 FAIL이 있었다. 접근 중 타격을 분리하기 위해 해당 fixture의 pursuit speed만1.5로 제한했다. 게임 속도는 변경하지 않았다. 최종 결과는 아래에 기록한다.
+
+### 자동 검증 결과와 재현 수치
+
+- 기존 58개 스크립트와 신규4개(phase/held/lifecycle/sources)를 실제 창에서 `--path . --fixed-fps 60 --script res://tests/<name>.gd --quit-after 24000 --log-file ...` 방식으로 순차 검증했다. 최종 합계: **62개 / 3,358 PASS / 0 FAIL / 0 ERROR / 0 WARNING**, 모두 종료0. 최종 선택 로그 목록 `.godot/p127_results.txt`; 최초 전체 `.godot/p127_suite_status.txt`, 재검사 `.godot/p127_final_status.txt`, 압박 재완주 및 Main `.godot/p127_main_status.txt`.
+- 신규 Phase71 PASS: 실제 Main Grab/Swing에서 Approach Hammer의 첫 반응 종료 상태 PURSUIT, target 유지, 아직 instance0. Telegraph Hammer는 같은 instance1 유지. Bat/Hammer/Broom의 실제 돌진 도중 Swing Hit 모두 즉시 수평 motor0, instance1 종료, 반응 후 HOLD, 같은 Charge 재개 없음. 기존 cooldown 후 새 ID2/전체 Telegraph→두 번째 Charge 확인.
+- Telegraph 통제 회귀:0.65초 중0.30초 사용 후 남은0.35초→Hammer 반응 후0.35초 그대로. 이어 Bat을 맞아도 Commit1/Start1/Resume2/Charge1. 동일 경고 재시작 없음.
+- 신규 Held15 PASS: 세 무기 모두3초 idle 접근에서 Rat↔Weapon slide collision0 ticks, 중심 거리1.280m, Rat Damage0, 양방향 pair=true. 무기 길이가 movement body를 막지 않는다.
+- 신규 lifecycle37 PASS: 세 무기의 Grab/Drop/재Grab/Throw, 새 Monster 등록/삭제, 실제 released weapon 충돌 Damage, Break/Delete 정리. World mask 유지. 새로운 Monster 추가 시 기존 Held 예외 즉시 적용.
+- 신규 sources28 PASS: 실제 Main의 Frying Pan 투척/빈 Cart/Cart Bomb 충돌 전달로 Charge instance를 한 번만 종료하고 Flash/Recoil 유지. 여기서는 충돌 경로 재현성을 위해 Rat motor만 고정한 Charge phase fixture를 사용하며, 실제 움직이는 Charge 중 무기 타격은 phase 검사에서 별도로 검증했다. Damage0 push는 Charge를 취소하지 않는다.
+- 기존12.1 이동 Swing 카메라 간격2 FAIL은 Rat을 순간 재배치한 직후의 physical carry 정착 과도 상태였다. 해당 fixture에30 physics frame 정착만 추가했고 기준0.1m는 그대로 유지했다. 재검사56 PASS, 최소간격 Bat0.469/Hammer0.438/Broom0.411m. Player/카메라/무기 motor 코드는 수정하지 않았다.
+- 기존12.5 pressure에서 Broom Charge7회가 실제 Hit으로7회 즉시 취소돼 관찰된 Charge motor tick0 조건1 FAIL. 이번 명세에 맞춰 실제 Damage가 모든 실행을 중단한 경우를 인정하고, 취소수=Charge interrupt수 및 Hit수 검증을 유지했다. 움직이는 motor7.5m/s→Hit 즉시0은 신규 Phase가 별도 보장한다. 4,000-frame 제한을 사용한 첫 압박 재검사는 전체3종30초 전에 종료되어 최종 결과에서 제외했고24,000-frame 한도로 재실행하여3종 각각30초를 완주했다.
+- Hold Ground pressure의 AI 추가 후퇴는 Bat/Hammer/Broom 모두0m. 기존 Contact45개 및12.3 Contact41개, Recoil96개 검사를 통과했다. 수치/일반 접촉 피해/차지 피해/중립/군중/고객 동작의 기존 회귀 기준은 유지한다.
+
+- 최종30초 압박: Bat32 Hit / Commit7 / Start7 / Resume14 / Charge7 / Charge interrupt0 / 최대 실행 공백4.62초. Hammer16 Hit / Commit7 / Start7 / Resume13 / Charge6 / interrupt0 / 공백5.32초. Broom53 Hit / Commit7 / Start7 / Resume14 / Charge7 / interrupt7 / 공백5.10초. Broom의7회는 실제 Damage가 시작한 Charge를 중단한 결과이며 같은 실행의 재개가 아니다. HP/내구도를 늘리고 떨어진 무기를 재배치해 실제 입력으로 다시 줍는 통제 시험이다.
+- 최종 import `--headless --path . --editor --import --quit`, Main headless7,200 ticks, Main window-mode600 ticks 모두 종료0, ERROR/SCRIPT ERROR/WARNING 없음. `git diff --check` 통과. `project.godot` diff 없음. `.godot` 실행 로그는 로컬 검증 산출물이며 Git에 추가하지 않았다.
+
+### 수동 확인 및 Known Issues
+
+사람의 실시간 수동 테스트는 미수행. A Approach Hammer 후 같은 대상 재접근/새 전체 예고, B Telegraph Hammer 후 동일 예고, C 실제 Charge Hammer 후 중단/반동/새 판단, D Broom idle 접근 허용, E 실제 Sweep의 큰 push, F Drop/Throw 물리 복구를 확인한다. 자동 창 입력 검사는 수동 손맛 판정이 아니다.
+
+Known TODO 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Day Reset Prototype, Monster/Character visual overlap, Extreme Cart overload Chaos, Simple waypoint navigation limits, KING RAT contact sound/screen feedback final polish. QA Agent/Skill, 새 공격/무기/Boss/진행 시스템/최종 효과는 추가하지 않았다.
+
 ## Prompt 12.6 — Attack Phase Separation / True Telegraph Continuity
 
 2026-11-07 구현·자동 검증 완료. Prompt12.5 완료 상태의 clean working tree에서 시작했다. **58개 스크립트 / 3,207 PASS / 0 FAIL / 최종 오류·경고0**, 모두 종료0. 실제 창 캡처의 경고 표시는 확인했지만 사람의 실시간 수동 전투 손맛 검사는 미확인이다. `project.godot` 변경 없음. commit/amend/reset/push 없음. 아래 정책은12.5의 반복 최소0.25초 재예고와 Charge→Telegraph→재실행 정책을 대체한다.

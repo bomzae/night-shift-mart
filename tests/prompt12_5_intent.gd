@@ -137,10 +137,10 @@ func execution_boundary() -> void:
 	rat._charge_hit(player) # Existing shared charge damage/knockdown path.
 	check(player.health.current_health == 70 and player.knockdown.fall_count == 1, "charge contact remains thirty HP and knockdown")
 	rat.receive_impact(12, Vector3.FORWARD*150, player, 0, true)
-	check(rat.attack_committed and rat._recoil_left > 0, "execution-boundary hit still displaces and delays boss")
+	check(not rat.attack_committed and rat._recoil_left > 0, "execution-boundary hit interrupts charge and displaces boss")
 	for tick in range(90):
 		await frames(1)
 		if not rat.attack_committed: break
-	check(rat.charge_count == 1 and rat.attack_commit_count == 1 and rat.attack_cancel_count == 0 and rat.telegraph_resume_count == 0, "execution reaction never creates another telegraph or charge start")
+	check(rat.charge_count == 1 and rat.attack_commit_count == 1 and rat.attack_cancel_count == 1 and rat.charge_interrupt_count == 1 and rat.telegraph_resume_count == 0, "execution reaction never creates another telegraph or charge start")
 	rat._charge_hit(player)
-	check(rat._hit_targets.has(target_id) and player.health.current_health == 70, "resuming same attack cannot reset per-target charge damage guard")
+	check(rat._hit_targets.has(target_id) and player.health.current_health == 70, "interrupted attack retains per-target charge damage guard")

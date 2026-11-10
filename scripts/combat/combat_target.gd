@@ -18,6 +18,8 @@ func _ready() -> void:
 	collision_layer = HumanSeparation.MONSTER_LAYER
 	collision_mask = 1 | HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER
 	add_to_group("monsters")
+	for weapon in get_tree().get_nodes_in_group("held_melee_weapons"):
+		weapon.ignore_held_monster(self)
 	contact_zone = Area3D.new()
 	contact_zone.collision_layer = 0
 	contact_zone.collision_mask = 1
@@ -33,6 +35,7 @@ func _ready() -> void:
 func contact_push(delta: float) -> void:
 	for body in contact_zone.get_overlapping_bodies():
 		if not body is RigidBody3D: continue
+		if body is WeaponBody and is_instance_valid(body.holder): continue
 		var away := global_position - body.global_position
 		away.y = 0
 		var closing: float = body.linear_velocity.dot(away.normalized())

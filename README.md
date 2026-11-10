@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.6 / KING RAT Attack Phase·Telegraph Continuity 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.7 / KING RAT Attack Phase·Held Weapon Collision 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 
 매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
@@ -10,8 +10,8 @@ Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.6 / KING RAT Attack Phase�
 G는 가까운 Downed 동료를 조준하면 Feed를 우선하고, 그 외에는 자기 HP를 회복합니다. Full HP에서는 음식을 소비하지 않습니다.
 Prompt 11.2 이후 사용자 수동 검사에서 Food Self Heal과 Shelf 뒤 탈출이 정상 확인되었습니다.
 얇은 상품은 카트 바닥에서 지지 접촉이 유지될 때만 미세 회전 감쇠를 받습니다. 가장자리·과적·발사에서는 자유 물리를 유지합니다.
-KING RAT의 Approach는 아직 공격 확정이 아니므로 Hit으로 끊을 수 있습니다. Recoil/Stagger→0.2초 Hold→새 전투 판단으로 이어집니다. Telegraph가 시작되면 같은 공격 ID·주황색 몸·`!` 경고를 피격 반응 중에도 유지하며, Flash 중에는 `! -피해량`을 표시합니다. 남은 예고 시간은 반응 동안 멈췄다가 그대로 이어지고, 매 피격마다0.25초를 더하지 않습니다.
-Charge는 한 공격에서 한 번 시작하며 그 순간 방향을 고정합니다. Charge 중 피격은 기존 Recoil/Stagger와 함께 남은 실행 시간을 잠시 멈출 뿐, Telegraph로 돌아가거나 방향·실행 시간을 다시 설정하지 않습니다. 동일 대상 피해 중복 방지와 Hold Ground는 유지합니다.
+KING RAT의 Approach는 아직 Telegraph 확정 전이며, Hit으로 이동이 중단돼도 같은 Player에 대한 전투 의도를 유지합니다. Recoil/Stagger 후 다시 Approach하고 공격 범위에서 Telegraph를 시작합니다. Telegraph가 시작되면 같은 공격 ID·주황색 몸·`!` 경고를 피격 반응 중에도 유지하며, Flash 중에는 `! -피해량`을 표시합니다. 남은 예고 시간은 반응 동안 멈췄다가 그대로 이어지고, 매 피격마다0.25초를 더하지 않습니다.
+Charge는 한 공격에서 한 번 시작하며 그 순간 방향을 고정합니다. Charge 중 실제 Damage는 현재 돌진과 공격 instance를 즉시 종료합니다. Recoil/Stagger→Brief Hold→새 전투 판단으로 이어지며, 기존 cooldown 이후 새 Telegraph를 거쳐야 다음 Charge가 시작됩니다. 동일 대상 피해 중복 방지와 Hold Ground는 유지합니다. Held Bat/Hammer/Broom은 Monster와의 pair collision만 제외하며 Sweep으로 공격합니다. Drop/Throw 시 즉시 물리 충돌을 복구하고 World/Cart/Product 충돌은 유지합니다.
 KING RAT은 평소 상품을 먹으며 이동합니다. Player의 상품·카트 공격이나 2.5m 안에서 1.25초 지속되는 근접 방해에 반응하며, 시야와 추가 공격을 12초간 잃으면 주변 상품 탐색으로 돌아갑니다.
 도발 후에는 멀면 빠르게 접근하고, 몸 범위 밖1.35~7m의 열린 공격 경로에서는 Telegraph→Charge를 선택합니다. 쿨다운 중에는 자리를 지키며 Player를 향하고, 실제 경로 차단이 있을 때만 짧은 측면 보정·기존 우회 경로를 사용합니다.
 실제 피격은 0.10~0.15초의 밝은 Flash와 강도별 짧은 몸 반응으로 표시됩니다. Broom은 작은 반응과 큰 Push, Bat은 중간 반응, Hammer는 강한 반응과 기존 Stagger를 사용합니다.
@@ -92,7 +92,7 @@ Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유�
 Bat: 피해22 / 0.65초 / 2.2m / 내구도14. Sledgehammer: 피해48 / 1.35초 / 2m / 내구도10. Heavy Broom: 피해12 / 0.55초 / 2.8m / 내구도18.
 Monster 근접·투척 타격 성공 시 내구도1 소모, Miss·벽·일반 손님에는 소모하지 않습니다. 0이면 피해 처리 후 파손됩니다. 우측 하단에 들고 있는 무기 이름·내구도·조작을 표시하며 25% 이하 내구도는 작은 색상 경고로 구분합니다.
 Bat은 빠른 대각선 Swing, Hammer는 0.2초 준비 후 큰 궤적과 긴 회복, Broom은 넓고 빠른 Sweep과 강한 Push를 사용합니다. Hit 순간 Weapon 동작만 잠깐 느려지며 Player·Rat·Cart는 계속 움직입니다. 세 무기 모두 Player 이동 속도는 유지합니다.
-Full Charge 투척 피해는 Bat 11.88 / Hammer 24.48 / Broom 6.72이며 Hammer는 무게 때문에 느리게 날아갑니다. Rat은 강한 피격 뒤 2초 동안 Stagger/Recoil 재시작을 막지만 피해·외력은 계속 받습니다.
+Full Charge 투척 피해는 Bat 11.88 / Hammer 24.48 / Broom 6.72이며 Hammer는 무게 때문에 느리게 날아갑니다. Rat의 강한 Stagger에는 기존 2초 재발동 대기가 있습니다. 실제 Melee 타격과 Charge를 중단시키는 첫 충격의 Recoil은 별도로 보장하며 피해·외력은 계속 적용합니다.
 설정은 `data/weapons/*.tres`입니다. 주문 가격·구매 UI·총기·장비 슬롯은 아직 없습니다.
 
 ## 빠른 테스트 준비 / Auto Stock

@@ -46,8 +46,10 @@ func fight(data: WeaponDefinition, ticks: int) -> void:
 	print("PRESSURE125 ", data.weapon_id, " seconds=", (Engine.get_physics_frames()-start)/60.0, " hits=", rat.hit_count, " observed_entries=", telegraphs, " starts=", rat.telegraph_start_count, " resumes=", rat.telegraph_resume_count, " charge_launches=", charges, " commits=", rat.attack_commit_count, " approach_interrupts=", rat.approach_interrupt_count, " charge_motion_ticks=", moving_charge_ticks, " cancels=", rat.get("attack_cancel_count"), " max_gap=", longest_gap)
 	check(rat.hit_count >= 4, "real sustained melee hits " + data.weapon_id)
 	check(charges >= (3 if ticks > 1000 else 1) and longest_gap < 10, "sustained melee cannot erase all counterattacks " + data.weapon_id)
-	check(moving_charge_ticks > 5, "counterattacks actually move instead of merely entering a state " + data.weapon_id)
-	check(rat.get("attack_cancel_count") == 0, "ordinary melee never cancels intent " + data.weapon_id)
+	# 12.7 permits a real swing to cancel even the first execution tick.
+	# The separate phase test verifies 7.5 m/s motor motion before an interrupt.
+	check(moving_charge_ticks > 5 or (charges > 0 and rat.charge_interrupt_count == charges and rat.hit_count >= charges), "charge moves unless actual damage interrupts every execution " + data.weapon_id)
+	check(rat.attack_cancel_count == rat.charge_interrupt_count, "ordinary melee only cancels charge execution " + data.weapon_id)
 	check(rat.charge_start_count <= rat.telegraph_start_count and rat.telegraph_start_count == rat.new_attack_commit_count, "each committed attack starts at most one telegraph and charge " + data.weapon_id)
 	player.set_physics_process(false)
 

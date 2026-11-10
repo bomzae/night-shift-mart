@@ -102,7 +102,9 @@ var _contact_waits: Dictionary = {}
 var contact_damage_count: int = 0
 var last_ai_velocity := Vector3.ZERO
 var last_impact_impulse := Vector3.ZERO
-var _recoil_weapon: WeakRef
+var _approach_resume_target: Node3D
+var charge_interrupt_count: int = 0
+var ended_attack_instance_id: int = 0
 var visual: Node3D
 var material := StandardMaterial3D.new()
 var mood: Label3D
@@ -322,10 +324,6 @@ func _physics_process(delta: float) -> void:
 	_stagger_wait = maxf(0, _stagger_wait - delta)
 	_attack_stagger_left = maxf(0, _attack_stagger_left - delta)
 	_recoil_left = maxf(0, _recoil_left - delta)
-	if _recoil_weapon != null:
-		var held_weapon := _recoil_weapon.get_ref() as WeaponBody
-		if _recoil_left <= 0 or not is_instance_valid(held_weapon) or not is_instance_valid(held_weapon.holder):
-			_release_recoil_weapon()
 	_recoil_wait = maxf(0, _recoil_wait - delta)
 	_reaction_left = maxf(0, _reaction_left - delta)
 	_pose_left = maxf(0, _pose_left - delta)
@@ -355,6 +353,11 @@ func _physics_process(delta: float) -> void:
 	elif attack_committed and state != State.CHARGE:
 		advance_committed_attack(delta)
 		if state == State.CHARGE: desired = charge_direction * charge_speed
+	elif is_instance_valid(_approach_resume_target) and is_aggro and valid_attacker(_approach_resume_target):
+		aggro_target = _approach_resume_target
+		_approach_resume_target = null
+		state = State.PURSUIT
+		_route_wait = 0
 	elif state == State.RECOIL or state == State.STAGGER:
 		if state == State.RECOIL or _left <= 0:
 			_spacing_grace = post_hit_grace
@@ -607,7 +610,6 @@ func _forget_character(body: PhysicsBody3D) -> void:
 	body.remove_collision_exception_with(self)
 
 func _exit_tree() -> void:
-	_release_recoil_weapon()
 	for ref: WeakRef in _character_pairs.values():
 		var body := ref.get_ref() as PhysicsBody3D
 		if is_instance_valid(body):
@@ -670,6 +672,7 @@ func provoke(attacker) -> void:
 	_lane_wait = 0
 
 func clear_aggro() -> void:
+	_approach_resume_target = null
 	cancel_attack("aggro_ended")
 	is_aggro = false
 	aggro_target = null
@@ -688,10 +691,11 @@ func clear_aggro() -> void:
 	if state not in [State.RECOIL, State.STAGGER, State.DEFEATED]: state = State.SEEK_FOOD
 
 func receive_damage(amount: float, source: Node = null, instigator = null) -> void:
-	if amount > 0: interrupt_approach()
+	prepare_damage_phase(amount)
 	var before := current_health
 	super.receive_damage(amount, source, instigator)
-	if current_health < before and not is_defeated: provoke(instigator)
+	if current_health < before and not is_defeated:
+		provoke(_approach_resume_target if is_instance_valid(_approach_resume_target) else instigator)
 
 func pursue_player(delta: float) -> Vector3:
 	_pursuit_detour_left = maxf(0, _pursuit_detour_left - delta)
@@ -717,27 +721,18 @@ func pursue_player(delta: float) -> Vector3:
 
 func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_mass: float = 0, melee_hit: bool = false) -> void:
 	if is_defeated: return
-	if amount > 0: interrupt_approach()
+	var interrupted_charge := state == State.CHARGE and amount > 0 and is_finite(amount)
+	prepare_damage_phase(amount)
 	last_impact_impulse = impulse
 	# Combat impacts have direction; continuous spray remains receive_impulse only.
 	# Fresh once-per-swing melee is never suppressed by the environmental/stagger rearm gate.
-	var can_recoil := melee_hit or (_recoil_wait <= 0 and (amount < stagger_threshold or _stagger_wait <= 0))
+	var can_recoil := interrupted_charge or melee_hit or (_recoil_wait <= 0 and (amount < stagger_threshold or _stagger_wait <= 0))
 	if impulse.is_finite() and impulse.length_squared() > 0.001 and amount > 0 and can_recoil:
 		var direction := Vector3(impulse.x, 0, impulse.z).normalized()
 		last_recoil_speed = minf(max_recoil_speed, amount * recoil_damage_scale + impulse.length() / target_mass * 0.25)
 		recoil_velocity = direction * last_recoil_speed
 		_recoil_left = recoil_duration
 		_recoil_wait = recoil_cooldown
-		if melee_hit and is_instance_valid(instigator):
-			var interaction: Node = instigator.get_node_or_null("Interaction")
-			if interaction != null and interaction.held_object is WeaponBody:
-				_release_recoil_weapon()
-				var weapon: WeaponBody = interaction.held_object
-				_recoil_weapon = weakref(weapon)
-				add_collision_exception_with(weapon)
-				weapon.add_collision_exception_with(self)
-				weapon.carry_ended.connect(_release_recoil_weapon)
-				weapon.tree_exiting.connect(_release_recoil_weapon)
 		if not attack_committed and state != State.STAGGER: state = State.RECOIL
 		external_velocity -= direction * minf(0, external_velocity.dot(direction))
 	# Preserve shared damage/weak external-force contract without stacking recoil.
@@ -745,15 +740,22 @@ func receive_impact(amount: float, impulse: Vector3, instigator = null, impact_m
 	super.receive_impact(amount, impulse, instigator, impact_mass, melee_hit)
 	_impact_mass = 0
 
-func _release_recoil_weapon() -> void:
-	if _recoil_weapon == null: return
-	var weapon := _recoil_weapon.get_ref() as WeaponBody
-	if is_instance_valid(weapon):
-		if weapon.carry_ended.is_connected(_release_recoil_weapon): weapon.carry_ended.disconnect(_release_recoil_weapon)
-		if weapon.tree_exiting.is_connected(_release_recoil_weapon): weapon.tree_exiting.disconnect(_release_recoil_weapon)
-		remove_collision_exception_with(weapon)
-		weapon.remove_collision_exception_with(self)
-	_recoil_weapon = null
+func prepare_damage_phase(amount: float) -> void:
+	if is_defeated or amount <= 0 or not is_finite(amount): return
+	if state == State.CHARGE:
+		ended_attack_instance_id = attack_instance_id
+		charge_interrupt_count += 1
+		cancel_attack("combat_hit")
+		_approach_resume_target = null
+		_attack_stagger_left = 0
+		_left = 0
+		velocity.x = 0
+		velocity.z = 0
+		last_ai_velocity = Vector3.ZERO
+		_reaction_left = maxf(_reaction_left, 0.1)
+		state = State.RECOIL
+	else:
+		interrupt_approach()
 
 func combat_distance() -> float:
 	var offset := last_known_position - global_position
@@ -763,10 +765,11 @@ func combat_distance() -> float:
 func interrupt_approach() -> void:
 	if not is_aggro or attack_phase != AttackPhase.COMBAT_APPROACH: return
 	approach_interrupt_count += 1
+	_approach_resume_target = aggro_target
 	pursuit_route.clear()
 	_route_wait = 0
 	_spacing_grace = post_hit_grace
-	state = State.HOLD # Subsequent damage/recoil owns recovery before a fresh decision.
+	state = State.RECOIL # Suspend movement, retaining the same combat target.
 
 func resume_combat() -> void:
 	_route_wait = 0
@@ -828,7 +831,7 @@ func reposition_move(delta: float, _distance: float) -> Vector3:
 	return side * orbit_speed
 
 func cancel_attack(reason: String) -> void:
-	# Explicit cancellation is reserved for impossible attacks, never ordinary damage.
+	# Telegraph damage delays; actual charge damage terminates the execution.
 	if attack_committed:
 		attack_cancel_count += 1
 		last_attack_cancel = reason

@@ -62,16 +62,16 @@ func run_checks() -> void:
 	await frames(6)
 	saved = rat._left
 	rat.receive_impact(48,Vector3.LEFT*40,player,0,true)
-	check(rat.attack_phase == KingRat.AttackPhase.CHARGE and rat._attack_stagger_left > 0, "charge has physical reaction without changing phase")
+	check(not rat.attack_committed and rat.charge_interrupt_count == 1 and rat._recoil_left > 0, "charge damage ends execution and preserves recoil")
 	player.position.x = 5
 	await frames(10)
-	check(is_equal_approx(saved,rat._left) and rat.charge_direction.is_equal_approx(locked), "charge reaction pauses original execution clock and locked direction")
+	check(rat.state != KingRat.State.CHARGE and rat.charge_direction.is_equal_approx(locked), "interrupted charge cannot resume its motor")
 	await wait_overlay()
 	var retelegraphed := false
 	for tick in range(90):
 		await frames(1)
 		retelegraphed = retelegraphed or rat.telegraph_active
-	check(not retelegraphed and rat.charge_start_count == 1 and rat.telegraph_resume_count == 0 and rat.telegraph_start_count == 1, "charge continues once without retelegraph or resume event")
-	check(not rat.attack_committed and rat.charge_direction.is_equal_approx(locked), "paused charge completes without homing or renewing duration")
+	check(not retelegraphed and rat.charge_start_count == 1 and rat.telegraph_resume_count == 0 and rat.telegraph_start_count == 1, "interrupted charge never resumes or retelegraphs during cooldown")
+	check(not rat.attack_committed and rat.charge_direction.is_equal_approx(locked), "interrupted charge ends without homing or renewing duration")
 	print("P126 continuity complete failures=",failures)
 	quit(1 if failures else 0)

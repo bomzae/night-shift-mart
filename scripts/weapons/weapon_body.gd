@@ -9,6 +9,38 @@ var swing_hits: Dictionary = {}
 var _previous_phase: float = 0
 var hit_feedback: float = 0
 var hit_stop_left: float = 0
+var _held_monsters: Dictionary = {}
+
+func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
+	if not super.begin_carry(controller, player): return false
+	add_to_group("held_melee_weapons")
+	for monster in get_tree().get_nodes_in_group("monsters"):
+		ignore_held_monster(monster)
+	return true
+
+func ignore_held_monster(monster: PhysicsBody3D) -> void:
+	if not is_instance_valid(holder) or _held_monsters.has(monster.get_instance_id()): return
+	_held_monsters[monster.get_instance_id()] = weakref(monster)
+	add_collision_exception_with(monster)
+	monster.add_collision_exception_with(self)
+	monster.tree_exiting.connect(_forget_held_monster.bind(monster.get_instance_id()))
+
+func _forget_held_monster(id: int) -> void:
+	if not _held_monsters.has(id): return
+	var monster = _held_monsters[id].get_ref()
+	if is_instance_valid(monster):
+		remove_collision_exception_with(monster)
+		monster.remove_collision_exception_with(self)
+		var callback := _forget_held_monster.bind(id)
+		if monster.tree_exiting.is_connected(callback): monster.tree_exiting.disconnect(callback)
+	_held_monsters.erase(id)
+
+func _clear_held_monsters() -> void:
+	for id in _held_monsters.keys(): _forget_held_monster(id)
+	if is_in_group("held_melee_weapons"): remove_from_group("held_melee_weapons")
+
+func _exit_tree() -> void:
+	_clear_held_monsters()
 
 func _ready() -> void:
 	display_name = weapon.display_name
@@ -58,6 +90,7 @@ func start_swing() -> bool:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
+	if not is_instance_valid(holder): _clear_held_monsters()
 	$Label.visible = show_debug_label
 	cooldown_left = maxf(0, cooldown_left - delta)
 	hit_feedback = maxf(0, hit_feedback - delta)
@@ -169,6 +202,7 @@ func _deliver_impact(body, damage: float, impulse: Vector3, instigator) -> void:
 		spend_durability()
 
 func end_carry() -> void:
+	_clear_held_monsters()
 	swing_left = 0
 	hit_stop_left = 0
 	super.end_carry()
