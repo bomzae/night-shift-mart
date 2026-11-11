@@ -2,6 +2,72 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.8 — NPC Long-Stuck Recovery / HUD / Delivery
+
+2026-11-11 구현·자동 검사 완료. Prompt12.7 커밋의 clean working tree에서 시작했다. 구현 범위는 NPC 장기 정체, Checkout HUD 중첩, 배송 종료/다음 배송 피드백 세 가지다. Broom/Weapon/Boss/Combat 수치와 Round/Day 기능은 변경하지 않는다. 65개 스크립트 / 3,508 PASS / 0 FAIL / 최종 선택 실행 오류·경고0. 사람의 A~G 수동 검사는 미수행이며, 별도 Boss 이동량 이상 관찰은 아래에 남긴다. commit/amend/reset/push 없음.
+
+### QA 재현과 실제 원인
+
+- 기존 `tests/prompt11_5_chaos_smoke.gd`의 Main 경로를 확장해 AutoStock318개, Tourist12명, KING RAT, Cart, Thief, Drunk, Lost Family, Fire, Spill, 바닥 Product8개를 동시에 실행했다. 수정 전 `.godot/p128_before_stress.log`의 Tourist id592168623439는30/60/90초 모두 STORE, purchased=[], 위치(4.279866,0.00019,23.63175), velocity0이었다.
+- 남은 route는 (26,21)→(26,4.65)→(23,4.65), 유효한 CookingOilShelf point1과 실제 상품4개 예약을 계속 보유했다. 현재 위치에서 남은 횡단 waypoint로 가는 직선이 앞쪽 진열대 Deck/측면에 충돌했다(법선 -X). 근처 상품은 있었지만 실제 slide collider는 StaticBody Shelf였고, 예외는 KING RAT의 기존 non-blocking pair뿐이었다. 예약 삭제/상품 소실/속도 설정0이 원인이 아니었다.
+- Fire/외력으로 경로에서 벗어난 뒤에도 기존 waypoint를 계속 향할 수 있고, CartRecovery/ProductRecovery는 해당 종류 장애물만 다뤄 고정 Shelf 정체를 풀지 못했다. BasicCustomer에는 상위 목표 진행 감시·경로 재계산·유한 실패 처리가 없었다. 단순 waypoint 체계 자체를 교체하지 않고 이 누락을 보완했다.
+
+### Progress Watchdog / 적용 상태
+
+- `NPCProgressWatchdog`:3초 window, 실제 수평 순변위 또는 목표거리 감소0.4m 이상이면 진행으로 인정한다. 이동 명령의 속도가 아니라 실제 위치를 측정한다. 동일 쇼핑 목적(방문 인덱스/계산대 이동) 또는 동일 Exit 종점의 recovery attempts는 최대6회이며 단순 repath로 초기화하지 않는다. 다른 목적을 시작하면 새 budget을 사용한다. NPC별 `recovery_count`, `recovery_attempts`, `last_progress`, `recovery_last_action`, `recovery_target`을 검사할 수 있다.
+- BasicCustomer/Tourist의 STORE/EXIT 중 waypoint 이동 및 SHOP point까지 미도착한 이동에 적용. Queue/Checkout, point에 도착한 Shopping Hold, EVENT_WAIT, Disappointed 짧은 대기, Knockdown/Fire Reaction은 제외하거나 측정 window를 중단한다.
+- Thief의 실제 waypoint Approach/Escape/Leaving은 같은 motor를 사용한다. Steal/Captured 대기는 제외하며 접근 최종 실패 시 원격 steal하지 않고 `leave_empty()`로 전환한다. LostParent는 재회 대기를 제외하고 Exit 이동만 적용한다.
+- Drunk와 LostChild의 CarryableCharacter motor에는 고객의 고정 목표/쇼핑 fallback을 강제 적용하지 않았다. Drunk는 기존2초 방향 재선택과 Cart/Product recovery, Child는 기존 재회 follow/catch-up과 Carry/Knockdown 정책을 유지한다. 관련 실제 이동·탈출·재회 회귀로 검증한다.
+
+### Recovery Ladder / 예약 / 최종 fallback
+
+1. 동일 최종 목적에 대해 현재 위치에서 `StoreRoutes.via_main` 재계산.
+2. capsule sweep으로 확인한1.2m 측면 경유점으로 막힌 waypoint를 우회하는 대체 접근. 짧게 옆으로 갔다가 막힌 중앙점에 복귀하지 않으며 목적은 유지.
+3. 사라진/종료된 예약 소유자 정리, 현재 고객의 실제 선반 상품 중 소유자가 없는 claim만 복구. 다른 정상 고객 claim은 빼앗지 않는다. 생성 후3초의 소유 관계 설정 유예를 두고 실제 shelf/leave 관계가 사라진 shopping point owner만 정리한다. 자기 point를 잃었다면 새 point를 예약한다.
+4. 실제 상품/선반/claim 재검증. 유효 상품이면 경로 재계산, 불가능하면 기존 Out-of-stock 처리. 삭제된 SHOP shelf 참조도 다시 선택하도록 안전하게 처리.
+5. capsule sweep과 아래쪽 World support ray가 통과하는 경우에만0.55m 수평 correction. 벽/선반 관통·큰 teleport 없음.
+6. 동일 쇼핑 목표를 포기해 기존 Out-of-stock→Disappointed→Exit로 진행하고 claim/point를 정리한다. Exit 자체도 여섯 번 실패한 경우 기존 `finish_exit()`로 수명주기를 마무리한다. 무한 recovery 재시작을 하지 않는다. Thief Approach는 별도 empty leave 정책이다.
+
+점유 point 재시도의 실제 대기 지점 도착 후 누적 대기는18초로 제한한다. 대기 지점까지 정상 이동한 시간은 포함하지 않는다. 기존 점유 실패 경로는 도착 후에도 중앙 aisle 왕복을 다시 만들었으므로, 도착 후에는 그 자리에서 point를 재시도하고 movement watchdog에서 제외한다. 다른 정상 점유자를 강제로 퇴거시키지 않고 해당 쇼핑을 포기한다. 정상 예약과 구매·결제 원자성, 기존 CartRecovery/ProductRecovery의 물리 예외 복구는 유지한다. 복구 로그는 실제 단계 실행 때만 기록하며 frame마다 출력하지 않는다.
+
+### Checkout HUD / Delivery
+
+- 기존 좌측(24,110)의 SCAN/구매 아이콘/PAY 패널은 유지하고 Fire/Customer/Thief/Drunk/Family/Spill/Bus 및 매출 통계를 우측 anchor column으로 이동했다. `HudLayout.stat()`의14px 행, 검정 shadow로 가독성을 확보한다. Bus 통계는2줄 전용 공간이다. HP/Weapon HUD와 Customer 머리 위 구매 아이콘은 유지한다.
+- 1280×720 및1920×1080에서 Checkout panel과 모든 통계 사각형, 통계끼리의 사각형, viewport 내부 여부를 deterministic 검사한다. 실제1280×720 캡처 `.godot/p128_checkout.png`, `p128_delivery_left.png`, `p128_delivery_next.png`로 Checkout과 배송 화면도 직접 확인했다. World sign과 세계의 구매 아이콘은 삭제하지 않았다.
+- Delivery departure에서 실제 `last_result`의 Unloaded/Left Behind를3초 작은 HUD summary로 표시한다. Returned>0이면 작은 색 강조. 이후 `NEXT DELIVERY mm:ss` 표시. 실제 `_timer`와 기존 arrival-to-arrival `delivery_interval - truck_wait_time` 정책을 사용하며60초 하드코딩 없음. 새 arrival은 summary를 끝내고 기존 active HUD로 전환한다. World sign은 `DELIVERY AWAY`로 중복 countdown을 줄인다.
+
+### 검사 / 실패 이력
+
+신규 스크립트는 `tests/prompt12_8_recovery.gd`, `tests/prompt12_8_ui_delivery.gd`, `tests/prompt12_8_stress.gd`다. 문서의 Godot executable에 `--path . --fixed-fps 60 --script res://tests/<script>.gd --quit-after 24000 --log-file <log>`를 전달해 창을 순차 실행한다. Stress는30/60/90초를 기록하고 마지막 복구를105초까지 확인한다.
+
+- 첫 신규 실행에서 테스트 변수명 중복과 BasicCustomer의 Variant 타입 추론 warning-as-error를 발견해 수정했다. 해당 로그는 `p128_new_*`에 보존했다. UI fixture의 Fire node 경로도 실제 `Fires`로 수정했다. 오류 상태의 해당 테스트 프로세스만 종료하고 수정 후 순차 재실행했다.
+- 전체 회귀 첫 실행에서 정상 tier point 예약이 즉시 정리되는 문제(11.3), 바닥 상품 회피 후 막힌 중앙 waypoint로 되돌아오는 문제(11.4 flow), 대기 지점까지 이동 시간을18초 점유 대기에 포함한 문제(Prompt4)를 발견했다. 각각3초 예약 설정 유예, 막힌 waypoint 측면 우회, 도착 후 대기 시간 측정으로 수정했다. 수정 중 타입 추론 오류가 포함된11.7 두 실행은 종료0이었어도 SCRIPT ERROR가 있어 무효 처리하고 오류0 재실행으로 교체했다. Prompt4의6명 대기열,11.4 flow의 관광객 진행,11.3의 공유 point 예약 및11.7 Neutral/Food 검사가 수정 후 통과했다. 신규 영구 점유 fixture도 이동 시간과 실제18초 대기를 별도로 관찰하도록 정리했다. 그 과정에서 기존 점유 대기가 main aisle 왕복 경로를 계속 재생성하는 문제를 발견해 도착 위치에서 재시도하도록 수정하고 관련 군중 회귀를 다시 실행했다. 기존 검사의 기대값/기준은 낮추지 않았다.
+- 강제 정체 검사:3초 감지, 실제 이동/의도적 대기 제외, 동일 목적6회 제한, 정상 reservation 보존/누락 claim 복구/불필요 point 해제, 상품 삭제,18초 point 점유 fallback, 실제6단계 후 상태 진행 확인.
+- 배송 검사: 실제6개 중1개 하역/5개 회수 표시. interval17초/wait5초로 설정해 summary3.1초 뒤00:09→2초 뒤00:07→두 번째 arrival 전환 및 두 번째 departure 수량 보존 확인.
+- 최종 전체 결과: Prompt0~12.7 기존62개 / 3,358 PASS, 신규12.8 3개 / 150 PASS(Recovery19, UI·Delivery121, Stress10), 합계65개 / 3,508 PASS / 0 FAIL. 선택 실행 모두 exit0, SCRIPT ERROR/ERROR/FAIL/WARNING0. 중복 재실행은 합산하지 않았으며 선택 로그 manifest는 `.godot/p128_results.csv`다. 최종 Import exit0, Main headless7,200 physics frames(120초)와 Main 창600frames 모두 exit0/오류·경고0. 로그는 `p128_final_import.log`, `p128_main_headless.log`, `p128_main_window.log`. `project.godot` 변경 없음. 자동 실행 창은 순차 실행하며 Broom 밸런스/실제 기본 내구도 손맛은 이 검사로 확정하지 않는다.
+
+### 90초 복합 재현 결과
+
+최종 코드의 두 실행에서30·60·90초 동일 위치/목표 장기 정체는 모두0명이었다. Customer RNG seed는115이며 Drunk의 자체 RNG와 복합 물리 결과는 실행마다 달라질 수 있다. 아래는 좌표 추적을 추가한 마지막 실행(`p128_bounds_prompt12_8_stress.log`)이다. Queue/Checkout은 의도적 대기이므로 stuck에서 제외한다. 실제 계산대 결제 입력을 자동 대행하지 않은 관찰이다.
+
+| 시간 | Active Customer | 30→60→90 동일 이동목표 정체 | 누적 복구 | Queue | Checkout | Exit 완료 |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| 30초 | 12 | 관찰 중 | 2 | 0 | 없음 | 0 |
+| 60초 | 12 | 관찰 중 | 6 | 0 | 없음 | 0 |
+| 90초 | 12 | 0 | 11 | 9 | 있음 | 0 |
+
+90초에12명 모두 선반에서 최소1개 상품을 획득했고 queue9/checkout 활성 상태였다. 새 장애물에 복구 중이던1명은105초까지 level6 Out-of-stock/Exit fallback으로 진행했다. 기존 미결제 상품 손실 회계도 그대로 적용됐다. 바로 앞 최종 코드 실행은90초 active10/queue7/recovery7/exit2였으며 장기 정체0, 최소1개 상품 획득10명으로 통과했다. 장기 정체 판정은30·60·90초 세 표본이 모이는90초에 확정한다. NPC id별 state/position/route/current·next waypoint/거리/progress/point occupancy/goods/claims/nearby bodies/slides/exceptions/recovery 상태를 로그에 남긴다. Rat 이동·Charge Damage와 전체 world progress도 함께 검사한다.
+
+### 추가 QA 관찰 — 범위 밖, 원인 미확정
+
+`p128_waitfix_prompt12_8_stress.log` 한 실행에서 Boss 누적3D 이동량3,981.62m와 빈 배경 캡처를 관찰했다. 당시 좌표를 기록하지 않아 맵 밖 낙하라고 확정할 수 없다. 이를 숨기지 않고 테스트에30/60/90초 Rat/Player/Cart 좌표와 y<-2 최초 감지 로그를 추가했다. 추적 재실행은 Boss22.25m, Rat y≈0, Player y≈0, bounds 감지 없음으로 재현되지 않았다. 기본 게임 경계/장시간 무입력·고HP 전투 조건과의 관계는 미확정이다. 기존 자동 assertion은 두 실행 모두 PASS지만 이것을 전투 안정성 보장으로 해석하지 않는다. 요청된 세 수정 범위 밖의 Boss/World 정책은 변경하지 않았으며 다음 gameplay-qa Auditor에서 이 관찰을 우선 재확인한다.
+
+### 수동 검사 / Known Issues
+
+사람의 실시간 A~G 검사는 미수행: Tourist1~2분 복합 관찰, Product/Cart 길막, 같은 Rack point 경쟁,1280×720 Checkout, 일부 미하역 후 회수 summary, countdown, 두 번째 배송을 확인한다. 스크린샷 확인과 실제 자동 창 입력은 수동 손맛 판정과 구분한다.
+
+Known TODO 유지: NPC Knockdown Mesh/Collider mismatch; Cart Contact Repeated Damage; Day Reset Prototype; Monster/Character visual overlap; Extreme Cart overload Chaos; simple waypoint 유지(이번 generic recovery 추가); KING RAT contact sound/screen final polish; Broom balance는 기본 내구도 수동 검증 후 결정. 수동 확인이 정상이면 gameplay-qa Auditor 재검사 후 Round/Day Progression 준비 상태이며 해당 기능은 구현하지 않았다.
+
 ## Prompt 12.7 — Attack Phase Correction / Held Weapon Collision
 
 2026-11-10 구현·자동 검증 완료. Prompt 12.6 커밋의 clean working tree에서 시작. 아래 정책은 12.6의 Approach 복귀 및 Charge 실행 pause/resume 정책을 대체한다. 62개 스크립트 / 3,358 PASS / 0 FAIL / 최종 오류·경고0, 최종 선택 실행 모두 종료0. 사람의 실시간 수동 검사는 미수행. `project.godot` 변경 없음. commit/amend/reset/push 없음.

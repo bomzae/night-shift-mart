@@ -22,7 +22,7 @@ func _ready() -> void:
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	_label = Label.new()
-	_label.position = Vector2(24, 86)
+	HudLayout.stat(_label, 3)
 	canvas.add_child(_label)
 	_update_label()
 

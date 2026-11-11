@@ -39,7 +39,8 @@ func _ready() -> void:
 	add_child(canvas)
 	_label = Label.new()
 	canvas.add_child(_label)
-	_label.position = Vector2(24, 260) # Below the active checkout panel.
+	HudLayout.stat(_label, 6)
+	_label.offset_bottom += 26
 	_update_label()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -134,7 +135,7 @@ func _on_customer_paid(customer: BasicCustomer) -> void:
 	_update_label()
 
 func _update_label() -> void:
-	_label.text = "[B] BUS: %s | PASSENGERS %d/%d | ACTIVE %d | ARRIVED %d / SERVED %d" % [State.keys()[state], spawned_count, _target_count, spawned_count - completed_count(), tourist_buses_arrived, tourist_customers_served]
+	_label.text = "[B] BUS: %s | %d/%d | ACTIVE %d\nARRIVED %d / SERVED %d" % [State.keys()[state], spawned_count, _target_count, spawned_count - completed_count(), tourist_buses_arrived, tourist_customers_served]
 
 func _exit_tree() -> void:
 	if is_instance_valid(manager): manager.event_spawn_paused = false

@@ -39,6 +39,11 @@ var product_recovery := ProductRecovery.new()
 var cart_recovery := CartRecovery.new()
 var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
+var progress_watchdog := NPCProgressWatchdog.new()
+var recovery_last_action: String = ""
+var recovery_target := Vector3.ZERO
+var _occupancy_wait: float = 0
+var _waiting_shopping_point: bool = false
 @export var human_separation := HumanSeparation.new()
 @export var separation_multiplier: float = 1.0
 @export var queue_separation_multiplier: float = 0.35
@@ -114,11 +119,13 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	fire_reaction.tick(delta)
 	if knockdown.tick(delta):
+		progress_watchdog.elapsed = 0
 		velocity = knockdown.damp_motion(velocity, delta)
 		velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 		move_and_slide()
 		return # Keep timers, purchase state and path progress for recovery.
 	if fire_reaction.active():
+		progress_watchdog.elapsed = 0
 		velocity = fire_reaction.motion(velocity + _push * delta, delta)
 		_push = _push.move_toward(Vector3.ZERO, push_decay * delta)
 		velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
@@ -126,7 +133,14 @@ func _physics_process(delta: float) -> void:
 		return
 	scan_wait = maxf(0, scan_wait - delta)
 	if (state == State.STORE or state == State.SHOP) and not manager.valid_goods(self):
-		manager.out_of_stock(self)
+		manager.repair_reservations(self)
+		if not manager.valid_goods(self): manager.out_of_stock(self)
+	if _waiting_shopping_point and state == State.STORE:
+		# Travel to the waiting area is not occupancy waiting. Long valid routes
+		# must not consume the bounded wait before a customer even arrives.
+		if waypoints.is_empty() or global_position.distance_to(waypoints.back()) < 0.5:
+			_occupancy_wait += delta
+		if _occupancy_wait >= 18: manager.out_of_stock(self)
 	if state == State.QUEUE or state == State.CHECKOUT:
 		patience_left = maxf(0, patience_left - delta)
 		if not manager.valid_goods(self):
@@ -138,6 +152,11 @@ func _physics_process(delta: float) -> void:
 		if _disappointment_left <= 0:
 			start_exit()
 	var target := global_position
+	if state == State.SHOP and not is_instance_valid(shopping_shelf):
+		shopping_shelf = null
+		shopping_point_index = -1
+		waypoints.clear()
+		state = State.STORE
 	if state == State.SHOP:
 		target = shopping_shelf.shopping_point(shopping_point_index)
 		shopping_focus = shopping_shelf.global_position + Vector3.UP * (0.9 + shopping_shelf.tier_height)
@@ -175,6 +194,14 @@ func _physics_process(delta: float) -> void:
 			state = State.CHECKOUT
 	var direction := target - global_position
 	direction.y = 0
+	var movement_required := state in [State.STORE, State.EXIT] and not waypoints.is_empty()
+	movement_required = movement_required or (state == State.SHOP and direction.length() >= 0.35)
+	var key := "exit:"+str(waypoints.back() if not waypoints.is_empty() else target) if state == State.EXIT else "shop:%d:%s" % [visited_types.size(),str(_heading_queue)]
+	recovery_target = target
+	var level := progress_watchdog.observe(global_position,target,key,movement_required,delta)
+	if level > 0:
+		recover_progress(level)
+		return
 	var walking := direction.normalized() * minf(move_speed, direction.length() * 5)
 	var spacing_weight := separation_multiplier * minf(1.0, direction.length() / 0.5)
 	if state == State.QUEUE or state == State.CHECKOUT: spacing_weight *= queue_separation_multiplier
@@ -206,6 +233,70 @@ func _physics_process(delta: float) -> void:
 	_mesh.rotation.x = -0.1 * sin(PI * (1 - _shopping_left / shopping_time)) if state == State.SHOP else 0.0
 	_mesh.position.y = 0.825 + sin(Time.get_ticks_msec() * 0.012) * minf(0.035, walking.length() * 0.015)
 	update_mood()
+
+func recover_progress(level: int) -> void:
+	var goal: Vector3 = waypoints.back() if not waypoints.is_empty() else recovery_target
+	if is_instance_valid(shopping_shelf): goal = shopping_shelf.shopping_point(shopping_point_index)
+	recovery_last_action = ["repath","alternate","reservation","revalidate","soft_step","abort"][level-1]
+	print("NPC RECOVERY id=",get_instance_id()," state=",State.keys()[state]," level=",level," action=",recovery_last_action," pos=",global_position," goal=",goal)
+	match level:
+		1:
+			waypoints = StoreRoutes.via_main(global_position,goal)
+			if state == State.SHOP: state = State.STORE
+		2:
+			# Bypass the blocked waypoint instead of sidestepping then rejoining it.
+			alternate_approach(goal)
+			if state == State.SHOP: state = State.STORE
+		3:
+			manager.repair_reservations(self)
+			if is_instance_valid(shopping_shelf):
+				var owner := shopping_shelf.point_owner if is_instance_valid(shopping_shelf.point_owner) else shopping_shelf
+				if owner._shopping_users.get(shopping_point_index) != self:
+					shopping_shelf = null
+					shopping_point_index = -1
+					waypoints.clear()
+					state = State.STORE
+		4:
+			if state != State.EXIT and not manager.valid_goods(self): manager.out_of_stock(self)
+			else: waypoints = StoreRoutes.via_main(global_position,goal)
+		5:
+			# A short swept correction only; never cross a shelf or teleport to a route.
+			var step := recovery_step()
+			if step != Vector3.ZERO: global_position += step
+			waypoints = StoreRoutes.via_main(global_position,goal)
+		6:
+			if state == State.EXIT: finish_exit()
+			else: manager.out_of_stock(self)
+
+func alternate_approach(goal: Vector3) -> void:
+	if waypoints.is_empty(): waypoints = StoreRoutes.via_main(global_position,goal)
+	var blocked := waypoints[0]
+	var forward := blocked-global_position
+	forward.y = 0
+	if forward.length() < 0.01: forward = goal-global_position
+	var side := forward.normalized().cross(Vector3.UP)
+	if (global_position-side*1.2).distance_to(goal) < (global_position+side*1.2).distance_to(goal): side = -side
+	for sign_value in [1.0,-1.0]:
+		var first: Vector3 = global_position+side*1.2*sign_value
+		var second: Vector3 = blocked+side*1.2*sign_value
+		var transform_at := global_transform
+		if test_move(transform_at,first-global_position): continue
+		transform_at.origin = first
+		if test_move(transform_at,second-first): continue
+		if waypoints.size() > 1: waypoints.pop_front()
+		waypoints.push_front(second)
+		waypoints.push_front(first)
+		return
+
+func recovery_step() -> Vector3:
+	for direction in [Vector3.LEFT,Vector3.RIGHT,Vector3.FORWARD,Vector3.BACK]:
+		var motion: Vector3 = direction * 0.55
+		if test_move(global_transform,motion): continue
+		var at := global_position+motion
+		var ray := PhysicsRayQueryParameters3D.create(at+Vector3.UP*0.2,at-Vector3.UP*0.5,1,[get_rid()])
+		var support := get_world_3d().direct_space_state.intersect_ray(ray)
+		if not support.is_empty() and support.collider is StaticBody3D and support.normal.y > 0.8: return motion
+	return Vector3.ZERO
 
 func uses_customer_separation() -> bool:
 	return true
@@ -267,9 +358,18 @@ func continue_shopping() -> void:
 				continue
 			var point := shelf.reserve_shopping_point(self, product.global_position)
 			if point < 0:
-				waypoints = StoreRoutes.via_main(global_position, shelf.to_global(Vector3(-2.5 + (manager.customers.find(self) % 6), 0.01, 3.0)))
+				_waiting_shopping_point = true
+				var waiting_point := shelf.to_global(Vector3(-2.5 + (manager.customers.find(self) % 6), 0.01, 3.0))
+				# Already at the waiting point: retry occupancy here, not via a new
+				# round trip through the main aisle on every failed reservation.
+				if global_position.distance_to(waiting_point) < 0.5:
+					waypoints.clear()
+				else:
+					waypoints = StoreRoutes.via_main(global_position, waiting_point)
 				return
 			shopping_shelf = shelf
+			_occupancy_wait = 0
+			_waiting_shopping_point = false
 			shopping_point_index = point
 			var destination := shelf.shopping_point(point)
 			waypoints = StoreRoutes.via_main(global_position, destination)
@@ -277,6 +377,7 @@ func continue_shopping() -> void:
 	manager.out_of_stock(self)
 
 func release_shopping_points() -> void:
+	_waiting_shopping_point = false
 	if is_instance_valid(shopping_shelf):
 		shopping_shelf.release_shopping_point(self)
 	if is_instance_valid(_leaving_shelf):

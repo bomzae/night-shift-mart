@@ -14,6 +14,8 @@ var left_behind: int = 0
 var delivery_number: int = 0
 var shipment: Array[GrabbableBody] = []
 var last_result: Dictionary = {}
+@export var departure_summary_time: float = 3.0
+var summary_left: float = 0
 var _timer: float
 var _truck: Node3D
 var _status: Label3D
@@ -52,15 +54,19 @@ func _set_truck(present: bool) -> void:
 		for component in child.get_children():
 			if component is CollisionShape3D:
 				component.set_deferred("disabled", not present)
-	_hud.visible = present
+	_hud.visible = true
 
 func _physics_process(delta: float) -> void:
+	summary_left = maxf(0,summary_left-delta)
 	_timer -= delta
 	if _timer <= 0:
 		if truck_present:
 			depart()
 		else:
 			arrive()
+	update_delivery_display()
+
+func update_delivery_display() -> void:
 	if truck_present:
 		unloaded = 0
 		for body in shipment:
@@ -71,7 +77,12 @@ func _physics_process(delta: float) -> void:
 		_hud.text = "↓ DELIVERY  %ds" % ceili(maxf(0, _timer))
 	else:
 		_status.modulate = Color.GRAY
-		_status.text = "DELIVERY  --"
+		_status.text = "DELIVERY AWAY"
+		var seconds := ceili(maxf(0,_timer))
+		_hud.text = "NEXT DELIVERY %02d:%02d" % [seconds / 60,seconds % 60]
+		if summary_left > 0:
+			_hud.text = "DELIVERY LEFT\nUNLOADED: %d   RETURNED: %d" % [last_result.get("Unloaded",0),last_result.get("Left Behind",0)]
+	_hud.modulate = Color.SALMON if summary_left > 0 and last_result.get("Left Behind",0) > 0 else Color.WHITE
 
 func _on_pallet(body: GrabbableBody) -> bool:
 	if is_instance_valid(body.holder):
@@ -91,6 +102,7 @@ func arrive() -> void:
 	unloaded = 0
 	left_behind = 0
 	delivery_number += 1
+	summary_left = 0
 	_set_truck(true)
 	_timer = maxf(0.1, truck_wait_time)
 	var batch := product_scenes.duplicate()
@@ -122,6 +134,7 @@ func arrive() -> void:
 			shipment.append(body)
 			delivered += 1
 	print("DELIVERY arrived #", delivery_number, " Delivered=", delivered)
+	update_delivery_display()
 
 func depart() -> void:
 	if not truck_present:
@@ -140,3 +153,5 @@ func depart() -> void:
 	_set_truck(false)
 	# Interval is arrival-to-arrival; never spawn a second truck over the first.
 	_timer = maxf(0.1, delivery_interval - truck_wait_time)
+	summary_left = departure_summary_time
+	update_delivery_display()

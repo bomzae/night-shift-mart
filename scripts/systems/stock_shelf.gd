@@ -20,6 +20,7 @@ var _label: Label3D
 @export var shopping_front_distance: float = 1.35
 @export var shopping_point_span: float = 0.95
 var _shopping_users: Dictionary = {}
+var _shopping_reserved_frame: Dictionary = {}
 
 func shopping_point(index: int) -> Vector3:
 	if is_instance_valid(point_owner): return point_owner.shopping_point(index)
@@ -27,6 +28,7 @@ func shopping_point(index: int) -> Vector3:
 
 func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
 	if is_instance_valid(point_owner): return point_owner.reserve_shopping_point(customer, product_position)
+	prune_shopping_points()
 	var selected := -1
 	var nearest := INF
 	for i in range(shopping_point_count):
@@ -38,7 +40,26 @@ func reserve_shopping_point(customer: Node3D, product_position: Vector3) -> int:
 			selected = i
 	if selected >= 0:
 		_shopping_users[selected] = customer
+		_shopping_reserved_frame[selected] = Engine.get_physics_frames()
 	return selected
+
+func prune_shopping_points() -> void:
+	if is_instance_valid(point_owner):
+		point_owner.prune_shopping_points()
+		return
+	for index in _shopping_users.keys():
+		var user = _shopping_users[index]
+		if not is_instance_valid(user) or user.is_queued_for_deletion():
+			_shopping_users.erase(index)
+		elif user is BasicCustomer and not user is ThiefCustomer:
+			var active_shelf = user.shopping_shelf
+			var leaving = user._leaving_shelf
+			var active_owner = active_shelf.point_owner if is_instance_valid(active_shelf) and is_instance_valid(active_shelf.point_owner) else active_shelf
+			var leaving_owner = leaving.point_owner if is_instance_valid(leaving) and is_instance_valid(leaving.point_owner) else leaving
+			var age: float = (Engine.get_physics_frames()-int(_shopping_reserved_frame.get(index,0)))/float(Engine.physics_ticks_per_second)
+			if active_owner != self and leaving_owner != self and age >= 3: _shopping_users.erase(index)
+	for index in _shopping_reserved_frame.keys():
+		if not _shopping_users.has(index): _shopping_reserved_frame.erase(index)
 
 func release_shopping_point(customer: Node) -> void:
 	if is_instance_valid(point_owner):
@@ -47,6 +68,7 @@ func release_shopping_point(customer: Node) -> void:
 	for i in _shopping_users.keys():
 		if not is_instance_valid(_shopping_users[i]) or _shopping_users[i] == customer:
 			_shopping_users.erase(i)
+			_shopping_reserved_frame.erase(i)
 
 func _ready() -> void:
 	var definition := ProductCatalog.find(accepted_type)

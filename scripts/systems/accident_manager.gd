@@ -13,13 +13,7 @@ func _ready() -> void:
 	add_child(canvas)
 	_label = Label.new()
 	canvas.add_child(_label)
-	_label.anchor_left = 1.0
-	_label.anchor_right = 1.0
-	_label.offset_left = -380
-	_label.offset_right = -24
-	_label.offset_top = 24
-	_label.offset_bottom = 48
-	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	HudLayout.stat(_label, 0)
 	_update_label()
 
 func _unhandled_input(event: InputEvent) -> void:

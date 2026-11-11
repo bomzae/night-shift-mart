@@ -39,7 +39,7 @@ func _ready() -> void:
 	_hint = Label.new()
 	rows.add_child(_hint)
 	_money = Label.new()
-	_money.position = Vector2(24, 60)
+	HudLayout.stat(_money, 8)
 	canvas.add_child(_money)
 
 func in_operator_area() -> bool:

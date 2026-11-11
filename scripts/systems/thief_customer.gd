@@ -58,6 +58,13 @@ func finish_exit() -> void:
 	else:
 		theft_manager.finish_escape(self)
 
+func recover_progress(level: int) -> void:
+	if level == 6 and theft_state in [TheftState.APPROACH,TheftState.STEAL]:
+		recovery_last_action = "abort_theft"
+		leave_empty() # Never steal remotely because an approach timed out.
+	else:
+		super.recover_progress(level)
+
 func steal() -> void:
 	if theft_state != TheftState.STEAL: return
 	if not is_instance_valid(target_product) or not target_shelf.has_stock(target_product):

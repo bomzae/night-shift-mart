@@ -31,7 +31,7 @@ func _ready() -> void:
 	add_child(canvas)
 	_label = Label.new()
 	canvas.add_child(_label)
-	_label.position = Vector2(24, 118)
+	HudLayout.stat(_label, 2)
 	_update_label()
 
 func _unhandled_input(event: InputEvent) -> void:

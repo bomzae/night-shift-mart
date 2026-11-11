@@ -35,7 +35,7 @@ func _ready() -> void:
 	add_child(canvas)
 	_spawn_label = Label.new()
 	canvas.add_child(_spawn_label)
-	_spawn_label.position = Vector2(24, 145)
+	HudLayout.stat(_spawn_label, 1)
 	_update_spawn_label()
 	_rng.randomize()
 	_reset_timer()
@@ -235,6 +235,17 @@ func release_claims(customer: BasicCustomer) -> void:
 		if _claims[id] == customer:
 			_claims.erase(id)
 	queue.erase(customer)
+
+func repair_reservations(customer: BasicCustomer) -> void:
+	# Never evict another live shopper's legitimate reservation.
+	for id in _claims.keys():
+		var owner = _claims[id]
+		if not is_instance_valid(owner) or owner.resolved or owner.is_queued_for_deletion(): _claims.erase(id)
+	for product in customer.goods:
+		if is_instance_valid(product) and not product.is_queued_for_deletion() and not _claims.has(product.get_instance_id()):
+			for shelf in get_parent().get_node("Shelves").get_children():
+				if shelf.has_stock(product): _claims[product.get_instance_id()] = customer
+	for shelf in get_parent().get_node("Shelves").get_children(): shelf.prune_shopping_points()
 
 func out_of_stock(customer: BasicCustomer) -> void:
 	if customer.resolved:
