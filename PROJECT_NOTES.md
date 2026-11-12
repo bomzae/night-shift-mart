@@ -2,6 +2,67 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.9 — NPC Recovery Economy / KING RAT Pursuit Recovery
+
+2026-11-12~13 구현·자동 검증 완료. Prompt12.8 커밋의 clean working tree에서 시작했다. 요청된 경제 부작용·Rat 국소 정체와 실제 재현된 Thief fallback만 수정한다. Checkout/Delivery HUD, Broom, 공격/무기 수치, Round/Day는 변경하지 않는다. 최종 자동 집계:70개 스크립트 / 3,575 PASS / 0 FAIL / 선택 실행 모두 exit0 / 오류·경고0. 사람의 A~E 수동 검사는 미수행. commit/amend/reset/push 없음.
+
+### QA-GAME_FLOW-001 / Basket 정책
+
+- 수정 전 실제 상품 Pickup→`recover_progress(6)` 실행에서 Basket $5가 즉시 비워지고 unpaid_loss=$5가 됐다(`p129_before_ready.log`). Level6 및18초 point 대기 만료가 `out_of_stock()`→`record_unpaid_basket()`을 재사용한 것이 원인이다. 재고는 유효한데 경로 실패를 실제 재고 소실과 동일 취급했다.
+- `CustomerManager.abort_shopping_path()`로 경로 실패를 분리했다. 현재 상품·point 예약과 unpicked references만 해제한다. 선반 위 실제 상품은 유지한다. Basket이 있으면 purchase_types/price를 실제 picked snapshots로 줄이고 남은 쇼핑을 취소하여 Checkout 경로로 보낸다. 이미 소비한 Physical Product를 재생성하지 않는다.
+- Basket이 없으면 기존 짧은 Disappointed→Exit를 이용하되 unpaid_loss는 발생하지 않는다. Checkout 경로 자체도 최종 실패하면 Basket snapshot을 neutral recovery count/value로 정리한다. 이것은 매출·미결제 손실·실제 선반 재입고가 아닌 별도 복구 회계이며 상품을 중복 생성하지 않는다.
+- `npc_recovery_abort_count`, `npc_recovery_returned_count/value`, `npc_recovery_unpaid_loss`, NPC별 `recovery_abort_reason`을 기록한다. 같은 NPC의 쇼핑 포기 후 Checkout 실패까지 유한한 두 목적만 처리하고 resolved 이후 중복 호출은 무시한다.
+- 실제 품절/소실은 기존 out_of_stock 경로를 유지하고, 실제 patience timeout/미결제 퇴장은 기존 loss를 유지한다. 모든 unpaid_loss를 막는 방식이 아니다.
+- 실제 Rice Bag $45 Pickup 후 recovery→이동→SCAN/PAY로 SALES+$45 / unpaid0, 실제 timeout의 unpaid$45, 실제 상품 소실의 기존 손실, 빈 Basket abort, 예약 해제, snapshot 단일 정산을 신규 검사한다.
+
+### QA-AI-001 / 실제 원인과 Cart 비교
+
+- QA 좌표 Rat(-0.060,0.001,20.664), Player(0.740,0.01,22.874), Cart(2,0.01,22)로 Main에서 비교했다. 초기 fixture가 기존 boss_setup의 cooldown1000을 상속한 것은 정상 HOLD였으므로 cooldown0으로 수정해 유효한 공격 비교를 다시 했다.
+- Cart0대는 Telegraph로 전환했다. Cart1/2대에서는 sees_player=true, lane=false, pursuit_route=[], PURSUIT가 지속됐다. Player 중심에0.63m Rat 경로 구체를 놓으면 Cart shape들과 겹쳤다. Rat 자신은 Floor 외 slide 충돌이 없는데도 도달 불가능한 target 중심까지의 경로를 요구하고, 가장 가까운 aisle/fallback을 소진한 뒤 같은 경로를 반복했다. 단순2.35m distance band mismatch나 실제 Rat body가 Cart에 끼인 경우로 단정할 수 없었다.
+- 기존1m CharacterHitArea가 Player 중심에 도달하기 전에 접촉한다는 계약에 맞게 `clear_combat_lane()`은 최대0.8m 짧은 접촉 도달점까지 sweep한다. LOS 검사와 World/Cart 물리 충돌은 유지한다. Telegraph 재개 시에도 같은 경로 조건을 사용한다. 공격 수치·Charge 실행·방향 lock은 변경하지 않는다.
+- 수정 후 Cart0/1/2대 모두10초 이내 실제 Telegraph1회 이상 진입했다. 단순 초기 displacement가 아니라 실제 공격 진입을 assert하도록 재현 검사를 강화했다. Cart collision exception 추가 없음.
+
+### Rat Local Progress Watchdog / Recovery Ladder
+
+- 2초 window, 수평 순변위 또는 target distance 개선0.3m 기준. Aggro의 PURSUIT/REPOSITION 이동에만 적용한다. Telegraph/Committed Attack, Hold, Stagger/Recoil, Charge Recovery, 중립 행동은 제외한다.
+- 실제 진행이 있으면 단계 budget을 재설정한다. 진행 없이 매2초마다1) lane/Combat Decision 재평가,2) 상품 포함 기존 aisle route 재계산,3)1m lateral bypass,4)0.6m lateral escape,5) 현재 path만 버리고0.2초 Hold 후 새 Decision을 사용한다. Target/Aggro는 유지한다.
+- lateral은 `test_move`가 허용한 방향으로 실제 motor 이동하며 teleport가 아니다. 실제 완전 봉쇄를 통과하지 않으며 필요한 경우 다음 recovery cycle을 계속 시도한다. 공격/피격 Phase 우선순위는 기존12.7을 유지한다.
+- 감지 시에만 Rat/Player 위치, 거리, state, route, window, cooldown, lane, body overlap, slide collider, 주변 Cart/Product/World query 결과를 로그로 기록한다.
+- 테스트는 내부 타이머뿐 아니라 독립된 실제 위치/거리 감시로 연속 무진행을 측정한다. 기존 total distance가 높아도 장기 국소 정체는 FAIL한다.
+
+### Thief 조사 — 재현 후 수정
+
+- 실제 선반에서 훔친 Thief를 낮지 않은 World cage로 막고35초 관찰했다. Escape attempts6, 출구거리17.85m, resolved=false로 남았다(`p129_first_prompt12_9_thief.log`). `finish_escape()`의0.5m 도착 조건이 마지막 fallback도 거부했고 이미 복구 budget이 소진되어 추가 처리가 없었다.
+- 실제 탈출 성공의 거리 조건은 유지했다. Navigation 최종 실패만 `abort_escape()`로 분리했다. 기존 physical loot recovery를 재사용해 검사된 근처 빈 공간으로 반환하고, player capture/stolen value는 증가시키지 않는다. 주변 전부 막혀 physical 반환도 불가능하면 neutral recovery value로 정리한다. 기존 접근 실패는 여전히 빈손으로 떠나며 원격 steal하지 않는다.
+
+### 검사 / Stress
+
+- 신규: `prompt12_9_reproduce.gd`, `prompt12_9_economy.gd`, `prompt12_9_rat.gd`, `prompt12_9_thief.gd`, `prompt12_9_stress.gd`. 문서의 Godot executable로 `--path . --fixed-fps 60 --script res://tests/<name>.gd --quit-after 24000 --log-file <log>` 순차 실행한다.
+- 초기 재현 스크립트의 instantiate 타입 추론 오류를 수정했다. 서버 재시작으로 중단된 첫 economy 실행은 완료 결과로 세지 않고 다시 실행했다.
+- 첫105초 스트레스(`p129_suite_prompt12_9_stress.log`): 모든 시점 unpaid_loss0, path_recovery_loss0. 105초에 Basket 보유 path abort1회. 실제 shopping 진행12명, queue9/Checkout 활성. 독립 측정 최대 연속 무진행0.05초, Rat recovery0(잘못된 접촉 도달점 문제를 수정해 정상 공격으로 진행),105초 Telegraph21/Charge21. 강제 봉쇄 fixture에서는 별도로2초 감지 및1~5단계 recovery를 검증한다.
+
+| 초 | 고객 활성 / 복구 / Queue | Checkout | Path abort / Loss | Rat state | 최대 local stop | Telegraph / Charge |
+| --- | --- | --- | --- | --- | --- | --- |
+| 30 | 12 / 2 / 0 | 없음 | 0 / $0 | TELEGRAPH | 0.05s | 7 / 6 |
+| 60 | 12 / 4 / 0 | 없음 | 0 / $0 | HOLD | 0.05s | 13 / 13 |
+| 90 | 12 / 9 / 9 | 활성 | 0 / $0 | HOLD | 0.05s | 20 / 20 |
+| 105 | 12 / 10 / 9 | 활성 | 1 / $0 | HOLD | 0.05s | 21 / 21 |
+ Customer의 전체 unpaid_loss와 path abort에 직접 귀속되는 loss를 구분한다. Rat은 state/position/target distance/독립 local stall/recovery/Telegraph/Charge를30·60·90·105초에 기록한다.
+
+### 최종 자동 검증
+
+- 기존 Prompt0~12.8:65개 / 3,507 PASS. 이전 집계3,508과의 차이1개는 기존12.8 stress의 조건부 late_stalls가 이번 실행에서0명이었기 때문이다. 기존 검사 삭제/기준 약화 없음. 신규12.9:5개 / 68 PASS(Reproduce13, Economy22, Rat17, Thief5, Stress11). 합계70개 / 3,575 PASS / 오류·경고·실패0.
+- 마지막 Rat 봉쇄 fixture에서 중복 변수명 offset 때문에 발생한 parse error 실행은 무효로 기록하고 wall_offset으로 수정 후17 PASS / exit0으로 재실행했다. production 코드는 이 재검사에서 변경하지 않았다. 실패 로그 `p129_suite_prompt12_9_rat.log`, 최종 `p129_retry_prompt12_9_rat.log`를 구분한다.
+- 전체 선택 실행 manifest: `.godot/p129_results.csv`. 기존62개 및12.8 신규3개,12.9 신규5개를 모두 실행했다. 최종 Import exit0, Main headless7,200 physics frames(120초), Main 창600frames 모두 exit0/오류·경고0. 로그: `p129_final_import.log`, `p129_main_headless.log`, `p129_main_window.log`.
+- 신규 실제 World 봉쇄 검사는 시야가 통하는0.95m 벽으로 Rat 몸 이동만 막고15초 관찰했다. Recovery 발동/동일 Aggro Target/벽 관통 없음이 통과했다. 실제 Cart0/1/2대 비교와 기존 Cart 경로 우회,12.7 Phase 및 Held Weapon 회귀도 통과했다.
+- Project: `C:\Users\JHS\orca\night-shift-mart`. Godot: `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. `project.godot`, Checkout/Delivery UI, Weapon 수치 변경 없음. Git diff --check 통과. 변경은 uncommitted이며 commit/amend/reset/push하지 않았다.
+
+### 수동 / Known TODO
+
+사람의 수동 A~E는 미수행: Basket 고객 recovery→Checkout, 실제 patience 손실, Rat2~3m Cart/Shelf 근처 정체, Cart1대/2대 방해 후 공격·우회 및 phase 반응을 확인한다. 자동 PASS를 최종 손맛 판정으로 쓰지 않는다.
+
+기존 TODO 유지: NPC Knockdown Mesh/Collider mismatch; Cart Contact Repeated Damage; Day Reset Prototype; Monster/Character visual overlap; Extreme Cart overload Chaos; simple waypoint limits with watchdog; KING RAT contact sound/screen polish; Broom balance manual verification; Checkout PAY usability manual verification. 12.8의 미확정 Boss 장거리 이동 관찰도 기존 기록을 보존한다. 수동 확인 후 gameplay-qa Auditor로 두 QA 이슈 해결을 재검증한 뒤 Combat/Customer foundation 고정 및 Round/Day Progression 준비 상태다.
+
 ## Prompt 12.8 — NPC Long-Stuck Recovery / HUD / Delivery
 
 2026-11-11 구현·자동 검사 완료. Prompt12.7 커밋의 clean working tree에서 시작했다. 구현 범위는 NPC 장기 정체, Checkout HUD 중첩, 배송 종료/다음 배송 피드백 세 가지다. Broom/Weapon/Boss/Combat 수치와 Round/Day 기능은 변경하지 않는다. 65개 스크립트 / 3,508 PASS / 0 FAIL / 최종 선택 실행 오류·경고0. 사람의 A~G 수동 검사는 미수행이며, 별도 Boss 이동량 이상 관찰은 아래에 남긴다. commit/amend/reset/push 없음.

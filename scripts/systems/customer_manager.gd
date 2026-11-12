@@ -20,6 +20,10 @@ var event_spawn_paused: bool = false:
 		if is_instance_valid(_spawn_label): _update_spawn_label()
 var sales: float = 0.0
 var unpaid_loss: float = 0.0
+var npc_recovery_abort_count: int = 0
+var npc_recovery_returned_count: int = 0
+var npc_recovery_returned_value: float = 0
+var npc_recovery_unpaid_loss: float = 0
 var customers: Array[BasicCustomer] = []
 var queue: Array[BasicCustomer] = []
 var _claims: Dictionary = {}
@@ -246,6 +250,36 @@ func repair_reservations(customer: BasicCustomer) -> void:
 			for shelf in get_parent().get_node("Shelves").get_children():
 				if shelf.has_stock(product): _claims[product.get_instance_id()] = customer
 	for shelf in get_parent().get_node("Shelves").get_children(): shelf.prune_shopping_points()
+
+func abort_shopping_path(customer: BasicCustomer, reason: String = "path_exhausted") -> void:
+	if customer.resolved: return
+	var loss_before := unpaid_loss
+	npc_recovery_abort_count += 1
+	customer.recovery_abort_reason = reason
+	var checkout_failed := customer._heading_queue
+	release_claims(customer)
+	customer.goods.clear() # Unpicked physical stock stays on its shelf.
+	customer.shopping_shelf = null
+	customer.shopping_point_index = -1
+	customer._occupancy_wait = 0
+	print("NPC PATH ABORT id=",customer.get_instance_id()," reason=",reason," basket=",customer.picked_items.size()," checkout_failed=",checkout_failed)
+	if not customer.picked_items.is_empty() and not checkout_failed:
+		customer.purchase_types.clear()
+		for item in customer.picked_items: customer.purchase_types.append(item.product_type)
+		customer.purchase_total = basket_total(customer)
+		customer.shopping_types = customer.visited_types.duplicate()
+		customer._heading_queue = true
+		customer.state = BasicCustomer.State.STORE
+		customer.waypoints = StoreRoutes.via_main(customer.global_position,Vector3(1,0.01,32.6))
+	else:
+		# A second, impossible checkout route is neutral recovery accounting,
+		# not a sale or unpaid departure. Never respawn an already consumed item.
+		npc_recovery_returned_count += customer.picked_items.size()
+		npc_recovery_returned_value += basket_total(customer)
+		customer.picked_items.clear()
+		customer.resolved = true
+		customer.disappoint()
+	npc_recovery_unpaid_loss += unpaid_loss-loss_before
 
 func out_of_stock(customer: BasicCustomer) -> void:
 	if customer.resolved:

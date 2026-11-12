@@ -41,6 +41,7 @@ var knockdown := KnockdownState.new()
 var fire_reaction := FireReaction.new()
 var progress_watchdog := NPCProgressWatchdog.new()
 var recovery_last_action: String = ""
+var recovery_abort_reason: String = ""
 var recovery_target := Vector3.ZERO
 var _occupancy_wait: float = 0
 var _waiting_shopping_point: bool = false
@@ -140,7 +141,7 @@ func _physics_process(delta: float) -> void:
 		# must not consume the bounded wait before a customer even arrives.
 		if waypoints.is_empty() or global_position.distance_to(waypoints.back()) < 0.5:
 			_occupancy_wait += delta
-		if _occupancy_wait >= 18: manager.out_of_stock(self)
+		if _occupancy_wait >= 18: manager.abort_shopping_path(self,"shopping_point_timeout")
 	if state == State.QUEUE or state == State.CHECKOUT:
 		patience_left = maxf(0, patience_left - delta)
 		if not manager.valid_goods(self):
@@ -266,7 +267,7 @@ func recover_progress(level: int) -> void:
 			waypoints = StoreRoutes.via_main(global_position,goal)
 		6:
 			if state == State.EXIT: finish_exit()
-			else: manager.out_of_stock(self)
+			else: manager.abort_shopping_path(self)
 
 func alternate_approach(goal: Vector3) -> void:
 	if waypoints.is_empty(): waypoints = StoreRoutes.via_main(global_position,goal)

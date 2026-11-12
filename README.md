@@ -1,7 +1,9 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.8 / NPC Recovery·HUD·Delivery Feedback 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.9 / NPC Recovery Economy·KING RAT Pursuit Recovery 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
+AI 경로 복구 실패는 품절·미결제 퇴장과 별도로 처리합니다. 이미 집은 Basket은 남은 쇼핑을 취소하고 Checkout으로 보내며, 실제 patience timeout 손실은 유지합니다.
+KING RAT은 이동 상태에서 2초간 0.3m 미만 진행 시 전투 판단·경로·짧은 측면 탈출을 단계적으로 다시 시도합니다. Telegraph/피격/의도적 Hold는 제외하고 기존 공격 Phase를 유지합니다.
 고객은 이동 중 3초 동안 0.4m의 진행을 만들지 못하면 경로 재계산부터 단계적으로 복구합니다. Queue·쇼핑 대기·Knockdown·화재 반응은 정체로 오판하지 않으며, 동일 목표의 복구와 쇼핑 point 대기는 유한하게 제한합니다.
 Checkout 업무 패널은 좌측, 이벤트·통계는 우측에 분리했습니다. 배송 출발 후 3초간 하역/회수 수량을 표시하고, 이후 실제 다음 배송까지 남은 시간을 보여줍니다.
 

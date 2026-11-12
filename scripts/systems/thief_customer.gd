@@ -62,6 +62,9 @@ func recover_progress(level: int) -> void:
 	if level == 6 and theft_state in [TheftState.APPROACH,TheftState.STEAL]:
 		recovery_last_action = "abort_theft"
 		leave_empty() # Never steal remotely because an approach timed out.
+	elif level == 6:
+		recovery_last_action = "abort_escape"
+		theft_manager.abort_escape(self)
 	else:
 		super.recover_progress(level)
 

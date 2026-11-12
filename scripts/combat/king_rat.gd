@@ -132,6 +132,15 @@ var pursuit_planner: RatAisleRoute
 var _route_wait: float = 0
 var _pursuit_blocked: float = 0
 var _pursuit_detour_left: float = 0
+@export var pursuit_progress_window: float = 2.0
+@export var pursuit_minimum_progress: float = 0.3
+var local_no_progress_time: float = 0
+var combat_recovery_count: int = 0
+var combat_recovery_stage: int = 0
+var _progress_origin := Vector3.ZERO
+var _progress_distance: float = 0
+var _escape_goal := Vector3.ZERO
+var _escape_left: float = 0
 var _recoil_left: float = 0
 var _recoil_wait: float = 0
 var recoil_velocity := Vector3.ZERO
@@ -423,6 +432,7 @@ func _physics_process(delta: float) -> void:
 	velocity.z = motion.z
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 	move_and_slide()
+	observe_combat_progress(delta)
 	for i in range(get_slide_collision_count()):
 		var body := get_slide_collision(i).get_collider()
 		if state == State.CHARGE and not damage_reaction_active(): _charge_hit(body)
@@ -786,10 +796,18 @@ func combat_move(delta: float) -> Vector3:
 	if not is_aggro or not valid_attacker(aggro_target):
 		state = State.SEEK_FOOD
 		return Vector3.ZERO
+	if _escape_left > 0:
+		_escape_left = maxf(0,_escape_left-delta)
+		var escape := _escape_goal-global_position
+		escape.y = 0
+		if escape.length() < 0.15: _escape_left = 0
+		else:
+			state = State.PURSUIT
+			return escape.normalized()*minf(orbit_speed,escape.length()*4)
 	var distance := combat_distance()
 	if _lane_wait <= 0:
 		pursuit_planner.refresh_exclusions()
-		_clear_attack_lane = _sees_player and pursuit_planner.clear_segment(global_position, last_known_position)
+		_clear_attack_lane = _sees_player and clear_combat_lane(last_known_position)
 		_lane_wait = 0.2
 	var lane := _sees_player and _clear_attack_lane
 	var ready := _charge_wait <= 0 and _spacing_grace <= 0
@@ -859,7 +877,7 @@ func advance_committed_attack(delta: float) -> void:
 	var destination := _attack_target.global_position
 	var offset := destination - global_position
 	offset.y = 0
-	var clear := offset.length_squared() > 0.01 and can_see(_attack_target) and pursuit_planner.clear_segment(global_position, destination)
+	var clear := offset.length_squared() > 0.01 and can_see(_attack_target) and clear_combat_lane(destination)
 	if not clear:
 		_attack_path_blocked += delta
 		if _attack_path_blocked >= committed_path_timeout:
@@ -882,3 +900,64 @@ func advance_committed_attack(delta: float) -> void:
 	charge_count += 1
 	state = State.CHARGE
 	_left = charge_duration
+
+func clear_combat_lane(destination: Vector3) -> bool:
+	# The existing 1m CharacterHitArea reaches the player before body centres meet.
+	# Do not demand a 0.63m boss sphere fit at a player standing beside a cart.
+	var offset := destination-global_position
+	offset.y = 0
+	var endpoint := destination-offset.normalized()*minf(0.8,offset.length()*0.5)
+	return pursuit_planner.clear_segment(global_position,endpoint)
+
+func observe_combat_progress(delta: float) -> void:
+	if not is_aggro or attack_committed or damage_reaction_active() or state not in [State.PURSUIT,State.REPOSITION]:
+		local_no_progress_time = 0
+		_escape_left = 0
+		return
+	if local_no_progress_time == 0:
+		_progress_origin = global_position
+		_progress_distance = combat_distance()
+	local_no_progress_time += delta
+	var moved := Vector2(global_position.x-_progress_origin.x,global_position.z-_progress_origin.z).length()
+	if moved >= pursuit_minimum_progress or _progress_distance-combat_distance() >= pursuit_minimum_progress:
+		local_no_progress_time = 0
+		combat_recovery_stage = 0
+		return
+	if local_no_progress_time < pursuit_progress_window: return
+	combat_recovery_count += 1
+	combat_recovery_stage = combat_recovery_stage % 5 + 1
+	var collisions := []
+	for i in get_slide_collision_count(): collisions.append(str(get_slide_collision(i).get_collider()))
+	var query := PhysicsShapeQueryParameters3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 3
+	query.shape = sphere
+	query.transform.origin = global_position+Vector3.UP
+	query.exclude = [get_rid()]
+	print("RAT RECOVERY stage=",combat_recovery_stage," pos=",global_position," target=",last_known_position," distance=",combat_distance()," state=",state," route=",pursuit_route," window=",local_no_progress_time," cooldown=",_charge_wait," lane=",_clear_attack_lane," overlap=",body_contact_sample(last_known_position).w," slides=",collisions," nearby=",get_world_3d().direct_space_state.intersect_shape(query,16))
+	local_no_progress_time = 0
+	_lane_wait = 0
+	match combat_recovery_stage:
+		1:
+			combat_move(0) # Reevaluate stale state/lane before attempting another path.
+		2:
+			pursuit_route = pursuit_planner.build(global_position,last_known_position,true)
+			_route_wait = pursuit_progress_window
+			_pursuit_detour_left = pursuit_progress_window
+		3,4:
+			var forward := last_known_position-global_position
+			forward.y = 0
+			var side := forward.normalized().cross(Vector3.UP)
+			if side.length_squared() < 0.1: side = global_basis.x
+			for sign_value in [1.0,-1.0]:
+				var offset: Vector3 = side*sign_value*(1.0 if combat_recovery_stage == 3 else 0.6)
+				if not test_move(global_transform,offset):
+					_escape_goal = global_position+offset
+					_escape_left = 0.7
+					break
+		5:
+			pursuit_route.clear()
+			_route_wait = 0
+			_pursuit_detour_left = 0
+			state = State.HOLD
+			_spacing_grace = post_hit_grace

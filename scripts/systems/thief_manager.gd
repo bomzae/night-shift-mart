@@ -7,6 +7,8 @@ extends Node3D
 var thieves_caught: int = 0
 var stolen_goods_value: float = 0
 var last_recovered: GrabbableBody
+var recovery_abort_count: int = 0
+var recovery_returned_value: float = 0
 var _label: Label
 
 func _ready() -> void:
@@ -76,7 +78,7 @@ func snapshot(product: GrabbableBody) -> Dictionary:
 		settings[key] = product.get(key)
 	return {"product_type": product.product_type, "price": product.price, "weight": product.weight, "source_id": product.get_instance_id(), "scene": product.scene_file_path, "settings": settings}
 
-func recover(thief: ThiefCustomer, _player: PhysicsBody3D) -> bool:
+func recover(thief: ThiefCustomer, _player: PhysicsBody3D, recovery_fallback: bool = false) -> bool:
 	if not thief.capturable(): return false
 	var loot := thief.stolen_item
 	var product: GrabbableBody = load(loot.scene).instantiate()
@@ -90,7 +92,11 @@ func recover(thief: ThiefCustomer, _player: PhysicsBody3D) -> bool:
 	query.exclude = [thief.get_rid()]
 	var found := false
 	var location := Vector3.ZERO
-	for offset in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK, Vector3.ZERO]:
+	var offsets := [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK, Vector3.ZERO]
+	if recovery_fallback:
+		for radius in [2.0,3.0]:
+			for direction in [Vector3.RIGHT,Vector3.LEFT,Vector3.FORWARD,Vector3.BACK]: offsets.append(direction*radius)
+	for offset in offsets:
 		location = thief.global_position + offset * (product.carry_radius + 0.6) + Vector3.UP * (product.carry_radius + 0.15)
 		query.transform.origin = location
 		if get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty():
@@ -103,9 +109,20 @@ func recover(thief: ThiefCustomer, _player: PhysicsBody3D) -> bool:
 	product.global_position = location
 	last_recovered = product
 	thief.stolen_item.clear()
-	thieves_caught += 1
+	if not recovery_fallback: thieves_caught += 1
 	_update_label()
 	return true
+
+func abort_escape(thief: ThiefCustomer) -> void:
+	if thief.resolved: return
+	recovery_abort_count += 1
+	if not thief.stolen_item.is_empty():
+		recovery_returned_value += float(thief.stolen_item.price)
+		if not recover(thief,null,true):
+			# No free physical drop location: neutral accounting, never a false theft.
+			thief.stolen_item.clear()
+	thief.resolved = true
+	thief.queue_free()
 
 func finish_escape(thief: ThiefCustomer) -> void:
 	if thief.resolved: return
