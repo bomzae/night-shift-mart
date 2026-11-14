@@ -30,7 +30,8 @@ func observe_combat() -> Dictionary:
 			max_recovery_gap = maxf(max_recovery_gap, recovery_gap)
 		else: recovery_gap = 0
 		var moving := Vector2(rat.velocity.x, rat.velocity.z).length() > 0.25
-		if (rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] or (rat.state == KingRat.State.HOLD and rat._charge_wait <= 0 and rat._spacing_grace <= 0 and rat.combat_distance() >= 1.35)) and not moving:
+		# Ready HOLD is inactivity at every distance; a lower bound hid QA-COMBAT-002.
+		if (rat.state in [KingRat.State.PURSUIT, KingRat.State.REPOSITION] or (rat.state == KingRat.State.HOLD and rat._charge_wait <= 0 and rat._spacing_grace <= 0)) and not moving:
 			idle += 1.0 / 60
 			idle_total += 1.0 / 60
 			longest_idle = maxf(longest_idle, idle)

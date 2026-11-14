@@ -1,6 +1,6 @@
 # NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.9 / NPC Recovery Economy·KING RAT Pursuit Recovery 프로토타입**.
+Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.10 / KING RAT Close-Range Combat Gap Fix 프로토타입**.
 배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
 AI 경로 복구 실패는 품절·미결제 퇴장과 별도로 처리합니다. 이미 집은 Basket은 남은 쇼핑을 취소하고 Checkout으로 보내며, 실제 patience timeout 손실은 유지합니다.
 KING RAT은 이동 상태에서 2초간 0.3m 미만 진행 시 전투 판단·경로·짧은 측면 탈출을 단계적으로 다시 시도합니다. Telegraph/피격/의도적 Hold는 제외하고 기존 공격 Phase를 유지합니다.
@@ -17,7 +17,7 @@ Prompt 11.2 이후 사용자 수동 검사에서 Food Self Heal과 Shelf 뒤 탈
 KING RAT의 Approach는 아직 Telegraph 확정 전이며, Hit으로 이동이 중단돼도 같은 Player에 대한 전투 의도를 유지합니다. Recoil/Stagger 후 다시 Approach하고 공격 범위에서 Telegraph를 시작합니다. Telegraph가 시작되면 같은 공격 ID·주황색 몸·`!` 경고를 피격 반응 중에도 유지하며, Flash 중에는 `! -피해량`을 표시합니다. 남은 예고 시간은 반응 동안 멈췄다가 그대로 이어지고, 매 피격마다0.25초를 더하지 않습니다.
 Charge는 한 공격에서 한 번 시작하며 그 순간 방향을 고정합니다. Charge 중 실제 Damage는 현재 돌진과 공격 instance를 즉시 종료합니다. Recoil/Stagger→Brief Hold→새 전투 판단으로 이어지며, 기존 cooldown 이후 새 Telegraph를 거쳐야 다음 Charge가 시작됩니다. 동일 대상 피해 중복 방지와 Hold Ground는 유지합니다. Held Bat/Hammer/Broom은 Monster와의 pair collision만 제외하며 Sweep으로 공격합니다. Drop/Throw 시 즉시 물리 충돌을 복구하고 World/Cart/Product 충돌은 유지합니다.
 KING RAT은 평소 상품을 먹으며 이동합니다. Player의 상품·카트 공격이나 2.5m 안에서 1.25초 지속되는 근접 방해에 반응하며, 시야와 추가 공격을 12초간 잃으면 주변 상품 탐색으로 돌아갑니다.
-도발 후에는 멀면 빠르게 접근하고, 몸 범위 밖1.35~7m의 열린 공격 경로에서는 Telegraph→Charge를 선택합니다. 쿨다운 중에는 자리를 지키며 Player를 향하고, 실제 경로 차단이 있을 때만 짧은 측면 보정·기존 우회 경로를 사용합니다.
+도발 후에는 멀면 빠르게 접근하고, 7m 이내 열린 공격 경로에서는 근거리 하한 없이 Telegraph→Charge를 선택합니다. 접촉은 기존 몸/꼬리 shell+0.03m로 별도 검사하므로 1.23~1.35m의 행동 공백이 없습니다. 쿨다운 중에는 최대0.2초 단위로 판단을 갱신하며 Player를 향하고, 준비가 끝나면 전체0.65초 Telegraph를 시작합니다. 실제 경로 차단에만 짧은 측면 보정·기존 우회 경로를 사용합니다. 전투 범위 안에서 cooldown/피격/회복/contact 사유 없이1.5초간 공격이 없으면 별도 inactivity watchdog이 판단을 재평가합니다.
 실제 피격은 0.10~0.15초의 밝은 Flash와 강도별 짧은 몸 반응으로 표시됩니다. Broom은 작은 반응과 큰 Push, Bat은 중간 반응, Hammer는 강한 반응과 기존 Stagger를 사용합니다.
 일반 몸·꼬리 접촉은 짧은 입력 감쇠·카메라 충격·감속하는 수평 밀침과10 HP 피해를 주며 Player별1초 cooldown을 사용합니다. 일반 접촉에는 Knockdown이 없고, Charge는30 HP와 기존 Knockdown을 유지합니다. Rat은 몸 접촉 때문에 후퇴하지 않습니다. 성공한 Melee는 Stagger 재발동 대기와 별개로 Recoil을 시작하며 무기·상품·Cart의 전투 외력과 사람/Monster의 non-blocking 구조를 유지합니다.
 

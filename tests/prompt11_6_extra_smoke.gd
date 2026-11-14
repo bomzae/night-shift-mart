@@ -35,7 +35,8 @@ func run_checks() -> void:
 	await frames(10)
 	check(rat.state == KingRat.State.RECOIL, "charge cannot start during light recoil")
 	await frames(20)
-	check(rat.state == KingRat.State.HOLD, "light recoil near player briefly holds")
+	# The old close-distance HOLD masked QA-COMBAT-002 after approach recoil.
+	check(rat.state == KingRat.State.TELEGRAPH and rat.telegraph_start_count == 1 and rat.telegraph_remaining > 0.3, "light recoil resumes one readable close telegraph instead of indefinite hold")
 	for i in range(4):
 		rat.receive_impact(60, Vector3.FORWARD * 10)
 		await frames(20)

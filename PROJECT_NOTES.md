@@ -2,6 +2,83 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 12.10 — KING RAT Close-Range Combat Gap Fix
+
+2026-11-14 구현·자동 검증 완료. Prompt12.9 clean working tree에서 시작. QA-COMBAT-002 근거리 판단과 combat inactivity만 수정한다. Contact/Charge 피해·무기 수치·Customer·HUD·Delivery·경제·Round/Day 변경 없음. 최종 자동 검증:73개 스크립트 / 3,660 PASS / 0 FAIL / 최종 선택 실행 오류·경고0. 사람의 A~E 수동 검사는 미수행. commit/amend/reset/push 없음.
+
+### 수정 전 재현 / Root Cause
+
+- 실제 Main의 Player motor만 정지하고 Rat physics/AI는 정상 실행, 열린 중앙 통로에서 정면 거리1.24/1.28/1.32/1.35/1.24347496m를 각각10초 검사했다. cooldown0, 공격 경로true. `.godot/p1210_before.log`.
+- 1.24/1.28/1.32/1.24347496m는 Contact0, Telegraph0, Charge0, HOLD10초였다. 1.35m는 첫 공격1회 후 더 가까워지면서 다시5.48초 ready HOLD에 빠졌다.
+- 접촉은 `body_contact_sample().w <= 0.03`: 정면 body radius1.2m + gap0.03m = 약1.23m. 반면 `CombatDecision.choose(... body_contact_radius+0.15 ...)`는 cooldown ready보다 먼저1.35m 미만을 무조건 HOLD 처리했다. 이0.12m 간격과 공격 후 더 가까워진 경우가 영구 안전지대였다.
+- 12.9 이동 watchdog은 의도적 HOLD를 제외하므로 이 문제를 잡지 못했다. 기존 전투 관찰 검사도1.35m 이상에서만 HOLD 무진행을 집계했다. 신규 검사는 거리 하한 없이 cooldown-ready HOLD를 측정한다.
+
+### Distance / HOLD / Inactivity 정책
+
+| 판단 | 값 / 조건 |
+| --- | --- |
+| 일반 Contact | 기존 몸/꼬리 shell + CONTACT_ALLOWED_GAP0.03m; 정면 약1.23m, 피해10/1초 cooldown/수평 push/입력 감쇠/camera/no knockdown 유지 |
+| Close Attack | 별도1.35m HOLD band 제거. TELEGRAPH_MIN_DISTANCE0m로 접촉과 공격 가능 범위가 겹침 |
+| Attack Range | 기존7m, valid Target/LOS/path/cooldown ready 필요 |
+| Telegraph | 기존0.65초 유지. Charge 방향 확정에 필요한 유효 방향/장애물 재검증도 유지 |
+| Brief Hold | 기존 post-hit0.2초. cooldown 대기는 최대0.2초 beat마다 재평가, cooldown ready는 남은 beat를 건너뜀 |
+| Inactivity | 전투 범위 내 Aggro Target, 공격/피격/회복/spacing/cooldown 대기 없음, Contact event 없음이1.5초 지속되면 감지 |
+
+HOLD 총시간은 정상 cooldown 때문에 누적될 수 있다. 제한하는 것은 판단 사이의 beat와 **준비 완료 후 행동 없는 HOLD**이며 정상4.5초 Charge cadence를 단축하지 않는다. ready인데 가깝다는 이유만으로 HOLD하지 않는다. Contact 범위는 넓히지 않으며 tail의 기존 실제 body sample도 유지한다.
+
+Inactivity는 이동 watchdog과 별개다. 감지 시 한 번만 state/distance/cooldown/lane을 기록하고 cached lane과 hold beat를 무효화하여 기존 `combat_move()`를 재평가한다. Target/Aggro 유지, 장애물은 기존 route/lateral recovery 사용, 큰 후퇴/teleport 없음. Telegraph/Charge/피격/Charge Recovery/의도적 cooldown/contact event는 제외한다. 내부 관측값 `combat_inactive_time`, `combat_inactivity_recovery_count`를 제공한다.
+
+### 신규 검사 / 실패 이력
+
+- `prompt12_10_gap.gd`: Main에서0.8/1/1.2/1.23/1.24/1.25/1.28/1.30/1.32/1.35/1.5/2/2.5/3m 각각10초 + exact1.24347496m30초. 위치를 매 frame 강제로 복원하지 않으므로 실제 Charge 후 더 가까워진 상태도 포함한다. Contact/HOLD/Telegraph/Charge/Approach/최대 ready inactive를 기록한다.
+- `prompt12_10_policy.gd`: 실제 Contact1.229m 피해/1.231m 무피해, cooldown/spam/no knockdown, 정상 cooldown 이후0.65초 예고, retreat 없음, old HOLD 주입 후 독립 watchdog 복구, phase/reaction/neutral 제외. 기존 attack range는7m이므로5m는 Telegraph,9m는 Approach로 검증한다.
+- `prompt12_10_cart.gd`: close gap에서 Cart0/1/2대 실제 Main 비교, 공격/Target 유지 및 collision exception 없음.
+- 첫 policy 검사에서 physics를 멈춘 fixture가 awareness 갱신까지 생략하여 lane=false였고 watchdog 결과가 정상적으로 PURSUIT가 되어 Telegraph 기대가 실패했다. `update_awareness(0)`로 실제 눈앞 Target 인지 조건을 설정한 뒤26 PASS/exit0으로 재검사했다. production의 시야 조건을 우회/완화하지 않았다. 실패 로그 `p1210_new_prompt12_10_policy.log`, 재검사 `p1210_suite_prompt12_10_policy.log` 보존.
+
+- 기존11.6 extra의 피격0.5초 뒤 HOLD 기대는12.7 Approach 재개 이후에도 close-distance HOLD가 유지되는 버그에 의존했다. 피격 중 Charge 금지 검사는 유지하고, 이후 한 번의 Telegraph와0.3초 이상 남은 예고를 요구하도록 계약을 명확히 했다. 기존11.8 관찰의1.35m HOLD 감시 하한도 제거하여 모든 거리에서 실패를 잡도록 강화했다. 수정 후11 PASS/exit0으로 재검사했다(`p1210_retry_prompt11_6_extra_smoke.log`).
+
+### Distance Sweep / Cart 결과
+
+| 시작 거리(m) | 관찰(s) | Contact | HOLD 누적(s) | Telegraph / Charge | Approach(s) | ready inactive 최대(s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.8 | 10 | 1 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.0 | 10 | 1 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.2 | 10 | 1 | 6.43 | 3 / 1 | 0.00 | 0.00 |
+| 1.23 | 10 | 1 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.24 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.25 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.28 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.3 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.32 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.35 | 10 | 0 | 6.33 | 3 / 3 | 0.00 | 0.00 |
+| 1.5 | 10 | 0 | 6.32 | 3 / 3 | 0.00 | 0.00 |
+| 2.0 | 10 | 0 | 6.25 | 3 / 3 | 0.00 | 0.00 |
+| 2.5 | 10 | 0 | 6.18 | 3 / 3 | 0.00 | 0.00 |
+| 3.0 | 10 | 0 | 6.12 | 3 / 3 | 0.00 | 0.00 |
+| 1.24347496 | 30 | 0 | 20.55 | 7 / 7 | 0.00 | 0.00 |
+
+정면1.229m에서 실제10HP,1.231m에서는 무피해를 별도로 확인했다. Sweep1.2m에서는 고정된 Player 중심과 Charge 후 Rat이 거의 겹쳐 유효 방향 재검증으로 후속 Telegraph 일부가 실행되지 않았다. Contact와 새 준비는 계속되었고 ready HOLD 정체는0초였다. 이 fixture는 Player motor가 정지되어 실제 플레이의 접촉 밀침·Knockdown 이동은 기존 Contact/Combat 회귀에서 별도 검증한다.
+
+Cart0/1/2대 모두10초 Telegraph3/Charge3, Target 유지 및 solid collision PASS. 근처 Cart를 collision exception으로 우회하지 않는다. exact1.24347496m30초는 Telegraph7/Charge7, ready inactive0초.
+
+### 최종 자동 검증 / Git
+
+- 기존 Prompt0~12.9:70개 / 3,576 PASS. 직전3,575보다1개 많은 것은 기존12.8 stress의 late_stalls 후보가 이번 실행에서1명 관측되어105초까지 진행/유한 fallback을 검증했기 때문이다(`LATE128 observed=1`). 검사 삭제나 약화 없음.
+- 신규12.10:3개 / 84 PASS(Gap46, Policy26, Cart12). 총73개 / 3,660 PASS / 최종 선택 실행 모두 exit0 / 오류·경고·실패0. `.godot/p1210_results.csv`에 실행별 로그/종료/PASS/error 집계를 기록했다.
+- Policy 최종 재검사에서는 cooldown을0으로 만들어 Telegraph/Recoil 등의 제외가 cooldown guard 때문이 아님을 독립 검증했다. `p1210_final_policy.log`26 PASS/exit0. 수정 전 QA 재현 실패와 초기 fixture/기존 기대값 실패 로그는 지우지 않고 최종 성공 로그와 구분했다.
+- 기존12.7 Approach/Telegraph/Charge, Held Weapon,12.4 Contact/Hold Ground,12.9 Cart/봉쇄 recovery/경제/Thief, Customer/Tourist/Family/Fire/Spill/무기/배송/Checkout 회귀 통과. 실제 NPC 코드나 공격 수치는 변경하지 않았다.
+- 12.9의105초 복합 stress도11 PASS. Rat Telegraph/Charge23/23, 이동 상태 최대 local stop0.417초, path abort1회와 직접 path_loss0. 전체 unpaid_loss는$8이었으며 path abort가 처음 발생하기 전에 기록되어 복구 손실과 구분했다. 이 값은 기존 경제 회귀의 의미를 바꾸지 않는다.
+- 최종 Import exit0, Main headless7,200frames 및 창600frames exit0, 각 로그 오류·경고0. 로그: `p1210_final_import.log`, `p1210_main_headless.log`, `p1210_main_window.log`. 입력 검사는 실제 창에서 순차 실행했다.
+- Project: `C:\Users\JHS\orca\night-shift-mart`. Godot: `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 테스트 명령은 기존과 동일한 `--path . --fixed-fps 60 --script res://tests/<name>.gd --quit-after 24000 --log-file <log>`이다.
+- production 수정은 `king_rat.gd` 한 파일이다. 기존 검사2개를 보정/강화하고 신규 검사3개(+uid), README/본 문서를 갱신했다. 총11개 파일 uncommitted/unstaged. `project.godot` 변경 없음, `git diff --check` 통과, commit/amend/reset/push 없음.
+
+### 수동 / Known TODO
+
+수동 A~E는 미수행:1.2~1.4m 정면 유지, 접촉 경계 천천히 통과, cooldown 대기 후 재공격, Bat/Hammer 압박, Cart 주변 근거리 전투. 자동 PASS는 최종 손맛의 수동 판정이 아니다.
+
+기존 TODO 유지: NPC Knockdown Mesh/Collider mismatch; Cart Contact Repeated Damage; Day Reset Prototype; Monster/Character visual overlap; Extreme Cart overload; Simple waypoint limitations; KING RAT contact sound/screen polish; Broom balance manual verification; Checkout PAY usability manual verification.
+수동 확인 후 gameplay-qa Re-QA에서 QA-COMBAT-002 해결 및 새 P1/P2 blocking issue가 없음을 확인한 다음 Combat/Customer Foundation 고정과 Round/Day Progression 준비 여부를 판단한다.
+
 ## Prompt 12.9 — NPC Recovery Economy / KING RAT Pursuit Recovery
 
 2026-11-12~13 구현·자동 검증 완료. Prompt12.8 커밋의 clean working tree에서 시작했다. 요청된 경제 부작용·Rat 국소 정체와 실제 재현된 Thief fallback만 수정한다. Checkout/Delivery HUD, Broom, 공격/무기 수치, Round/Day는 변경하지 않는다. 최종 자동 집계:70개 스크립트 / 3,575 PASS / 0 FAIL / 선택 실행 모두 exit0 / 오류·경고0. 사람의 A~E 수동 검사는 미수행. commit/amend/reset/push 없음.

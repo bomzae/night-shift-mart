@@ -94,6 +94,16 @@ var _reaction_wait: float = 0
 var _reaction_tilt: float = 0
 var _impact_mass: float = 0
 @export var body_contact_radius: float = 1.2
+const CONTACT_ALLOWED_GAP: float = 0.03
+# Contact is a body-shell test, not a minimum attack range. Close attacks overlap
+# the contact band; only an invalid direction/path can prevent a telegraph.
+const TELEGRAPH_MIN_DISTANCE: float = 0.0
+@export var hold_decision_interval: float = 0.2
+@export var combat_inactivity_window: float = 1.5
+var _hold_decision_left: float = 0
+var combat_inactive_time: float = 0
+var combat_inactivity_recovery_count: int = 0
+var _observed_contact_count: int = 0
 @export var body_separation_speed: float = 2.0
 @export var contact_damage: float = 10.0
 @export var contact_knockback: float = 2.8
@@ -338,6 +348,7 @@ func _physics_process(delta: float) -> void:
 	_pose_left = maxf(0, _pose_left - delta)
 	_reaction_wait = maxf(0, _reaction_wait - delta)
 	_spacing_grace = maxf(0, _spacing_grace - delta)
+	_hold_decision_left = maxf(0, _hold_decision_left - delta)
 	_lane_wait = maxf(0, _lane_wait - delta)
 	for id in _push_waits.keys():
 		_push_waits[id] -= delta
@@ -374,6 +385,8 @@ func _physics_process(delta: float) -> void:
 			_retreating = false
 	elif state == State.HOLD and _spacing_grace > 0:
 		pass # Recover at the impact position; do not add automatic retreat.
+	elif state == State.HOLD and _hold_decision_left > 0 and _charge_wait > 0:
+		pass # Bounded cooldown beat; ready attacks bypass the remaining wait.
 	elif state == State.SPAWN:
 		if _left <= 0: state = State.SEEK_FOOD
 	elif state == State.TELEGRAPH:
@@ -433,6 +446,7 @@ func _physics_process(delta: float) -> void:
 	velocity.y = 0 if is_on_floor() else velocity.y - 9.8 * delta
 	move_and_slide()
 	observe_combat_progress(delta)
+	observe_combat_inactivity(delta)
 	for i in range(get_slide_collision_count()):
 		var body := get_slide_collision(i).get_collider()
 		if state == State.CHARGE and not damage_reaction_active(): _charge_hit(body)
@@ -600,7 +614,7 @@ func _resolve_body_contact(reference: WeakRef) -> void:
 	if away.y > 1.5 or away.y < -1.8: return
 	away.y = 0
 	var sample := body_contact_sample(body.global_position)
-	if sample.w > 0.03 or not can_see(body): return
+	if sample.w > CONTACT_ALLOWED_GAP or not can_see(body): return
 	away = Vector3(sample.x, 0, sample.z)
 	var before := health.current_health
 	health.receive_damage(contact_damage, self)
@@ -817,13 +831,14 @@ func combat_move(delta: float) -> Vector3:
 		state = State.REPOSITION
 		return reposition_move(delta, distance)
 	_reposition_blocked = 0
-	var action := CombatDecision.choose(distance, lane, ready, body_contact_radius + 0.15, charge_range)
+	var action := CombatDecision.choose(distance, lane, ready, TELEGRAPH_MIN_DISTANCE, charge_range)
 	match action:
 		CombatDecision.Action.ATTACK:
 			begin_telegraph()
 			return Vector3.ZERO
 		CombatDecision.Action.HOLD:
 			state = State.HOLD
+			_hold_decision_left = minf(hold_decision_interval, maxf(0, _charge_wait))
 			return Vector3.ZERO
 		_:
 			state = State.PURSUIT
@@ -908,6 +923,22 @@ func clear_combat_lane(destination: Vector3) -> bool:
 	offset.y = 0
 	var endpoint := destination-offset.normalized()*minf(0.8,offset.length()*0.5)
 	return pursuit_planner.clear_segment(global_position,endpoint)
+
+func observe_combat_inactivity(delta: float) -> void:
+	var contact_happened := contact_damage_count != _observed_contact_count
+	_observed_contact_count = contact_damage_count
+	# Deliberate cooldown and damage/recovery windows are not combat failures.
+	if not is_aggro or not valid_attacker(aggro_target) or combat_distance() > charge_range or attack_committed or damage_reaction_active() or state in [State.CHARGE, State.CHARGE_RECOVERY, State.STAGGER, State.RECOIL, State.DEFEATED] or _spacing_grace > 0 or _charge_wait > 0 or contact_happened:
+		combat_inactive_time = 0
+		return
+	combat_inactive_time += delta
+	if combat_inactive_time < combat_inactivity_window: return
+	combat_inactivity_recovery_count += 1
+	print("RAT INACTIVITY pos=", global_position, " distance=", combat_distance(), " state=", state, " cooldown=", _charge_wait, " lane=", _clear_attack_lane)
+	combat_inactive_time = 0
+	_hold_decision_left = 0
+	_lane_wait = 0
+	combat_move(0) # Keep target and use the same attack/path policy as normal ticks.
 
 func observe_combat_progress(delta: float) -> void:
 	if not is_aggro or attack_committed or damage_reaction_active() or state not in [State.PURSUIT,State.REPOSITION]:
