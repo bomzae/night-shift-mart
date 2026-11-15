@@ -2,6 +2,99 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13 — Round / Day Progression Foundation
+
+2026-11-15 구현·자동 회귀 완료. Prompt12.10 커밋의 clean working tree에서 시작했다. 기존 업무·이벤트·전투를 DayManager에 연결하며 새 공격/무기/Boss/경제 지출/저장/멀티플레이는 추가하지 않는다. 전체76개 스크립트 / 3,734 PASS / 최종 선택 실행 실패·오류·경고0. 사람의 A~H 수동 손맛 검사는 미수행이다.
+
+### DayManager / 상태 / 시간
+
+- `scripts/systems/day_manager.gd`를 Mart 초기화 마지막에 생성한다. geometry/definitions/managers를 재생성하지 않는다. 상태는 `PRE_DAY → ACTIVE → ENDING → RESULT → RESETTING → ACTIVE`. 초기 PRE_DAY는 준비가 완료되면 바로 Day1을 시작한다.
+- `shift_elapsed_seconds / shift_duration_seconds * 8`로 영업 경과 시간을 계산하고, 22:00에 더해 분 단위 24시간 modulo로 표시한다. 기본1,200real seconds = 8game hours, real150초 = game1시간, real2.5초 = game1분. Mart의 Inspector `shift_duration_seconds`로 조절할 수 있다. 신규 자동 검사는30초 영업을 사용한다.
+- Day/time은 우측 상단 x=-300~-24, y=12~60,16px 두 줄로 배치한다. 기존 무기 배송 안내(y65), Event stats(y120~), Boss bar와 겹치지 않는다. 시작2초 `SHIFT START`,05:00 이후 `SHIFT ENDS SOON`을 작게 표시한다.
+- `J` physical key는 영업 중 game1시간을 더한다. 기존 InputMap 키와 충돌 없음, project.godot 수정 없음. 기존 I/U/R/N/B/T/K/L/O/P/H는 ACTIVE에서 유지한다. Result는 E/Enter만 다음 날 전환에 사용하고 다른 게임 입력은 소비한다.
+
+### 기존 시스템 연결 / Timeline
+
+| 시간 | 자동 동작 |
+| --- | --- |
+| 22:00~00:00 | 기존 Customer/Delivery 영업. 자동 사건/Boss 없음 |
+| 00:00~02:00 | Drunk/Family/Accident 후보를 순환; game1시간 간격 |
+| 02:00~04:00 | Thief/Dangerous/Tourist Bus/Accident 후보를 순환; game0.75시간 간격 |
+| 04:00~05:30 | 동일 사건 정책 + KING RAT 자동 생성 기회 |
+| 05:30~06:00 | 새 자동 사건/Boss 없음, 기존 업무 마무리 |
+
+- 복잡한 랜덤 Director가 아닌 기존 spawn 함수 호출이다. 현재 활성 special NPC/버스/화재를 세어2개 이상이면 새 자동 사건을 건너뛴다. 다른 조건으로 생성이 실패해도 다음 간격까지 기다린다. Boss는 별도 한 마리 정책을 유지한다. 안전 spawn 위치가 없으면 game0.1시간 후 재시도하며05:30에 종료한다.
+- 매일 자동 Boss 최대1회. 수동 R로 이미 Boss가 존재한 날에는 자동 추가 생성도 하지 않는다. 수동 디버그 R 자체는 ACTIVE에서 그대로 쓸 수 있으며 기존 동시1마리 제한을 유지한다.
+- `DayManager.allows_activity()`는 Day가 있는 Mart에서 ACTIVE만 허용한다. 독립 Prototype/TestRoom처럼 DayManager가 없는 씬은 기존 동작을 유지한다. Customer/Delivery 자동 타이머와 각 이벤트/무기 주문의 생성 진입점을 차단한다. 기존 normal spawn 간격/Delivery120초 interval/전투 수치는 변경하지 않는다.
+
+### 정상 종료 / 실패 / 일별 집계
+
+- 06:00은 normal ENDING, ACTIVE 중 All Players Downed는 즉시 failed ENDING이다. TeamLife는 생존자 판정과 signal만 맡고, 기존2초 뒤 direct reset은 제거했다. 종료 사유는 첫 전환에서 확정되며 normal grace 중 나중에 쓰러져도 실패로 덮어쓰지 않는다.
+- ENDING에서 신규 활동 중단, live Delivery는 기존 `depart()`로 pallet 미하역 회계를 확정한다. 기존 actor는 real2초 grace 동안 유지된다. 이후 장바구니 정산/예약 해제 → actor/hazard cleanup → 실제 queued deletion을 기다린 뒤 RESULT로 간다. Day number는 Result 확인 전에는 증가하지 않는다.
+- Day 시작에 기존 누적 통계 baseline, 종료에 current-baseline을 저장한다. sales/unpaid/stolen/fire/boss/broken/food, paid customer signal 기반 인원, tourist served/caught thief/found child/extinguished fire/defeated boss를 집계한다. 누적 Manager 통계는 삭제하지 않는다.
+- `net = sales - unpaid - stolen - fire - boss - broken - food`. 영구 소지금이 아닌 Prototype 성과 표시다. Food 소비는 회복에 사용한 상품가치로 별도 표시하면서 net에서 차감한다.
+- 남은 Customer basket/Thief loot는 종료 회수 count/value로 **중립 회계** 처리한다. 자동 판매·미결제 벌점·가짜 체포·재입고는 하지 않는다. 기존 실제 결제/절도/미결제 퇴장 손실은 그대로 남는다. 회수 상품을 물리적으로 새로 생성하지 않으므로 중복 상품도 없다. Result의 `Closing returns`는 실물 재입고를 뜻하지 않는다.
+- Result는1280×720 fullscreen 어두운 panel, Complete/Failed 및 `ALL WORKERS DOWN`, 일별 매출/손실/net/사건/회수를 표시한다. E/Enter 확인 전 Player process를 비활성화하고 입력을 차단한다. 다음 날에는 이전 process mode를 복원한다. World 전체 time_scale/pause를 변경하지 않는다.
+
+### Next Day / Persistence
+
+| 대상 | 정책 |
+| --- | --- |
+| Day1 stock | 기존 Scene initial state 그대로. 기본 auto_stock=false, 기존 첫 배송5초. DayManager는 Auto Stock하지 않음 |
+| Shelf Product | 종료 시 실제 shelf.has_stock인 객체만 유지. 실제 판매/소비/파손/화재 소실은 복원하지 않음 |
+| Floor / temporary Product | 종료 시 미진열 상품 정리. live truck의 미하역 상품은 먼저 기존 returned accounting |
+| Basket / stolen snapshot | 종료 회수 중립 회계 후 제거; 돈/새 Product 생성 없음 |
+| Cart | 동일 객체 유지, 처음 기록한 위치/회전으로 복귀; cargo/launch/velocity/history 초기화 |
+| Weapon / Tool | 동일 객체 및 처음 기록한 위치로 복귀. 내구도/소화기 잔량은 보존. held collision exception, swing/throw/camera state 정리. 파손되어 삭제된 무기는 재생성하지 않음 |
+| Unopened weapon crate | 고정된 기존 배송 지점에 그대로 유지; 새 crate 자동 생성 없음 |
+| Player | HP full, downed false, 시작 transform/정상 자세 복귀; bump/fire/slip/camera/interaction requests 정리 |
+| Runtime NPC / Boss / Fire / Spill | Result 전 모두 정리; 예약/queue/family pair/bus state/heat/panic dictionary도 정리 |
+| Store / Manager / definitions | 유지. 누적 stats도 유지, 다음 날 baseline만 새로 저장 |
+
+### 신규 검사 / 초기 실패 및 수정
+
+- `prompt13_day_smoke.gd`: 시계/자정/단계, 실제 Stock→Customer Pickup→SCAN→PAY 매출 delta, normal end/배송정산/cleanup, shelf vs floor, cart/weapon persistence, Result 입력/실패/다음 날, HUD rect 검증.
+- `prompt13_fast_shift.gd`: 실제 Main과30초 elapsed를 끝까지 실행. Customer/Delivery/기존 자동 Event/Boss/06:00/Result/Next Day, 수동 R과 자동 하루1회 충돌 방지, J시간 이동을 검사한다. fixture는 AutoStock, normal spawn2~3초/patience90초, Player motor 정지/HP10,000을 사용해 짧은 정상 종료 관찰을 확보한다. 이는 production Day 시작 재입고나 기본 밸런스가 아니다. 일반 HP100의 실패·생존은 다른 신규/기존 검사로 검증한다.
+- `prompt13_closing_policy.gd`: 실제 Rice Bag Pickup 후 종료, grace 유지, 중립회수 단일 정산, unpicked stock/예약, 종료 중 spawn 차단, Result입력, normal end 사유 고정, 이벤트 cap/마무리 구간.
+- 첫 Main 실행에서 Variant 기반 `interaction :=` 타입 추론 parse error가 확인되어 명시적 Node 타입으로 수정했다. `p13_initial_main.log` 실패와 `p13_initial_main_retry.log` 성공 로그를 모두 보존한다. Import 성공만으로 Main 검사를 대체하지 않는다.
+- 첫 신규 검사에서18px 시계의 실제 최소 높이가 무기 주문 안내와 겹쳤다.16px로 줄이고 deterministic rect test로 재검증했다. `p13_day_first.log` 실패를 보존한다.
+- 첫11.1 회귀에서 Day 시작의 `reset_for_day()`→`finish_recovery()`가 IMMUNE 자세를 남겨 초기 Charge Knockdown이 실패했다. 완전한 새 영업 시작에는 UPRIGHT/elapsed0으로 정리하여 수정했다. `p13_new_prompt11_1_smoke.log` 실패, `p13_retry_prompt11_1_smoke.log`59 PASS 성공.
+- 기존11.1의2초 뒤 direct reset 기대를 요청된 Result 확인 정책으로 변경했다. All Downed signal1회, feed/revive 거부, HP/자세/위치 복구 및 Charge 피해/Knockdown 검사는 유지하고 Result를 건너뛰지 않는 assertion을 추가했다.
+- 공용 `prompt4_smoke.setup_mart()`는 개별 시스템 회귀에서 자동 시간표만 비활성화한다. Main 기본은 활성화이며 신규 full-shift 검사는 명시적으로 활성화한다. 기존 자동 Customer/Delivery를 fixture에서 끄던 것과 같은 시스템 격리 정책이다.
+
+### 최종 검증 결과
+
+- 기존 Prompt0~12.10:73개 / 3,662 PASS. 직전3,660보다2개 많은 것은11.1의 Result 대기/확인 검사가 추가됐기 때문이다. 그 외 기존 스크립트의 PASS 수는 직전 manifest와 같다. 기존 검사를 삭제하거나 약화하지 않았다.
+- 신규 Prompt13:3개 / 72 PASS(Day45, Fast Shift10, Closing Policy17). 전체76개 / 3,734 PASS / 모든 종료코드0 / FAIL·SCRIPT ERROR·ERROR·WARNING0. 실제 창에서 순차 실행했다. 전체 manifest `.godot/p13_results.csv`, 실행 로그 `.godot/p13_suite_<script>.log`.
+- 명령: `--path . --fixed-fps 60 --script res://tests/<name>.gd --quit-after 24000 --log-file <log>`. Import 로그 `.godot/p13_suite_import.log` 오류·경고0. Main headless7,200frames(고정60FPS,120초 simulation) 및 실제 창600frames(10초) 모두 exit0/오류·경고0: `.godot/p13_main_headless.log`, `.godot/p13_main_window.log`.
+- 실제 Checkout에서 기존 누적 sales$50 뒤 Can$5 결제 → 일별 sales$5, 별도 loss delta$3 → net$2를 확인했다. Rice Bag$45를 가진 미결제 basket은 종료 회수1개/$45로 한 번만 기록되고 sales/unpaid 모두0, unpicked shelf stock 유지 및 원본 Product 중복 없음.
+- Failed Day2는 HP0 후06:00 이전 ENDING→RESULT에서 멈췄으며 Enter 뒤 Day3/HP100으로 복귀했다. 기존2초 direct reset은 발생하지 않았다. Result의 E는 같은 입력으로 SCAN/PAY를 실행하지 않는다.
+- Result1280×720 렌더를 `.godot/p13_result.png`로 확인했다. Clock/무기 주문/통계 rect 비중첩 자동 검사도 통과했다.
+
+| 30초 Shift 관찰(real sec, 약) | Clock | 활성 Customer | 자동 Event 누적 | 자동 Boss 누적 |
+| --- | --- | ---: | ---: | ---: |
+| 0 | 22:00 | 0 | 0 | 0 |
+| 7.5 | 00:00 | 3 | 0 | 0 |
+| 15 | 02:00 | 5 | 2 | 0 |
+| 22.5 | 04:00 | 15 | 2 | 1 |
+| 30 | 06:00 / ENDING | 15 | 2 | 1 |
+
+real2초 grace 뒤 Customer/Boss/Delivery 정리와 Result, 확인 후 Day2/22:00을 검증했다. 별도 수동 R Boss 생성 후 제거→04:00에서도 auto Boss가 추가되지 않아 하루 quota가 유지됐다. 기본20분 Shift의 사람이 직접 업무를 처리하는 pacing 검증을 대신하지 않는다.
+
+- 기존12.9의105초 stress: 최종 active Customer12, stuck0, recovery9, queue9/checkout가능. Rat Telegraph/Charge21/21, 최대 이동 상태 local stop1.133초, path abort1회/path_loss0/unpaid0. 누적 이동량만 보지 않고 국소 정체와 경제 부작용을 함께 검증했다.
+- 12.7 Phase/Charge interrupt/Held Weapon,12.4 Contact/Hold Ground,12.9 경제·Cart/Thief recovery,12.10 exact1.243m 및 거리 sweep/Cart0·1·2대 모두 PASS. Customer/Delivery/Fire/Spill/Drunk/Family/Tourist/Weapon 회귀도 PASS.
+- 최종 Git25개 파일 unstaged/uncommitted: DayManager(+uid), 기존 Manager 연결/입력 정리, 신규 검사3개(+uid), 기존 fixture/실패 검사2개, PROJECT_NOTES/README. `git diff --check` 통과, staged0, project.godot diff0. Commit/amend/reset/push 없음.
+
+### 수동 검사 / Known Issues
+
+수동 A~H: F5 Day1/22:00, 자정 rollover, J 시간 이동과 사건,04:00 이후Boss,06:00 정상 종료, Result 숫자/입력, Day2 리셋, H/Charge로 전원Down→Failed Result. 자동 PASS로 실제20분 pacing·손맛·Result UX를 확정하지 않는다.
+
+기존 `Day Reset Prototype` TODO는 DayManager로 대체했다. 유지: NPC Knockdown Mesh/Collider mismatch; Cart Contact Repeated Damage; Monster/Character visual overlap; Extreme Cart overload; Simple waypoint limits; KING RAT sound/screen final polish; Broom balance manual verification; Checkout PAY usability manual verification.
+
+현재 Day 한계: 영구 경제/저장/업그레이드/다일 난이도 변화 없음. 이벤트 선택은 단순 순환/active cap이며 전체20분 pacing은 수동 검증 필요. 종료 회수는 중립 회계이고 실제 stock 반환 시스템이 아니다. 동적 도구/무기는 최초 생성 위치로 돌아가며 극단적인 물체 적재의 완전한 물리 안정성을 보장하지 않는다.
+
+Project `C:\Users\JHS\orca\night-shift-mart`; Godot `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. Commit/amend/reset/push 없음. 수동 확인 후13.x에서 Day Flow/Event Pacing/Result UX를 보정하고 gameplay-qa Auditor의 전체 Shift 감사 준비 상태를 판단한다.
+
 ## Prompt 12.10 — KING RAT Close-Range Combat Gap Fix
 
 2026-11-14 구현·자동 검증 완료. Prompt12.9 clean working tree에서 시작. QA-COMBAT-002 근거리 판단과 combat inactivity만 수정한다. Contact/Charge 피해·무기 수치·Customer·HUD·Delivery·경제·Round/Day 변경 없음. 최종 자동 검증:73개 스크립트 / 3,660 PASS / 0 FAIL / 최종 선택 실행 오류·경고0. 사람의 A~E 수동 검사는 미수행. commit/amend/reset/push 없음.

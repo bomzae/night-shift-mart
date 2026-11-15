@@ -1,5 +1,6 @@
 extends Node3D
 @export var auto_stock_on_start: bool = false
+@export var shift_duration_seconds: float = 1200.0
 ## Runtime primitive geometry; the reusable product/cart/player scenes own behavior.
 
 func _ready() -> void:
@@ -79,6 +80,11 @@ func _ready() -> void:
 		extinguisher.position = location
 		add_child(extinguisher)
 		Graybox.sign(self, "[F]", location + Vector3.UP * 1.4, Color.ORANGE_RED)
+
+	var day := DayManager.new()
+	day.name = "DayManager"
+	day.shift_duration_seconds = shift_duration_seconds
+	add_child(day)
 
 func _build_supermarket_sections() -> void:
 	# Adjacent product sections share a rack and its floor-level shopping reservations.

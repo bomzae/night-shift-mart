@@ -28,6 +28,12 @@
 
 ## 🌙 Core Gameplay Loop
 
+한 번의 영업은 **22:00부터 다음 날 06:00까지**, 기본 실제 시간 **20분**입니다. 우측 상단에서 Day와 현재 시간을 확인할 수 있습니다.
+
+자정 이후 기존 사건이 순차적으로 발생하고, 04:00~05:30에는 KING RAT이 하루 최대 한 번 자동 등장할 수 있습니다. 사건 수에는 제한이 있으며, 업무와 수동 디버그 조작은 그대로 사용할 수 있습니다.
+
+06:00 또는 전원 Downed 시 영업을 마치고 매출·손실·처리한 사건을 결과 화면에서 확인합니다. **E / Enter**로 다음 날을 시작합니다. 다음 날에도 선반의 실제 재고는 유지되고, 바닥 상품과 남은 사건은 정리됩니다. 카트·도구·무기는 제자리로 돌아오며 무기 내구도와 도구 잔량은 유지됩니다.
+
 ### 1. 배송을 받는다
 
 트럭으로 도착한 상품을 직접 운반합니다.
@@ -273,7 +279,7 @@ Downed 상태에서는 혼자 일어날 수 없습니다.
 
 향후 멀티플레이에서는 살아 있는 동료가 음식을 먹여 부활시킬 수 있도록 구조화되어 있습니다.
 
-현재 싱글플레이에서는 마지막 Player가 Downed되면 `DAY FAILED`가 발생하고 Prototype Day Reset이 진행됩니다.
+현재 싱글플레이에서는 마지막 Player가 Downed되면 `DAY FAILED` 후 결과 화면으로 이동합니다. E / Enter로 다음 날을 시작하면 HP와 위치가 복구됩니다.
 
 ---
 
@@ -308,6 +314,7 @@ Downed 상태에서는 혼자 일어날 수 없습니다.
 | `O` | Accident Customer |
 | `P` | Dangerous / Fire Customer |
 | `H` | Damage Player |
+| `J` | 영업 시간 +1시간 |
 
 ---
 
@@ -426,10 +433,11 @@ AGENTS.md
 - ✅ Melee Weapons
 - ✅ NPC stuck recovery
 - ✅ Gameplay QA workflow
+- ✅ 22:00–06:00 Shift / Day Result / Next Day
 
 ### Planned
 
-- ⏳ Full Round / Day Progression
+- ⏳ Shift pacing / Result UX refinement
 - ⏳ Settlement / Economy
 - ⏳ Additional Monsters / Bosses
 - ⏳ Multiplayer 2–4 Players

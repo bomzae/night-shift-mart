@@ -22,6 +22,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func spawn_accident(requested: Array[StringName] = []) -> AccidentCustomer:
+	if not DayManager.allows_activity(self): return null
 	var customers: CustomerManager = get_parent().get_node("Customers")
 	var count := 0
 	for customer in customers.customers:

@@ -57,6 +57,7 @@ func _set_truck(present: bool) -> void:
 	_hud.visible = true
 
 func _physics_process(delta: float) -> void:
+	if not DayManager.allows_activity(self): return
 	summary_left = maxf(0,summary_left-delta)
 	_timer -= delta
 	if _timer <= 0:
@@ -91,6 +92,7 @@ func _on_pallet(body: GrabbableBody) -> bool:
 	return absf(point.x) < 1.7 and absf(point.z) < 1.2 and point.y < 2.5
 
 func arrive() -> void:
+	if not DayManager.allows_activity(self): return
 	if truck_present:
 		return
 	if products.get_child_count() >= max_active_products:

@@ -49,6 +49,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func start_event() -> bool:
+	if not DayManager.allows_activity(self): return false
 	if state != State.IDLE: return false
 	passengers.clear()
 	spawned_count = 0
@@ -61,6 +62,21 @@ func start_event() -> bool:
 	_phase_left = maxf(0.01, arrival_time)
 	_update_label()
 	return true
+
+func reset_for_shift() -> void:
+	if is_instance_valid(bus): bus.queue_free()
+	bus = null
+	door = null
+	passengers.clear()
+	_paid_passengers.clear()
+	spawned_count = 0
+	_target_count = 0
+	_phase_left = 0
+	_elapsed = 0
+	_spawn_left = 0
+	state = State.IDLE
+	manager.event_spawn_paused = false
+	_update_label()
 
 func _build_bus() -> void:
 	bus = Node3D.new()

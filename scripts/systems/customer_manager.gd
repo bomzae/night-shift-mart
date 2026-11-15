@@ -63,6 +63,7 @@ func _update_spawn_label() -> void:
 	if event_spawn_paused: _spawn_label.text += " (BUS PAUSE)"
 
 func _physics_process(delta: float) -> void:
+	if not DayManager.allows_activity(self): return
 	if not spawning_enabled or event_spawn_paused:
 		return
 	_timer -= delta
@@ -87,6 +88,7 @@ func available_goods() -> Array[GrabbableBody]:
 	return available
 
 func spawn_customer(requested: Array[StringName] = [], customer_scene: PackedScene = null, event_options: Dictionary = {}) -> BasicCustomer:
+	if not DayManager.allows_activity(self): return null
 	requested = requested.duplicate()
 	var tourist: bool = event_options.get("tourist", false)
 	var normal_count := customers.filter(func(c): return not c.get_meta("tourist", false)).size()

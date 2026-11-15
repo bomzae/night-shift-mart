@@ -281,6 +281,20 @@ func cancel_charge() -> void:
 		charge_bar.value = 0.0
 		charge_bar.hide()
 
+func reset_for_shift() -> void:
+	drop_held()
+	cancel_charge()
+	_reset_hold_tracking()
+	_drop_requested = false
+	_interact_requested = false
+	_grab_requested = false
+	_consume_requested = false
+	camera_impact = 0
+	camera.position = _camera_rest_position
+	weapon_notice = 0
+	weapon_info.hide()
+	product_info.hide()
+
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:

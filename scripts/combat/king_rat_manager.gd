@@ -29,6 +29,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func spawn_boss() -> KingRat:
+	if not DayManager.allows_activity(self): return null
 	if is_instance_valid(boss): return null
 	var player: CharacterBody3D = get_tree().get_first_node_in_group("player")
 	if player == null: player = get_parent().get_node("Player")

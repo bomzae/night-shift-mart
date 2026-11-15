@@ -32,6 +32,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func spawn_drunk() -> DrunkCustomer:
+	if not DayManager.allows_activity(self): return null
 	var count := 0
 	for child in get_children():
 		if child is DrunkCustomer:

@@ -33,6 +33,7 @@ func stock_candidates() -> Array[Dictionary]:
 	return result
 
 func spawn_thief() -> ThiefCustomer:
+	if not DayManager.allows_activity(self): return null
 	var count := get_children().filter(func(n): return n is ThiefCustomer and not n.is_queued_for_deletion()).size()
 	if count >= max_active_thieves: return null
 	var customers: CustomerManager = get_parent().get_node("Customers")

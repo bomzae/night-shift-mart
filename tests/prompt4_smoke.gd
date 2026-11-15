@@ -10,6 +10,8 @@ func setup_mart() -> void:
 	root.add_child(main)
 	current_scene = main
 	mart = main.get_node("MartGraybox")
+	# System fixtures explicitly isolate automatic shift events; Main keeps them on.
+	mart.get_node("DayManager").timeline_enabled = false
 	manager = mart.get_node("Customers")
 	manager.spawning_enabled = false
 	manager.patience_time = 60

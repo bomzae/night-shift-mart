@@ -25,6 +25,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func spawn_pair() -> LostChild:
+	if not DayManager.allows_activity(self): return null
 	if pairs.size() >= max_events:
 		return null
 	var slot := 0

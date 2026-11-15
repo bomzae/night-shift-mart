@@ -32,6 +32,7 @@ func _physics_process(_delta: float) -> void:
 		order()
 
 func order() -> WeaponCrate:
+	if not DayManager.allows_activity(self): return null
 	for slot in range(3):
 		var point := to_global(Vector3(6, 0.3, 0.2 + (slot - 1) * 1.6))
 		var query := PhysicsShapeQueryParameters3D.new()
