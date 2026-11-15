@@ -1,358 +1,452 @@
-# NIGHT SHIFT MART
+# 🛒 NIGHT SHIFT MART
 
-Godot 4.7.2용 3D 협동 마트 게임의 **Prompt 12.10 / KING RAT Close-Range Combat Gap Fix 프로토타입**.
-배송 상품을 운반·진열하고 일반 손님의 구매 목록을 스캔·결제합니다.
-AI 경로 복구 실패는 품절·미결제 퇴장과 별도로 처리합니다. 이미 집은 Basket은 남은 쇼핑을 취소하고 Checkout으로 보내며, 실제 patience timeout 손실은 유지합니다.
-KING RAT은 이동 상태에서 2초간 0.3m 미만 진행 시 전투 판단·경로·짧은 측면 탈출을 단계적으로 다시 시도합니다. Telegraph/피격/의도적 Hold는 제외하고 기존 공격 Phase를 유지합니다.
-고객은 이동 중 3초 동안 0.4m의 진행을 만들지 못하면 경로 재계산부터 단계적으로 복구합니다. Queue·쇼핑 대기·Knockdown·화재 반응은 정체로 오판하지 않으며, 동일 목표의 복구와 쇼핑 point 대기는 유한하게 제한합니다.
-Checkout 업무 패널은 좌측, 이벤트·통계는 우측에 분리했습니다. 배송 출발 후 3초간 하역/회수 수량을 표시하고, 이후 실제 다음 배송까지 남은 시간을 보여줍니다.
+> **야간 마트에서 일하고, 사고를 수습하고, 살아남으세요.**  
+> 물리 상호작용을 중심으로 한 1인칭 협동 마트 코미디 게임 프로토타입.
 
-매장은 72×36m이며 중앙 전투 통로, 횡단 통로, 짧은 진열대와 후면 서비스 통로로 연결됩니다. 배송은 기존 후면 직결입니다.
-정규 상품 18종을 지원하며 I로 모든 진열 단의 실제 물리 상품을 보충합니다. Can/Noodles/Chips는 3단, Bread/Cereal과 Milk/Juice는 2단 진열입니다.
-여러 Zone의 다단 Rack 13개를 포함해 전체 자동 진열은 318개입니다. Shelf에는 이름만 보이며 상품 가격·무게·음식 회복량은 Crosshair로 조준했을 때 표시됩니다.
-빠른 회복 검사: **F5 → I → H → Bread/Milk/Watermelon Grab → G**.
-G는 가까운 Downed 동료를 조준하면 Feed를 우선하고, 그 외에는 자기 HP를 회복합니다. Full HP에서는 음식을 소비하지 않습니다.
-Prompt 11.2 이후 사용자 수동 검사에서 Food Self Heal과 Shelf 뒤 탈출이 정상 확인되었습니다.
-얇은 상품은 카트 바닥에서 지지 접촉이 유지될 때만 미세 회전 감쇠를 받습니다. 가장자리·과적·발사에서는 자유 물리를 유지합니다.
-KING RAT의 Approach는 아직 Telegraph 확정 전이며, Hit으로 이동이 중단돼도 같은 Player에 대한 전투 의도를 유지합니다. Recoil/Stagger 후 다시 Approach하고 공격 범위에서 Telegraph를 시작합니다. Telegraph가 시작되면 같은 공격 ID·주황색 몸·`!` 경고를 피격 반응 중에도 유지하며, Flash 중에는 `! -피해량`을 표시합니다. 남은 예고 시간은 반응 동안 멈췄다가 그대로 이어지고, 매 피격마다0.25초를 더하지 않습니다.
-Charge는 한 공격에서 한 번 시작하며 그 순간 방향을 고정합니다. Charge 중 실제 Damage는 현재 돌진과 공격 instance를 즉시 종료합니다. Recoil/Stagger→Brief Hold→새 전투 판단으로 이어지며, 기존 cooldown 이후 새 Telegraph를 거쳐야 다음 Charge가 시작됩니다. 동일 대상 피해 중복 방지와 Hold Ground는 유지합니다. Held Bat/Hammer/Broom은 Monster와의 pair collision만 제외하며 Sweep으로 공격합니다. Drop/Throw 시 즉시 물리 충돌을 복구하고 World/Cart/Product 충돌은 유지합니다.
-KING RAT은 평소 상품을 먹으며 이동합니다. Player의 상품·카트 공격이나 2.5m 안에서 1.25초 지속되는 근접 방해에 반응하며, 시야와 추가 공격을 12초간 잃으면 주변 상품 탐색으로 돌아갑니다.
-도발 후에는 멀면 빠르게 접근하고, 7m 이내 열린 공격 경로에서는 근거리 하한 없이 Telegraph→Charge를 선택합니다. 접촉은 기존 몸/꼬리 shell+0.03m로 별도 검사하므로 1.23~1.35m의 행동 공백이 없습니다. 쿨다운 중에는 최대0.2초 단위로 판단을 갱신하며 Player를 향하고, 준비가 끝나면 전체0.65초 Telegraph를 시작합니다. 실제 경로 차단에만 짧은 측면 보정·기존 우회 경로를 사용합니다. 전투 범위 안에서 cooldown/피격/회복/contact 사유 없이1.5초간 공격이 없으면 별도 inactivity watchdog이 판단을 재평가합니다.
-실제 피격은 0.10~0.15초의 밝은 Flash와 강도별 짧은 몸 반응으로 표시됩니다. Broom은 작은 반응과 큰 Push, Bat은 중간 반응, Hammer는 강한 반응과 기존 Stagger를 사용합니다.
-일반 몸·꼬리 접촉은 짧은 입력 감쇠·카메라 충격·감속하는 수평 밀침과10 HP 피해를 주며 Player별1초 cooldown을 사용합니다. 일반 접촉에는 Knockdown이 없고, Charge는30 HP와 기존 Knockdown을 유지합니다. Rat은 몸 접촉 때문에 후퇴하지 않습니다. 성공한 Melee는 Stagger 재발동 대기와 별개로 Recoil을 시작하며 무기·상품·Cart의 전투 외력과 사람/Monster의 non-blocking 구조를 유지합니다.
+**NIGHT SHIFT MART**는 야간 마트 직원이 되어 배송 상품을 나르고, 진열대를 채우고, 손님을 계산하면서 예상치 못한 사건을 처리하는 **3D 물리 기반 게임**입니다.
 
-먼저 [PROJECT_NOTES.md](PROJECT_NOTES.md)를 읽고 개발 범위를 확인하세요.
+평범한 마트 업무로 시작하지만 취객, 도둑, 화재, 관광객 러시, 길 잃은 아이, 그리고 거대한 **KING RAT**까지 등장합니다.
 
-## 실행
-Godot 4.x에서 `project.godot`를 Import한 뒤 **F5**로 실행합니다.
-진입 씬은 `scenes/main/main.tscn`이며 마트 Graybox를 자동으로 불러옵니다.
-마트 씬은 `scenes/mart/mart_graybox.tscn`입니다. 기존 테스트 룸은
-`scenes/test/prototype_test_room.tscn`을 열고 **F6**로 실행합니다.
-Main의 `start_in_prototype` 또는 실행 인수 `-- --prototype`으로도 기존 룸에 들어갈 수 있습니다.
+상품, 카트, 소화기, 대걸레, 근접 무기 등 대부분의 물체는 실제 물리 오브젝트로 동작하며, 정해진 하나의 해결법보다 **여러 시스템을 조합하면서 벌어지는 상황 자체**를 핵심 재미로 삼고 있습니다.
 
-이 PC의 ZIP Godot 실행 경로는 아래와 같습니다. 프로젝트 루트의 PowerShell에서 실행합니다.
-Project root: `C:\Users\JHS\orca\night-shift-mart`
-`C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe` 자체는 폴더이므로 내부 실행 파일을 지정합니다.
+---
 
-```powershell
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --editor
+## 🎮 Game Overview
+
+| 항목 | 내용 |
+| --- | --- |
+| Engine | Godot 4.7.2 |
+| Genre | First-person Physics / Co-op Comedy |
+| Current Build | Single-player Prototype |
+| Target | 2–4 Player Co-op |
+| Store Size | 72 × 36 m |
+| Products | 18 types |
+| Interaction | Grab · Drop · Throw · Push · Carry · Melee |
+| Boss Prototype | KING RAT |
+
+---
+
+## 🌙 Core Gameplay Loop
+
+### 1. 배송을 받는다
+
+트럭으로 도착한 상품을 직접 운반합니다.
+
+상품 하나씩 옮길 수도 있지만, 카트를 이용하면 훨씬 빠릅니다.
+
+### 2. 진열대를 채운다
+
+상품 종류와 진열 위치에 맞춰 매대를 채웁니다.
+
+작은 상품은 2단·3단 선반에 진열되며, 잘못 올려놓은 물건도 강제로 정리되지 않고 그대로 물리 오브젝트로 남습니다.
+
+### 3. 손님을 응대한다
+
+손님은 실제 진열 상품을 가져갑니다.
+
+상품이 사라지면 재고도 줄어들며, 계산대에서 직접 **SCAN → PAY** 과정을 처리해야 합니다.
+
+### 4. 돌발 상황을 해결한다
+
+영업 중 다양한 사건이 발생합니다.
+
+- 🍺 Drunk Customer
+- 🧒 Lost Child & Parent
+- 💦 Spill Accident
+- 🔥 Fire
+- 🥷 Thief
+- 🚌 Tourist Rush
+- 🐀 KING RAT
+
+### 5. 마트에 있는 모든 것을 활용한다
+
+정답은 하나가 아닙니다.
+
+상품을 던지고, 카트를 들이받고, 소화기로 밀어내고, 무기를 배송받아 싸울 수도 있습니다.
+
+---
+
+# 🧸 Physics Playground
+
+NIGHT SHIFT MART의 핵심은 **물건이 단순 장식이 아니라 실제 Gameplay 도구라는 것**입니다.
+
+## Grab / Throw
+
+대부분의 상품은 직접 들고 던질 수 있습니다.
+
+- **가격이 높을수록** 공격력이 증가합니다.
+- **무게가 무거울수록** 투척 속도와 거리가 감소합니다.
+- 우클릭을 길게 눌러 Charge Throw가 가능합니다.
+
+가벼운 과자와 무거운 TV는 같은 방식으로 날아가지 않습니다.
+
+---
+
+## 🛒 Shopping Cart
+
+카트는 단순 운반 수단이 아닙니다.
+
+- 상품 적재
+- Push / Pull
+- 방향 전환
+- Player / NPC 물리 상호작용
+- Charge Launch
+- Loaded Cart 공격
+- Cart Bomb
+
+상품을 가득 싣고 KING RAT에게 그대로 들이받는 것도 가능합니다.
+
+적재물은 Inventory가 아니라 실제 `RigidBody`이므로 충돌이 강하면 밖으로 흩어집니다.
+
+---
+
+## 🧯 Tools
+
+### Fire Extinguisher
+
+화재를 진압하면서 상품, NPC, 카트에 물리적인 Push를 가할 수 있습니다.
+
+### Mop
+
+Spill을 청소하면서 동시에 물체를 밀거나 던질 수도 있습니다.
+
+도구 역시 전용 미니게임이 아니라 기존 물리 시스템 안에서 동작합니다.
+
+---
+
+# 🏪 Supermarket
+
+현재 Graybox 마트는 약 **72 × 36m** 규모입니다.
+
+매장은 여러 구역으로 구성되어 있습니다.
+
+- Produce
+- Drinks / Dairy
+- Pantry
+- Snacks
+- Household
+- Cookware
+- Electronics
+- Checkout
+- Rear Delivery
+
+중앙 통로, 횡단 통로, 후면 서비스 통로가 연결되어 있어 손님 업무와 카트 이동, 전투가 동시에 발생할 수 있도록 설계했습니다.
+
+---
+
+## 📦 Products
+
+현재 18종의 실제 물리 상품을 지원합니다.
+
+| Product | Price | Weight |
+| --- | ---: | ---: |
+| Can | $5 | 1.0 kg |
+| Instant Noodles | $6 | 0.4 kg |
+| Chips | $8 | 0.3 kg |
+| Bread | $10 | 0.5 kg |
+| Milk | $15 | 1.5 kg |
+| Cereal | $18 | 0.8 kg |
+| Juice | $20 | 1.5 kg |
+| Toilet Paper | $22 | 1.8 kg |
+| Glass Drink | $25 | 1.2 kg |
+| Shampoo | $25 | 1.0 kg |
+| Detergent | $30 | 2.5 kg |
+| Cooking Oil | $35 | 2.0 kg |
+| Rice Bag | $45 | 5.0 kg |
+| Watermelon | $50 | 4.0 kg |
+| Frying Pan | $120 | 3.0 kg |
+| Vacuum Cleaner | $250 | 6.0 kg |
+| Microwave | $300 | 7.0 kg |
+| TV | $800 | 10.0 kg |
+
+상품 상세 정보는 항상 화면에 띄우지 않고, **Crosshair로 상품을 바라볼 때만** 이름·가격·무게·음식 회복량을 표시합니다.
+
+---
+
+# 👥 Customers & Events
+
+## Regular Customers
+
+손님은 진열대를 직접 방문하고 실제 상품을 가져갑니다.
+
+이후 계산대에 줄을 서며 Player가 SCAN과 PAY를 처리합니다.
+
+NPC는 카트, 바닥 상품, 다른 이벤트 때문에 경로가 막힐 수 있으며, 장시간 진행하지 못하면 단계적으로 경로와 목표를 다시 계산합니다.
+
+---
+
+## 🚌 Tourist Rush
+
+관광버스가 도착하면 여러 손님이 한꺼번에 마트로 들어옵니다.
+
+평소에는 여유 있던:
+
+- 재고
+- 진열
+- 계산대
+- 이동 통로
+
+가 동시에 압박받게 됩니다.
+
+---
+
+## 🥷 Thief
+
+도둑은 실제 진열 상품을 훔쳐 출구로 달아납니다.
+
+가까이 접근해 붙잡으면 상품을 회수할 수 있으며, 놓치면 상품 가격이 손실로 기록됩니다.
+
+---
+
+## 🔥 Fire
+
+일부 손님은 상품을 가져간 뒤 화재를 발생시킬 수 있습니다.
+
+불은 주변 가연성 상품으로 제한적으로 번지며 상품이 완전히 타면 실제 손실로 기록됩니다.
+
+소화기를 가져와 직접 진압해야 합니다.
+
+---
+
+# 🐀 KING RAT
+
+KING RAT은 현재 전투 시스템을 검증하기 위한 첫 번째 Boss Prototype입니다.
+
+평상시에는 Player를 무조건 공격하지 않고 마트를 돌아다니며 상품을 먹습니다.
+
+Player가 공격하거나 지속적으로 방해하면 Aggro 상태로 전환됩니다.
+
+### Combat Flow
+
+`Roam → Aggro → Approach → Telegraph → Charge → Recovery`
+
+KING RAT은 공격 전 명확한 Telegraph를 보여주며, Charge가 시작되면 방향이 고정되기 때문에 옆으로 피할 수 있습니다.
+
+Player 공격에 따라 상황도 달라집니다.
+
+- **Approach 중 Hit** → 밀려난 뒤 공격 의도를 유지하고 다시 접근
+- **Telegraph 중 Hit** → 같은 공격 준비를 유지
+- **Charge 중 Hit** → 현재 돌진 중단 후 전투 판단 재시작
+
+일반 몸 접촉도 Player에게 피해를 주지만, Charge는 더 큰 피해와 Knockdown을 발생시킵니다.
+
+---
+
+# 🔨 Weapons
+
+무기는 Inventory에 들어가는 장비가 아니라 **실제 World Physics Object**입니다.
+
+후면 배송 구역으로 Weapon Crate를 주문하고 직접 가져와 사용합니다.
+
+| Weapon | Damage | Range | Cooldown | Durability | Role |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Baseball Bat | 22 | 2.2m | 0.65s | 14 | 빠르고 안정적인 기본 무기 |
+| Sledgehammer | 48 | 2.0m | 1.35s | 10 | 느리지만 강한 Heavy Hit |
+| Heavy Broom | 12 | 2.8m | 0.55s | 18 | 긴 사거리와 강한 Push |
+
+Weapon도:
+
+- Grab
+- Drop
+- Throw
+- Cart 적재
+
+가 가능합니다.
+
+무기만 사용하는 것이 아니라 상품 투척과 Cart Bomb을 섞어 싸우는 것이 현재 전투 방향입니다.
+
+---
+
+# ❤️ Player Health
+
+Player 기본 HP는 **100**입니다.
+
+음식은 실제 상품이면서 회복 아이템 역할도 합니다.
+
+| Food | Self Heal | Revive Heal |
+| --- | ---: | ---: |
+| Bread | +15 | +30 |
+| Milk | +20 | +40 |
+| Watermelon | +30 | +60 |
+
+Downed 상태에서는 혼자 일어날 수 없습니다.
+
+향후 멀티플레이에서는 살아 있는 동료가 음식을 먹여 부활시킬 수 있도록 구조화되어 있습니다.
+
+현재 싱글플레이에서는 마지막 Player가 Downed되면 `DAY FAILED`가 발생하고 Prototype Day Reset이 진행됩니다.
+
+---
+
+# ⌨️ Controls
+
+## Basic
+
+| Input | Action |
+| --- | --- |
+| `WASD` | Move |
+| `Space` | Jump |
+| `E` | Interact / SCAN / PAY / Open Weapon Crate |
+| `LMB` | Grab / Weapon Swing |
+| `RMB Hold → Release` | Charge Throw |
+| `Q` | Drop |
+| `F` | Use Tool |
+| `G` | Eat Food / Feed Downed Teammate |
+| `Esc` | Toggle Mouse Capture |
+
+## Debug / Prototype
+
+| Input | Action |
+| --- | --- |
+| `I` | Auto Stock |
+| `U` | Toggle Customer Spawn |
+| `R` | Spawn KING RAT |
+| `N` | Order Weapon |
+| `B` | Tourist Bus |
+| `T` | Thief |
+| `K` | Drunk Customer |
+| `L` | Lost Child |
+| `O` | Accident Customer |
+| `P` | Dangerous / Fire Customer |
+| `H` | Damage Player |
+
+---
+
+# 🚀 Getting Started
+
+## Requirements
+
+- **Godot 4.7.2**
+- Windows recommended for the current development environment
+
+Clone the repository:
+
+```bash
+git clone https://github.com/bomzae/night-shift-mart.git
+cd night-shift-mart
+git switch develop
 ```
 
-| Action | 기본 입력 | 상태 |
-| --- | --- | --- |
-| move_forward / move_backward | W / S | 이동 |
-| move_left / move_right | A / D | 이동 |
-| jump | Space | 점프 |
-| interact | E | 계산대 SCAN / PAY 또는 바라보는 Weapon Crate 열기 |
-| grab | 마우스 왼쪽 | 상품·카트 손잡이·취객 잡기 / 놓기, Weapon을 들고 있으면 Swing |
-| drop_item | Q | 들고 있는 물체 내려놓기 / 충전 취소 |
-| debug_order_weapon | N | 후면 배송 구역에 Bat → Sledgehammer → Heavy Broom 순환 주문 |
-| throw | 마우스 오른쪽 | 누르는 동안 충전 → 떼면 상품 투척 또는 카트 발사 |
-| toggle_mouse_capture | Esc | 마우스 잠금 해제/복귀 |
-| debug_spawn_drunk | K | 마트 입구에 테스트 취객 생성(최대 2명) |
-| debug_spawn_lost_child | L | 개발용 미아·부모 쌍 생성(최대 2쌍) |
-| debug_spawn_accident | O | 개발용 사고 손님 생성(최대 2명, 일반 손님 전체 인원 제한도 적용) |
-| debug_spawn_dangerous | P | 개발용 화재 손님 생성(최대 2명, 일반 손님 제한도 적용) |
-| use_tool | F 누르기 | 들고 있는 소화기 분사(우클릭 투척 충전과 별도) |
-| toggle_customer_spawn | U | 개발용 일반 손님 자동 생성 ON/OFF |
-| debug_spawn_thief | T | 개발용 도둑 생성(최대 2명, U OFF에서도 가능) |
-| debug_tourist_bus | B | 개발용 관광버스 호출(이벤트 진행 중 중복 호출 불가) |
-| debug_auto_stock | I | 개발용 전체 Shelf 부족분을 실제 물리 상품으로 보충 |
-| spawn_king_rat | R | 개발용 KING RAT 생성(동시에 1마리, 안전한 후면 공간 필요) |
-| consume_item | G | 음식으로 자신 회복 / 바라보는 DOWNED 동료에게 먹이기 |
-| debug_damage_player | H | 개발용 Player HP 30 감소 |
+Open `project.godot` with Godot 4.7.2.
 
-## Player HP / 음식 / 부활
-HP 기본값은 100입니다. Bread/Milk/Watermelon을 들고 **G**를 누르면 각각 15/20/30 HP 회복합니다.
-Full HP와 비식품은 소비하지 않습니다. 음식은 실제로 제거되며 FOOD 비용에 가격이 기록됩니다.
-살아 있는 Player가 2m 이내 DOWNED 동료를 바라보고 G를 누르면 30/40/60 HP로 부활시킵니다.
-벽 너머 먹이기와 DOWNED 상태의 자가 부활은 불가능합니다. 네트워크 멀티플레이는 아직 없습니다.
-마지막 Player가 쓰러지면 즉시 DAY FAILED가 되고, 2초 후 다음 날 Full HP/시작 위치로 복구됩니다.
-현재는 Player·활성 보스·시작 위치 근처 Fire/Spill만 정리하는 Prototype이며 재고·매출·영업 전체를 초기화하지 않습니다.
-**싱글플레이에서는 혼자 쓰러지는 즉시 Day Failure가 정상입니다.**
-동료 부활 수동 테스트: `tests/food_revive_test.tscn`을 열고 **F6** → 후면 통로 음식 Grab → 쓰러진 테스트 동료를 바라보고 G.
-테스트 동료는 직접 조작하지 않습니다. 동료를 살리기 전에 H로 자신도 쓰러뜨리면 전원 DOWNED→다음 날 복구를 확인할 수 있습니다. 다른 음식 비교는 F6로 다시 시작하세요.
-Main에는 가짜 Player를 추가하지 않습니다. H는 개발용 HP 감소 키입니다.
+Run the project with:
 
-## Cart 장애물 복구
-사람형 NPC는 Cart 앞에서 먼저 옆으로 비킵니다. 전진이 약 2초간 막히면 해당 NPC–Cart 쌍만 임시 통과하고,
-Cart에서 충분히 벗어나면 충돌을 복구합니다. Cart로 NPC를 밀기와 Human끼리의 Soft Separation은 유지합니다.
-바구니 내부의 낮은 상대 속도 적재물에는 약한 감쇠를 적용합니다. 상품은 실제 RigidBody이며 Grab·발사·강한 충격·기울기에서는 보정이 해제되어 기존 Cart Bomb과 과적 이탈이 가능합니다.
-
-## KING RAT 테스트
-**F5 → I → U OFF → R**로 단독 보스 테스트를 시작합니다. U OFF는 선택 사항이며 기존 손님은 계속 행동합니다.
-KING RAT는 실제 진열·바닥 상품을 먹어 BOSS LOSS를 증가시킵니다. 상품을 먼저 집으면 다른 대상을 찾습니다.
-중립 상태에서는 지나가는 Player를 무시합니다. 공격이나 지속 근접 방해로 Aggro가 시작되면 4.8m/s로 공격 거리를 확보하고 마지막 위치를 12초 기억합니다. 막힌 직선 대신 매장 통로를 경유하며 기억이 끝나면 상품/구역 순회로 돌아갑니다.
-상품·카트 충격은 피해와 방향에 따라 짧은 Recoil을 줍니다. 소화기는 기존 약한 Push를 유지합니다.
-상품 우클릭 Charge Throw, Cart Launch/Cart Bomb의 기존 피해가 그대로 적용됩니다. 고가 상품일수록 강하지만 무거운 상품은 투척 거리가 짧습니다.
-주황색 `!` 준비 동작 후 고정 방향으로 돌진하므로 옆으로 피할 수 있습니다. 맞으면 HP 30 감소와 기존 Knockdown/Backward Fall이 발생합니다. HP 0이면 DOWNED이며 자동 기상하지 않습니다.
-소화기는 **F 분사로 Push**, Mop은 기존 물리 접촉 도구입니다. Weapon은 별도로 배송받으며 Product Throw와 Cart Bomb도 계속 유효합니다.
-보스 HP는 등장 중에만 표시하며, 처치 후 약 1.5초 뒤 제거됩니다. B로 Rush나 다른 사건을 함께 실행할 수 있습니다.
-Cart를 밀착해 비빌 때 반복 피해가 발생하는 기존 현상은 유지합니다. 실제 전투에서의 재미/악용 여부는 수동 관찰 대상입니다.
-
-## Weapon 배송 / 근접 전투
-**N → 후면 배송 Crate를 바라보고 E → LMB Grab → LMB Swing**. Q로 내려놓고 RMB로 기존 Charge Throw를 사용할 수 있습니다. Swing과 Throw 충전은 동시에 할 수 없습니다. Swing 중에도 이동·피격이 가능합니다.
-1 Crate = 1 Weapon이며 슬롯 3개가 막혀 있으면 주문을 보류합니다. Crate 위에 물건이 있으면 치운 뒤 다시 E를 누르세요. 무기는 매장 초기 배치나 Inventory 없이 실제 RigidBody로 생성됩니다.
-Bat: 피해22 / 0.65초 / 2.2m / 내구도14. Sledgehammer: 피해48 / 1.35초 / 2m / 내구도10. Heavy Broom: 피해12 / 0.55초 / 2.8m / 내구도18.
-Monster 근접·투척 타격 성공 시 내구도1 소모, Miss·벽·일반 손님에는 소모하지 않습니다. 0이면 피해 처리 후 파손됩니다. 우측 하단에 들고 있는 무기 이름·내구도·조작을 표시하며 25% 이하 내구도는 작은 색상 경고로 구분합니다.
-Bat은 빠른 대각선 Swing, Hammer는 0.2초 준비 후 큰 궤적과 긴 회복, Broom은 넓고 빠른 Sweep과 강한 Push를 사용합니다. Hit 순간 Weapon 동작만 잠깐 느려지며 Player·Rat·Cart는 계속 움직입니다. 세 무기 모두 Player 이동 속도는 유지합니다.
-Full Charge 투척 피해는 Bat 11.88 / Hammer 24.48 / Broom 6.72이며 Hammer는 무게 때문에 느리게 날아갑니다. Rat의 강한 Stagger에는 기존 2초 재발동 대기가 있습니다. 실제 Melee 타격과 Charge를 중단시키는 첫 충격의 Recoil은 별도로 보장하며 피해·외력은 계속 적용합니다.
-설정은 `data/weapons/*.tres`입니다. 주문 가격·구매 UI·총기·장비 슬롯은 아직 없습니다.
-
-## 빠른 테스트 준비 / Auto Stock
-**F5 → I**로 18종 상품의 정상 Shelf/Tier를 채웁니다. 현재 전체 Auto Stock 목표는 318개이며, 막힌 슬롯은 건너뜁니다.
-I를 다시 누르면 부족분만 보충합니다. 기존 상품이나 잘못 쌓인 물체는 삭제하지 않으며, 막힌 슬롯은 건너뜁니다.
-상품을 치우고 다시 I를 누르면 남은 공간을 보충할 수 있습니다. Stock 표시는 기존 물리 정착 판정 후 반영됩니다.
-**U OFF → I → T/P/B**로 도둑·화재·관광버스를 각각 테스트할 수 있습니다. 이미 생성된 손님은 계속 행동합니다.
-Mart의 Inspector `auto_stock_on_start`를 켜면 시작 시 자동 보충하며 기본값은 false입니다.
-상품 설정은 `data/products/*.tres`의 가격·무게·크기·가연성·Shelf 수량을 사용합니다.
-첫 배송은 기존 Can/Watermelon/Appliance 각 2개이며, 다음 배송부터 새 카탈로그의 3종씩 각 2개를 순환 제공합니다.
-Auto Stock 없이도 기존 Delivery → Cart → 수동 진열 흐름을 그대로 사용할 수 있습니다.
-
-## 관광버스 / Customer Rush
-**U OFF → 실제 상품을 충분히 진열 → B**로 관광버스를 단독 테스트합니다.
-마트 정문 밖에 버스가 정차하고 기본 10명의 일반 손님이 문 앞에서 순차적으로 나옵니다.
-기존 Shopping·Pickup·Scan/Pay·Patience 규칙을 그대로 사용하므로 진열과 계산을 병행하세요.
-재고가 적으면 품절 퇴장이 많아집니다. Queue 압박을 보려면 배송 상품도 계속 진열해야 합니다.
-버스 중 일반 자동 생성은 일시 정지하며, 종료 후 **현재 U 설정**을 존중해 재개합니다.
-U OFF 중에도 B/K/L/O/P/T는 사용 가능합니다. 기존 인원 제한과 입구 점유 제한은 적용됩니다.
-기본 승객 생성 간격은 0.4초이지만 문 앞이 막히거나 전체 손님 상한에 도달하면 기다립니다.
-승객 80%가 결제·품절·미결제로 처리되거나 이벤트 시작 후 100초가 지나면 출발합니다.
-남아 있는 손님은 삭제하지 않고 기존 행동을 계속하며, 버스 출발 후 늦게 결제해도 SERVED에 포함됩니다.
-작은 BUS 표시에서 상태·생성 인원·미처리 인원·도착 횟수·정상 결제 인원을 확인할 수 있습니다.
-
-## 도둑 / 추격 / 회수
-F5 직후 **U**로 자동 손님을 끄고 실제 상품을 진열한 다음 **T**로 도둑을 생성합니다.
-입구가 막혀 있으면 공간을 확보한 후 다시 누릅니다. 이미 생성된 일반 손님은 계속 쇼핑합니다.
-도둑은 진열된 상품 하나 앞까지 걸어가 훔친 뒤 상품 아이콘과 `!!`를 표시하며 출구 밖으로 도주합니다.
-**절도 후 가까이(1.8m 이내) 접근해 도둑을 바라보고 좌클릭**하면 즉시 붙잡습니다.
-다른 물건을 들고 있다면 먼저 내려놓아야 합니다. 몸이나 카트로 부딪히는 것만으로 잡히지는 않습니다.
-포획 성공 시 ✓와 함께 원래 가격·무게의 실제 상품이 주변 바닥에 돌아옵니다.
-다시 집기·던지기·카트 적재·재진열이 가능합니다. 주변이 완전히 막혀 회수 상품을 놓을 공간이 없으면 공간을 확보하고 다시 잡습니다.
-놓치면 출구 밖에서만 **STOLEN** 손실이 증가하며, 잡으면 **CAUGHT**가 증가합니다.
-상품이 없거나 도착 전에 사라지면 빈손으로 퇴장하며 손실은 발생하지 않습니다.
-Spill 넘어짐·Fire 반응·소화기/Mop/카트 밀기로 도주를 방해할 수 있지만 별도 전투나 체력 시스템은 없습니다.
-
-## 화재 / 소화기
-
-**화재 상품 손실만 확인하려면 F5 직후 U로 CUSTOMER SPAWN: OFF**로 바꿉니다.
-이미 생성된 손님은 정상 쇼핑·계산·퇴장하므로 먼저 처리하거나 기다린 뒤 상품을 여러 개 진열합니다.
-**P**로 화재 손님 하나를 생성해 불을 방치합니다. 이 손님도 정상 구매하므로 구매분 외에 남을 상품을 충분히 준비합니다.
-연소 중에는 상품 위 불 아이콘·진행률, 소실 시에는 짧은 손실 금액 표시가 나타납니다.
-왼쪽 상단 **FIRE LOSS: $...**를 확인합니다. 완전히 타기 전에 F로 진압하면 추가 연소가 멈춥니다.
-U를 다시 누르면 원래 6~10초 간격 자동 생성을 재개합니다. OFF 중에도 K/L/O/P는 사용 가능합니다.
-
-불에 닿으면 Player 화면 양옆이 잠깐 주황색으로 표시되고 약 0.3초 바깥쪽으로 밀립니다.
-이동·마우스·도구 입력은 유지됩니다. NPC는 약 0.65초 놀람 표시와 함께 물러난 뒤 원래 업무로 복귀합니다.
-반응 간격은 1.1초이며 겹친 불도 중첩 반응시키지 않습니다. HP/사망/화재 Knockdown은 없습니다.
-화재 반응 중 Spill에서 넘어지면 기존 Backward Fall이 우선합니다.
-
-상품을 먼저 진열하고 **P**를 누릅니다. 화재 손님은 첫 상품을 챙긴 뒤 한 번 불을 내고,
-약 0.8초 당황한 후 기존 쇼핑·계산을 계속합니다. 품절로 쇼핑하지 못하면 불을 내지 않습니다.
-주황색 불은 성장하고 가까운 가연성 상품을 통해 제한적으로 번집니다(동시 최대 10개).
-노출된 상품은 파손되어 사라지며 FIRE / OUT / LOSS 표시로 생성·진압 횟수와 상품 손실액을 확인합니다.
-
-빨간 소화기는 **Backroom 오른쪽 (6.2, 0.45, -1.5)**와 **매장 오른쪽 (8.2, 0.45, 6)**에 있습니다.
-좌클릭으로 집고 불을 향해 **F를 누른 채 분사**합니다. 유효 거리는 약 4m이고 벽 너머에는 닿지 않습니다.
-소화기 위의 숫자는 남은 용량이며, 100에서 초당 8씩 감소합니다. 이번 단계에는 재충전이 없습니다.
-비어도 좌클릭 Drop / 우클릭 Charge Throw는 가능합니다. 투척 충전 중에는 분사를 잠시 멈춥니다.
-분사는 NPC·상품·카트를 약하게 밀며 가벼운 상품이 더 크게 움직입니다. 전용 Cart Rocket 기능은 없습니다.
-Spill에서 넘어지면 소화기도 놓고 분사를 멈춥니다. 불은 계속 남으므로 일어나 회수하여 진압합니다.
-
-신규 검사: 기록된 Godot 실행 파일에 `--path . --fixed-fps 60 --script res://tests/prompt8_smoke.gd`를 전달합니다.
-반응·자동 생성 토글·연소 피드백 검사: `--path . --fixed-fps 60 --script res://tests/prompt8_1_smoke.gd`.
-수동으로 성장·진압 시간, 분사 조준, NPC 밀림, Spill과 함께 있을 때의 조작감을 확인하세요.
-
-## 사고 손님 / 미끄러운 바닥 / Mop
-
-먼저 상품을 진열한 뒤 **O**를 누릅니다. 사고 손님은 첫 Shelf에서 상품을 챙긴 직후 한 번 물을 쏟고,
-잠깐 당황한 표정 뒤 기존 쇼핑·계산을 계속합니다. 재고가 없어 쇼핑하지 못하면 사고 없이 퇴장합니다.
-입구가 막혔거나 손님 수가 최대이면 생성을 건너뛰므로 공간을 비우고 다시 누릅니다.
-
-파란 원형 물웅덩이는 Player·손님·취객·카트·바닥 상품의 제동/마찰을 낮춥니다. 시간이 지나도 사라지지 않습니다.
-캐릭터가 중앙부를 충분한 속도로 밟으면 넘어집니다. Player 시점은 약 1.1m 낮아지고 뒤로 75° 젖혀져 위쪽을 바라보며,
-약 1.4초 동안 이동·점프·상호작용을 쉬지만 마우스로 주변을 볼 수 있습니다.
-들고 있던 상품·캐릭터·카트는 놓고 Charge는 취소됩니다. 일어난 뒤 1.3초 동안 재넘어짐을 막습니다.
-가장자리 접촉이나 정지 상태만으로 넘어지지 않습니다. 카트·상품에는 넘어짐 상태가 없습니다.
-**Mop은 뒤편 Backroom 오른쪽, 좌표 (7.5, 0.85, -1.5)**에 있습니다. 좌클릭으로 집고 물웅덩이를 내려다보며
-Mop의 흰색 머리를 바닥에 대고 좌우로 문지릅니다. 실제 머리가 움직일 때만 파란 영역이 줄어들고 없어집니다.
-줄어드는 영역의 중앙을 따라 닦아야 하며 가만히 두거나 공중에서 흔드는 것으로는 청소되지 않습니다.
-화면 오른쪽 상단 SPILLS / CLEANED로 생성·청소 횟수를 확인합니다.
-
-Mop도 좌클릭 Drop / 우클릭 Charge Throw가 가능하고 상품·NPC·카트와 물리적으로 충돌합니다.
-판매 상품이나 별도 무기는 아니며, 멀리 던지면 그곳에 남습니다.
-신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt7_smoke.gd`를 전달합니다.
-넘어짐 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_1_smoke.gd`.
-1인칭 누운 자세·시점·복구 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_2_smoke.gd`.
-Backward Fall 방향·Look 보존 검사: `--path . --fixed-fps 60 --script res://tests/prompt7_3_smoke.gd`.
-
-## 미아와 부모 찾기
-
-F5 → **L**로 매장 안에 미아와 부모를 생성합니다. 생성 위치가 막혀 있으면 비우고 다시 누릅니다.
-아이와 부모의 **같은 색·도형(노란 원 / 청록 마름모)**을 찾습니다. 부모는 쇼핑이나 계산 없이 기다립니다.
-미아를 좌클릭으로 들고 부모에게 접근합니다. 맞는 부모 약 1.8m 이내에서 체크 표시가 보이면
-**다시 좌클릭해 내려놓습니다**. 하트 표시와 FOUND 증가 후 둘이 함께 출구로 이동합니다.
-
-잘못된 부모나 일반 위치에 놓아도 아이가 사라지거나 금전 손실이 발생하지 않습니다. 시간 제한도 없습니다.
-미아 운반 속도는 일반 이동의 98%(취객 85%)이며 우클릭으로 던질 수 없습니다.
-카트에 내려놓아 운반할 수 있지만 좌석 고정은 없습니다. 부모 앞에서 다시 들어 Drop하면 인계합니다.
-출구 제거 구역은 취객 전용이므로 미아를 밖으로 보내는 것은 해결이 아닙니다.
-재회한 아이는 부모의 뒤·옆을 따라갑니다. 퇴장 가족은 서로 및 일반 손님과 길을 막지 않도록 통과하며,
-부모가 출구에 도착하면 아이도 함께 정리됩니다. 부모의 Exit 이동에는 기존 Cart/Product recovery와 상위 progress watchdog이 적용됩니다. 재회 대기와 아이의 기존 follow 동작은 유지합니다.
-
-신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt6_smoke.gd`를 전달합니다.
-퇴장 교차 검사: `--path . --script res://tests/prompt6_1_smoke.gd`.
-
-## 취객 테스트
-
-F5로 마트를 실행하고 **K**를 누릅니다. 입구가 막히면 생성을 건너뛰므로 공간을 비우고 다시 누릅니다.
-보라색 취객은 계산하지 않고 비틀거리며 상품을 밀어냅니다. 가까이서 바라보고 **좌클릭**하면 들고,
-다시 좌클릭하면 놓습니다. 운반 중 이동 속도는 85%이며 **우클릭으로 취객을 던질 수 없습니다**.
-
-취객을 전면 **ENTRANCE** 문 밖 초록 **EXIT** 구역으로 운반하면 REMOVED가 증가합니다.
-들고 진입하거나, 카트 안에 내려놓고 밀기/Charge Launch로 보내도 같은 제거 판정을 사용합니다.
-카트에는 좌석 고정이 없어 큰 충돌 시 이탈할 수 있습니다. Drop 후 바닥에 서면 보행을 재개합니다.
-
-화면의 BROKEN은 취객의 강한 충돌로 파손된 상품 가격 합계입니다. 일반 접촉이 모든 상품을 파괴하지는 않습니다.
-생성은 Mart의 Drunks Inspector에서 끌 수 있습니다. 취객 처리 중에도 배송·진열·일반 손님 계산은 계속됩니다.
-Character Throw, ragdoll, 플레이어 피해와 멀티플레이는 구현하지 않았습니다.
-
-신규 검사: 같은 Godot 실행 파일에 `--path . --script res://tests/prompt5_smoke.gd`를 전달합니다.
-
-마우스로 시점을 회전합니다. 창이 포커스를 잃으면 Esc로 조작을 재개합니다.
-키 바인딩은 Project Settings → Input Map에서 변경합니다.
-
-물체에 2.8m 이내로 접근해 아래를 보고 조준합니다. Crosshair는 잡을 수 있으면 초록색,
-들고 있으면 주황색입니다. 한 번에 하나만 들 수 있습니다.
-
-짧게 눌렀다 떼면 약한 Toss, 약 0.6초는 절반 충전, 1.2초 이상은 최대 충전입니다.
-Crosshair 아래 작은 주황색 게이지로 충전량을 확인합니다. 최대 충전에서도 떼기 전에는 던지지 않습니다.
-Drop·강제 놓기·Esc·포커스 상실 시 충전이 취소되고 게이지가 초기화됩니다.
-
-| 물체 | 색상 | price | weight |
-| --- | --- | --- | --- |
-| A | 하늘색 | 5 | 1 |
-| B | 초록색 | 5 | 8 |
-| C | 노란색 | 50 | 4 |
-| D | 분홍색 | 500 | 1 |
-| E | 보라색 | 500 | 8 |
-
-빨간 **DAMAGE** 타깃은 HP와 마지막 피해를, 보라색 **KNOCKBACK** 타깃은 충격량과 밀림도 보여줍니다.
-타깃 가까이(약 3~4m) 접근해 몸통을 조준하세요. 바닥/벽을 먼저 맞힌 투척은 피해를 주지 않습니다.
-최대 충전에서 가격 5는 피해 3.3, 가격 500은 피해 33입니다. 같은 충전량에서 무거운 물체는
-느리고 짧게 날아가지만 더 큰 넉백을 줍니다. 초기화하려면 F8로 종료 후 F5로 다시 실행합니다.
-
-## 카트 테스트
-오른쪽 카트의 **주황색 손잡이**를 조준해 좌클릭하고 WASD와 시점으로 밀고 당깁니다.
-바구니의 상품을 조준하면 상품만 잡습니다. 손잡이를 잡은 상태의 우클릭 충전/해제는 카트를 발사합니다.
-
-1. 빈 카트의 밀기·당기기·방향 전환을 확인합니다.
-2. 상품을 집어 열린 바구니 위에서 Drop하고 총 적재 kg와 조작감 변화를 확인합니다.
-3. 옆에서 점프해 바구니 바닥에 올라섭니다. 별도 탑승 모드는 없습니다.
-4. Tap/Full 발사와 타깃 충돌을 비교합니다.
-5. 여러 상품을 싣고 Full Charge하여 카트 충돌·상품 이탈·개별 상품 피해를 확인합니다.
-6. 왼쪽 경사로의 느린 구르기와 고속 사고를 비교합니다. 뒤집히면 손잡이 쪽에서 다시 잡아 물리적으로 세웁니다.
-
-북쪽 우측 개구부는 긴 카트 통로로 이어집니다. 카트 타깃은 기존 타깃과 같은 HP/넉백 구조를 사용합니다.
-상품은 고정되지 않습니다. 발사 시 적재물에도 한 번의 임펄스를 전달하고, 강한 충돌 시 상승 충격을 더해
-실제 물리적으로 튀어나오게 합니다. 타깃을 자동으로 맞히거나 상품을 순간 이동시키지 않습니다.
-
-## 구조
-- `scenes/main/`: 프로젝트 진입 씬.
-- `scenes/test/`: 바닥·벽·조명·플레이어 시작점.
-- `scenes/player/`: 플레이어 충돌체와 카메라.
-- `scripts/player/`: Action 기반 로컬 이동/시점 제어.
-- `scripts/interaction/`: 입력/선택, 공통 물리 오브젝트, 테스트 타깃.
-- `scenes/interactables/`: 모든 테스트 물체가 공유하는 물리 씬.
-- `tests/`: Prompt 0~6 물리·마트 업무·손님·취객·미아 회귀 검사.
-
-이동/충돌은 Godot의 [CharacterBody3D](https://docs.godotengine.org/en/4.0/classes/class_characterbody3d.html)를 사용합니다.
-Hold 위치의 충돌 여유는 [PhysicsDirectSpaceState3D.cast_motion](https://docs.godotengine.org/en/stable/classes/class_physicsdirectspacestate3d.html#class-physicsdirectspacestate3d-method-cast-motion)으로 검사합니다.
-주요 조절 값은 Player 씬의 Interaction 노드에 모여 있습니다. 자세한 기본값과 제한은 PROJECT_NOTES.md를 참고하세요.
-카트는 `scenes/interactables/shopping_cart.tscn`, 확장 통로/경사로는 `scenes/test/cart_test_zone.tscn`입니다.
-입고·진열·일반 손님·계산은 마트 씬에서 검증합니다. 취객·미아 외 특수 손님·Cart Rocket·멀티플레이는 아직 구현하지 않았습니다.
-
-## 일반 손님과 계산
-
-1. 상품을 진열합니다. 기본 6~10초마다 손님이 입장하며 최대 6명입니다. 손님은 구매 Shelf 앞에서 쇼핑한 뒤 예약 상품을 챙깁니다. 이때 실물과 Stock Count가 줄고 머리 위 해당 상품 아이콘에 초록 체크가 표시됩니다.
-2. 매장 앞 우측 계산대 **뒤쪽**으로 들어갑니다. 계산 위치에 도착한 손님의 구매 아이콘이 표시됩니다.
-3. 파란 **SCAN**을 보고 **E**를 한 번씩 누릅니다(0.5초 간격). 상품 한 개씩 체크됩니다.
-4. 모두 처리하면 초록색 **PAY** 버튼을 보고 **E**로 결제합니다. 이미 챙긴 상품의 가격만 Sales에 더하며 Shelf 상품을 다시 제거하지 않습니다.
-5. 자리를 떠나거나 기존 Grab/Throw/Cart 작업을 해도 조작이 잠기지 않습니다. 돌아오면 해당 손님의 스캔 진행을 이어갑니다.
-
-Queue 진입부터 25초가 지나면 손님은 미결제로 떠납니다. 표정은 :) → :| → :! → [!]로 변하고,
-이미 챙긴 상품 가격만 Unpaid Loss로 한 번 기록하며 상품은 Shelf로 돌아오지 않습니다.
-픽업 전 품절은 X / :( 표시 후 퇴장하며 손실이 없습니다. 여러 Shelf 중 일부에서만 챙긴 뒤 품절되면 챙긴 부분만 미결제 손실입니다.
-SHOP 완료 전 예약 상품도 플레이어가 자유롭게 집을 수 있으며, 그러면 손님은 품절로 처리됩니다.
-Customers Inspector에서 생성 간격·최대 수·Patience·Queue 간격을 조절합니다.
-일반 손님은 Grab/피해/사망 대상이 아니며 카트에 닿으면 제한된 물리 반응만 합니다.
-통로를 완전히 막으면 고정 waypoint 손님이 막힐 수 있습니다. 취객·미아 외 특수 손님과 Scanner 장난 반응은 아직 없습니다.
-
-```powershell
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt4_smoke.gd
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt5_2_smoke.gd
+```text
+F5
 ```
 
-## 입고와 진열
+Main scene:
 
-1. F5로 시작하고 5초 기다립니다. 오른쪽 트럭 옆 팔레트에 3종 상품이 각 2개 배송됩니다.
-2. 상품을 직접 들거나 카트에 내려놓습니다. 기존 좌클릭 Grab/Drop, 우클릭 Charge Throw를 그대로 사용합니다.
-3. 전방의 폭 5m 후면문을 직진해 매장으로 들어갑니다. 카트 시작 위치에서 주요 통로까지 약 6m이며 필수 코너는 없습니다.
-4. 캔은 파란 Shelf(8개), 수박은 초록 Shelf(5개), 가전은 주황 Shelf(3개)에 놓습니다.
-5. 상품이 안정적으로 멈추면 수량이 증가합니다. 다시 집으면 감소합니다. 잘못된 상품과 초과 적재도 물리적으로 허용합니다.
-6. 트럭은 60초 체류 후 떠나고 팔레트에 남은 이번 배송분은 회수합니다. 이미 하역하거나 손에 든 상품은 유지됩니다. 다음 도착은 첫 도착으로부터 120초 뒤입니다.
-
-마트의 Delivery 노드에서 배송 시간·상품 씬·최대 활성 상품 수(기본 400)를 조절합니다.
-남은 물체가 생성 위치를 막으면 해당 상품 생성을 건너뜁니다. 금전 손실 계산은 없습니다.
-빠른 가속·좌우 조향, 진열대 끝 90도 회전, 과적, 상품 투척 운반은 수동으로 추가 확인하세요.
-빈 카트와 적재 카트 모두 걷는 속도에 빠르게 도달하며, 적재 시 가속·조향·제동 패널티는 완만해졌습니다.
-Tap/Full Launch와 Cart Bomb은 유지했습니다. 카트 밀착 반복 피해는 의도적으로 수정하지 않았습니다.
-
-```powershell
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_smoke.gd
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt3_1_smoke.gd
+```text
+scenes/main/main.tscn
 ```
 
-## 검증
-기록된 Godot `4.7.2.stable.official.ed1daf0bf`로 실행합니다.
-현재 Prompt 8.1 완료 기준: **Prompt 0~8 기존 756개 + Prompt 8.1 신규 62개 = 818개 통과**.
-최종 회귀·Main 120초 시뮬레이션 로그 오류 없음. 상세 결과와 초기 실패 수정 이력은 PROJECT_NOTES.md 최상단에 있습니다.
-아래 수치들은 이전 단계의 측정 기록입니다.
-Prompt 1 검사는 실제 창에서 Action 입력, Carry, 실제 투척/타깃 접촉, 피해와 넉백을 검사합니다.
-최종 결과: Prompt 0 22개 / Prompt 1 48개 / Prompt 1.1 40개 / Prompt 2 41개 / Prompt 2.1 28개 / Prompt 3 32개 / Prompt 3.1 29개 / Prompt 4 54개 / Prompt 5 33개 통과(총 327개).
-프로젝트 임포트·기본 Main 120초 시뮬레이션(배송 도착/출발 포함)·아홉 검사 최종 로그 오류 0건입니다. Prompt 4에서는 실제 E 스캔/결제, 매출 $55 및 미결제 손실 $5, 상품 제거, 품절 취소, 6명 대기열(최소 간격 약 1.25m)을 확인했습니다.
-새 카트는 빈/16kg 적재 모두 0.3초에 약 5m/s에 도달했고, 90도 회전 후 0.5초의 방향 오차는 약 5~6도였습니다.
-Prompt 3에서는 9kg 적재 카트의 직선 후면문 동선, 종류별 진열/재Grab/Throw, 잘못된 진열,
-초과 진열, 도착/출발 반복과 하역·손에 든 상품의 보존을 검사합니다.
-같은 높이의 수평 투척에서 1kg은 Tap 2.99m / Half 7.91m / Full 12.82m,
-8kg은 Tap 1.09m / Full 4.66m로 확인했습니다. 접촉과 입력 시간에 따라 수치는 달라집니다.
-카트 초기 속도는 빈 상태 Tap 4.15 / Full 17.90m/s, 16kg 적재 Tap 2.57 / Full 11.17m/s였습니다.
-Cart Bomb은 5개 적재에서 차체 1회·개별 상품 1회 피해와 2개 이탈을 확인했습니다. 개별 상품 피해 검사는 고정 수신 타깃을 사용하고, 차체 넉백은 별도 검사합니다. 적재 카트 가속/제동 검사는 동일 코드 재실행에서 통과한 변동 사례가 있습니다.
-Prompt 5에서는 직접 운반/카트 발사 제거 각 1명, 파손 금액 $500 단일 기록, 취객과 일반 계산 병행을 확인했습니다.
-실제 키보드/마우스 조작감과 Alt+Tab 동작은 PROJECT_NOTES.md의 수동 검증 순서로 확인하세요.
+Mart scene:
 
-```powershell
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt0_smoke.gd
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_smoke.gd
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt1_1_smoke.gd
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_smoke.gd
+```text
+scenes/mart/mart_graybox.tscn
 ```
 
-각 테스트는 수십 초 동안 자동 입력을 적용하므로 실행 중 입력하거나 창을 전환하지 않습니다.
-헤드리스에서는 마우스 잠금을 지원하지 않으므로 이 검사는 창 모드에서 실행합니다.
+---
 
-## Prompt 2.1 조작감 개선
+# ⚡ Quick Prototype Setup
 
-조작키는 그대로입니다. 카트를 잡으면 이동 입력이 카트 제어에 직접 전달되며,
-현재 잡은 카트와 플레이어 사이 충돌만 일시 제외합니다. 놓거나 발사하면 복원됩니다.
-빈 카트와 16kg 적재 카트는 모두 즉시 가속을 시작하고, 적재 시 가속·조향 상한이 낮아집니다.
-잡지 않은 상품과 카트는 WASD로 몸을 부딪혀 밀 수 있습니다.
+게임 시스템을 빠르게 확인하려면:
 
-추가 검사:
-```powershell
-& 'C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe' --path . --script res://tests/prompt2_1_smoke.gd
+```text
+F5
+→ I
+→ U OFF
+→ R
 ```
 
-수동 확인: 빈 카트 전후진·회전 → B/E 적재 후 반복 → 벽까지 밀고 놓기 →
-바닥의 A/B를 몸으로 밀어 비교 → 빈 카트 몸 밀기 → Full Charge/Cart Bomb → 점프 탑승.
-자동 검사만으로 떨림이나 조향 만족도를 확정하지 않으며, 급격한 회전·끼임은 직접 확인해야 합니다.
+- `I` — 모든 정상 Shelf에 상품 보충
+- `U OFF` — 자동 Customer 생성 정지
+- `R` — KING RAT 생성
+
+Weapon까지 테스트하려면:
+
+```text
+N
+→ Rear Delivery Area
+→ Weapon Crate에 E
+→ Weapon Grab
+```
+
+---
+
+# 🧪 Testing
+
+프로젝트에는 Gameplay regression을 위한 자동 테스트가 포함되어 있습니다.
+
+주요 검증 영역:
+
+- Player movement / interaction
+- Product physics
+- Cart
+- Stocking
+- Customer / Checkout
+- NPC recovery
+- Tourist Rush
+- Fire / Spill
+- Thief
+- Player HP / Revive
+- KING RAT combat
+- Weapon combat
+- Delivery
+- HUD
+
+Godot 실행 및 회귀 테스트에 대한 세부 정보는 다음 문서를 참고하세요.
+
+```text
+PROJECT_NOTES.md
+AGENTS.md
+.agents/skills/godot-testing/SKILL.md
+```
+
+---
+
+# 🧭 Development Status
+
+현재는 **Gameplay Prototype** 단계입니다.
+
+### Implemented
+
+- ✅ First-person interaction
+- ✅ Physical Grab / Throw
+- ✅ Shopping Cart
+- ✅ Delivery
+- ✅ Multi-tier Stocking
+- ✅ Customer Shopping / Checkout
+- ✅ Customer Events
+- ✅ Fire / Spill
+- ✅ Thief
+- ✅ Tourist Rush
+- ✅ Player HP / Downed / Food
+- ✅ KING RAT
+- ✅ Melee Weapons
+- ✅ NPC stuck recovery
+- ✅ Gameplay QA workflow
+
+### Planned
+
+- ⏳ Full Round / Day Progression
+- ⏳ Settlement / Economy
+- ⏳ Additional Monsters / Bosses
+- ⏳ Multiplayer 2–4 Players
+- ⏳ Audio / VFX / Final Combat Feedback
+- ⏳ Final Art & Level Polish
+
+---
+
+자세한 구현 기록과 테스트 결과는 [`PROJECT_NOTES.md`](PROJECT_NOTES.md)를 참고하세요.
+
+---
+
+# 🛠 Tech
+
+- **Godot 4.7.2**
+- **GDScript**
+- RigidBody-based physics interactions
+- Data-driven Product / Weapon definitions
+- Automated gameplay regression tests
+- Agent-assisted implementation & gameplay QA
