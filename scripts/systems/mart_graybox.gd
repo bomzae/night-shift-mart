@@ -1,6 +1,8 @@
 extends Node3D
 @export var auto_stock_on_start: bool = false
 @export var shift_duration_seconds: float = 1200.0
+@export var starter_stock_enabled: bool = true
+@export_range(0.0, 1.0) var initial_fill_ratio: float = 0.4
 ## Runtime primitive geometry; the reusable product/cart/player scenes own behavior.
 
 func _ready() -> void:

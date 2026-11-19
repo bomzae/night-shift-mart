@@ -49,6 +49,7 @@ func spawn_boss() -> KingRat:
 		add_child(boss)
 		boss.defeated.connect(func(): bosses_defeated += 1; _update_ui())
 		_update_ui()
+		DayManager.notify_event(self, &"boss")
 		return boss
 	return null
 

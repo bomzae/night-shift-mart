@@ -57,12 +57,13 @@ func aimed_action() -> String:
 		return ""
 	return str(hit.collider.get_meta("checkout_action", ""))
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("interact") and not event.is_echo():
-		var action := aimed_action()
-		if not action.is_empty():
-			use_station(action)
-			get_viewport().set_input_as_handled()
+func available_action() -> String:
+	var action := aimed_action()
+	var customer: BasicCustomer = manager.current_customer()
+	if customer == null or customer.knockdown.active() or customer.fire_reaction.active() or customer.scan_wait > 0: return ""
+	if action == "scan" and customer.scanned < customer.purchase_types.size(): return action
+	if action == "pay" and customer.scanned == customer.purchase_types.size(): return action
+	return ""
 
 func use_station(action: String) -> bool:
 	if KnockdownState.blocked(player) or not in_operator_area() or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:

@@ -7,6 +7,7 @@ func run_checks() -> void:
 	day.shift_duration_seconds = 30
 	day.ending_duration = 2
 	day.timeline_enabled = true
+	day.day_number = 2 # Preserve the original free-pacing contract; Day 1 has a dedicated onboarding test.
 	day.start_day()
 	delivery.set_physics_process(true)
 	manager._rng.seed = 13
@@ -14,7 +15,7 @@ func run_checks() -> void:
 	manager.spawn_interval_max = 3
 	manager._reset_timer()
 	manager.patience_time = 90
-	mart.get_node("AutoStock").top_up() # Fixture supplies stock; DayManager never does.
+	mart.get_node("AutoStock").top_up() # Day 2 does not refill; this fixture supplies inventory.
 	player.health.max_health = 10000
 	player.health.current_health = 10000
 	var observed_customers := 0
@@ -38,7 +39,7 @@ func run_checks() -> void:
 	check(day.state == DayManager.State.RESULT and not day.failed, "full shift reaches complete result")
 	check(manager.customers.is_empty() and mart.get_node("Bosses").boss == null and not delivery.truck_present, "full shift cleanup before next day")
 	day.confirm_result()
-	check(day.day_number == 2 and day.clock_text() == "22:00", "full cycle next day starts at 22")
+	check(day.day_number == 3 and day.clock_text() == "22:00", "full cycle next day starts at 22")
 	await frames(10)
 	# Existing manual debug R remains usable during early shift; no duplicate auto boss.
 	await press("spawn_king_rat")

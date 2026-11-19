@@ -67,6 +67,7 @@ func spawn_thief() -> ThiefCustomer:
 			thief.waypoints = StoreRoutes.via_main(at, destination)
 	add_child(thief)
 	if thief.waypoints.is_empty(): thief.leave_empty()
+	DayManager.notify_event(self, &"thief")
 	return thief
 
 func snapshot(product: GrabbableBody) -> Dictionary:

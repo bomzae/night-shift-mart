@@ -3,6 +3,12 @@ extends Node
 ## Owns shift lifetime; existing managers continue owning their gameplay.
 enum State { PRE_DAY, ACTIVE, ENDING, RESULT, RESETTING }
 signal state_changed(state: State)
+signal event_started(type: StringName)
+var event_banner: EventBanner
+var starter_stock_count: int = 0
+var _intro_step: int = 0
+var _intro_retry_hour: float = 1.0
+var _intro_cooldown: float = 0
 @export var shift_duration_seconds: float = 1200.0
 @export var ending_duration: float = 2.0
 @export var timeline_enabled: bool = true
@@ -40,13 +46,36 @@ static func allows_activity(context: Node) -> bool:
 		owner_world = owner_world.get_parent()
 	return true # Standalone physics test rooms have no shift lifecycle.
 
+static func notify_event(context: Node, type: StringName) -> void:
+	var ancestor := context
+	while ancestor != null:
+		var day := ancestor.get_node_or_null("DayManager") as DayManager
+		if day != null:
+			if day.state == State.ACTIVE: day.event_started.emit(type)
+			return
+		ancestor = ancestor.get_parent()
+
 func _ready() -> void:
 	add_to_group("day_manager")
 	_build_ui()
+	event_banner = EventBanner.new()
+	add_child(event_banner)
+	event_started.connect(event_banner.announce)
 	world.get_node("TeamLife").day_failed.connect(func(): end_day(true))
 	world.get_node("Customers").customer_paid.connect(func(_customer): paid_customers += 1)
 	get_tree().node_added.connect(_track_later)
 	for node in world.find_children("*", "RigidBody3D", true, false): _remember_home(node)
+	if world.starter_stock_enabled: _prepare_first_day()
+	else: start_day()
+
+func _prepare_first_day() -> void:
+	# Register shelf shapes before querying safe stock slots. No business runs in PRE_DAY.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	starter_stock_count = world.get_node("AutoStock").top_up(world.initial_fill_ratio)
+	world.get_node("AutoStock")._label.text = "[I] AUTO STOCK"
+	# Goods stay real RigidBodies; allow landing and shelf settlement before customers.
+	await get_tree().create_timer(1.0, false, true).timeout
 	start_day()
 
 func _track_later(node: Node) -> void:
@@ -70,7 +99,7 @@ func clock_text() -> String:
 
 func timeline_phase() -> String:
 	var hour := elapsed_hours()
-	if hour < 2: return "NORMAL WORK"
+	if hour < (1.0 if day_number == 1 else 2.0): return "NORMAL WORK"
 	if hour < 4: return "LIGHT EVENTS"
 	if hour < 6: return "LATE EVENTS"
 	if hour < 7.5: return "BOSS WINDOW"
@@ -86,6 +115,10 @@ func start_day() -> void:
 	_next_event_hour = 2.0
 	_boss_retry_hour = 6.0
 	_event_cursor = 0
+	_intro_step = 0
+	_intro_retry_hour = 1.0
+	_intro_cooldown = 0
+	event_banner.clear_pending()
 	result = {}
 	var team = world.get_node("TeamLife")
 	team.day_failed_active = false
@@ -129,6 +162,7 @@ func end_day(as_failure: bool = false) -> void:
 	failed = as_failure
 	_ending_left = maxf(0.1, ending_duration)
 	_set_state(State.ENDING)
+	event_banner.clear_pending()
 	world.get_node("Customers").spawning_enabled = false
 	# Settle the live shipment using the ordinary pallet accounting first.
 	var delivery = world.get_node("Delivery")
@@ -153,6 +187,7 @@ func _input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if state == State.ACTIVE:
+		_intro_cooldown = maxf(0, _intro_cooldown - delta)
 		shift_elapsed_seconds = minf(shift_duration_seconds, shift_elapsed_seconds + delta)
 		_start_left = maxf(0, _start_left - delta)
 		if is_instance_valid(world.get_node("Bosses").boss): boss_spawned_today = true
@@ -175,6 +210,9 @@ func active_event_count() -> int:
 	return count
 
 func _tick_timeline() -> void:
+	if day_number == 1:
+		_tick_introduction()
+		return
 	var hour := elapsed_hours()
 	if hour >= 6 and hour < 7.5 and not boss_spawned_today and hour >= _boss_retry_hour:
 		_boss_retry_hour = hour + 0.1
@@ -189,6 +227,27 @@ func _tick_timeline() -> void:
 	_event_cursor += 1
 	var spawned = world.get_node(choice[0]).call(choice[1])
 	if (typeof(spawned) == TYPE_BOOL and spawned) or (typeof(spawned) == TYPE_OBJECT and is_instance_valid(spawned)): automatic_events += 1
+
+func _tick_introduction() -> void:
+	var hour := elapsed_hours()
+	if hour >= 7.5 or hour < _intro_retry_hour or _intro_cooldown > 0 or event_banner.busy(): return
+	if active_event_count() > 0 or max_active_events <= 0: return
+	if is_instance_valid(world.get_node("Bosses").boss): return
+	# One automatic special event at a time. A late boss has priority over missed introductions.
+	if hour >= 6:
+		_intro_retry_hour = hour + 0.1
+		if not boss_spawned_today and world.get_node("Bosses").spawn_boss() != null:
+			boss_spawned_today = true
+			automatic_bosses += 1
+		return
+	var schedule := [[1.0, "Drunks", "spawn_drunk"], [2.5, "LostFamilies", "spawn_pair"], [4.0, "Thieves", "spawn_thief"]]
+	if _intro_step >= schedule.size() or hour < float(schedule[_intro_step][0]): return
+	var event: Array = schedule[_intro_step]
+	_intro_retry_hour = hour + 0.1
+	if world.get_node(event[1]).call(event[2]) != null:
+		automatic_events += 1
+		_intro_step += 1
+		_intro_cooldown = 12.0 # Real seconds: debug time skips cannot stack introductions.
 
 func _stats() -> Dictionary:
 	return {"sales": world.get_node("Customers").sales, "unpaid": world.get_node("Customers").unpaid_loss,

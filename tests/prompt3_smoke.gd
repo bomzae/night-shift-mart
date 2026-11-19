@@ -5,6 +5,7 @@ var delivery: DeliveryManager
 
 func run_checks() -> void:
 	main = load("res://scenes/main/main.tscn").instantiate()
+	main.starter_stock_enabled = false # Explicit empty-stock system fixture; onboarding is tested separately.
 	root.add_child(main)
 	current_scene = main
 	mart = main.get_node("MartGraybox")

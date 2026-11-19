@@ -59,6 +59,7 @@ func spawn_pair() -> LostChild:
 	child.family_symbol = Graybox.sign(child, symbol, Vector3(0, 0.73, 0), color)
 	parent.family_symbol = Graybox.sign(parent, symbol, Vector3(0, 1.98, 0), color)
 	pairs.append({"slot": slot, "child": child, "parent": parent, "reunion_left": -1.0})
+	DayManager.notify_event(self, &"family")
 	return child
 
 func can_reunite(child: LostChild, parent: LostParent) -> bool:

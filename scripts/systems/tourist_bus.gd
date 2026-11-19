@@ -61,6 +61,7 @@ func start_event() -> bool:
 	state = State.ARRIVING
 	_phase_left = maxf(0.01, arrival_time)
 	_update_label()
+	DayManager.notify_event(self, &"tourist")
 	return true
 
 func reset_for_shift() -> void:

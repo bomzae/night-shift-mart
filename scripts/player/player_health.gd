@@ -69,7 +69,7 @@ func reset_for_day() -> void:
 	restored.emit()
 	changed.emit()
 
-func use_food(food: GrabbableBody, target: PlayerHealth = null) -> bool:
+func can_use_food(food: GrabbableBody, target: PlayerHealth = null) -> bool:
 	if is_downed or KnockdownState.blocked(get_parent()) or not is_instance_valid(team) or team.day_failed_active: return false
 	var interaction := get_parent().get_node_or_null("Interaction")
 	if not is_instance_valid(food) or food.is_queued_for_deletion() or interaction == null: return false
@@ -84,6 +84,14 @@ func use_food(food: GrabbableBody, target: PlayerHealth = null) -> bool:
 		# API callers cannot feed through a wall. The input path also requires aiming.
 		var query := PhysicsRayQueryParameters3D.create(interaction.camera.global_position, target.get_parent().global_position + Vector3.UP * 0.7, 1 | 64 | 128, [get_parent().get_rid(), food.get_rid(), target.get_parent().get_rid()])
 		if not get_parent().get_world_3d().direct_space_state.intersect_ray(query).is_empty(): return false
+		return true
+	return current_health < max_health
+
+func use_food(food: GrabbableBody, target: PlayerHealth = null) -> bool:
+	if not can_use_food(food, target): return false
+	var definition := ProductCatalog.find(food.product_type)
+	var interaction := get_parent().get_node("Interaction")
+	if target != null and target != self:
 		if not target.revive(definition.heal_value * revive_multiplier): return false
 	elif not heal(definition.heal_value): return false
 	food.set_meta("consumed", true)

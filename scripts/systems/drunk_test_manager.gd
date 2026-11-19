@@ -51,6 +51,7 @@ func spawn_drunk() -> DrunkCustomer:
 	add_child(drunk)
 	drunk.global_position = at
 	drunk.product_broken.connect(_record_breakage)
+	DayManager.notify_event(self, &"drunk")
 	return drunk
 
 func _record_breakage(value: float) -> void:

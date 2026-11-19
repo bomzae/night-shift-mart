@@ -36,13 +36,14 @@ func physical_count(shelf: StockShelf) -> int:
 			count += 1 # Includes newly spawned/unsettled goods, so repeated I cannot overfill.
 	return count
 
-func top_up() -> int:
+func top_up(fill_ratio: float = 1.0) -> int:
 	last_added = 0
 	_pending = _pending.filter(func(entry): return is_instance_valid(entry.body.get_ref()) and Engine.get_physics_frames() - entry.frame < 3)
 	for shelf: StockShelf in get_parent().get_node("Shelves").get_children():
 		var definition := ProductCatalog.find(shelf.accepted_type)
 		if definition == null: continue
-		var missing := maxi(0, shelf.max_stock - physical_count(shelf))
+		var goal := mini(shelf.max_stock, maxi(1, roundi(shelf.max_stock * clampf(fill_ratio, 0, 1)))) if fill_ratio > 0 else 0
+		var missing := maxi(0, goal - physical_count(shelf))
 		for slot in definition.stock_slots():
 			if missing <= 0: break
 			var transform_at := Transform3D(shelf.global_basis, shelf.to_global(shelf.slot_position(slot)))

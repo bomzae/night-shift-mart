@@ -38,6 +38,8 @@ var weapon_notice_text: String = ""
 var _drop_requested: bool = false
 var _interact_requested: bool = false
 var product_info: Label
+var context_prompt: Label
+var _secondary_requested: bool = false
 var held_object: RigidBody3D
 var is_charging: bool = false
 var charge_ratio: float = 0.0
@@ -66,7 +68,7 @@ func _ready() -> void:
 	product_info.offset_left = -130
 	product_info.offset_top = 30
 	product_info.offset_right = 130
-	product_info.offset_bottom = 130
+	product_info.offset_bottom = 114
 	product_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	product_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	product_info.add_theme_font_size_override("font_size", 18)
@@ -74,6 +76,21 @@ func _ready() -> void:
 	product_info.add_theme_constant_override("shadow_offset_x", 1)
 	product_info.add_theme_constant_override("shadow_offset_y", 1)
 	product_info.hide()
+	context_prompt = Label.new()
+	context_prompt.name = "ContextPrompt"
+	$Feedback.add_child(context_prompt)
+	context_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	context_prompt.offset_left = -180
+	context_prompt.offset_right = 180
+	context_prompt.offset_top = 120
+	context_prompt.offset_bottom = 176
+	context_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	context_prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	context_prompt.add_theme_font_size_override("font_size", 18)
+	context_prompt.add_theme_color_override("font_shadow_color", Color.BLACK)
+	context_prompt.add_theme_constant_override("shadow_offset_x", 1)
+	context_prompt.add_theme_constant_override("shadow_offset_y", 1)
+	context_prompt.hide()
 	weapon_info = Label.new()
 	weapon_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	$Feedback.add_child(weapon_info)
@@ -110,8 +127,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("drop_item"):
 		_drop_requested = true
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact"):
+	elif event.is_action_pressed("interact") and not event.is_echo():
 		_interact_requested = true
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("use_tool") and not event.is_echo():
+		_secondary_requested = true
 	elif event.is_action_pressed("consume_item") and not event.is_echo():
 		_consume_requested = true
 		get_viewport().set_input_as_handled()
@@ -138,12 +158,13 @@ func _physics_process(delta: float) -> void:
 	if active and _drop_requested: drop_held(true)
 	_drop_requested = false
 	if active and _interact_requested:
-		var ray := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position - camera.global_basis.z * grab_distance)
-		ray.exclude = [player.get_rid()]
-		if is_instance_valid(held_object): ray.exclude = [player.get_rid(), held_object.get_rid()]
-		var hit := camera.get_world_3d().direct_space_state.intersect_ray(ray)
-		if not hit.is_empty() and hit.collider is WeaponCrate: hit.collider.open_crate()
+		var action: Callable = InteractionContext.resolve(self).primary_call
+		if action.is_valid(): action.call()
 	_interact_requested = false
+	if active and _secondary_requested:
+		var action: Callable = InteractionContext.resolve(self).secondary_call
+		if action.is_valid(): action.call()
+	_secondary_requested = false
 	if active and _grab_requested:
 		if held_object is WeaponBody:
 			if not is_charging: held_object.start_swing()
@@ -180,11 +201,13 @@ func _physics_process(delta: float) -> void:
 	crosshair.visible = active
 	var candidate := find_candidate() if active and not is_instance_valid(held_object) else null
 	crosshair.modulate = Color.ORANGE if is_instance_valid(held_object) else (Color.LIME_GREEN if candidate != null else Color.WHITE)
-	update_product_info(candidate, active)
+	update_product_info(held_object if InteractionContext.food(held_object) else candidate, active)
+	context_prompt.text = InteractionContext.prompt(InteractionContext.resolve(self)) if active else ""
+	context_prompt.visible = active and not context_prompt.text.is_empty()
 	weapon_notice = maxf(0, weapon_notice - delta)
 	weapon_info.visible = active and (held_object is WeaponBody or weapon_notice > 0)
 	if active and held_object is WeaponBody:
-		weapon_info.text = "%s  %d / %d\nLMB SWING | Q DROP | RMB THROW" % [held_object.display_name, held_object.durability, held_object.weapon.durability_max]
+		weapon_info.text = "%s  %d / %d" % [held_object.display_name, held_object.durability, held_object.weapon.durability_max]
 		weapon_info.modulate = Color.GOLD if held_object.hit_feedback > 0 else (Color.SALMON if held_object.durability <= held_object.weapon.durability_max * 0.25 else Color.WHITE)
 	elif weapon_notice > 0:
 		weapon_info.text = weapon_notice_text
@@ -289,11 +312,13 @@ func reset_for_shift() -> void:
 	_interact_requested = false
 	_grab_requested = false
 	_consume_requested = false
+	_secondary_requested = false
 	camera_impact = 0
 	camera.position = _camera_rest_position
 	weapon_notice = 0
 	weapon_info.hide()
 	product_info.hide()
+	context_prompt.hide()
 
 
 func _notification(what: int) -> void:

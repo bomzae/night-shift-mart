@@ -46,6 +46,7 @@ func create_spill(at: Vector3, excluded: Array[RID] = []) -> SpillZone:
 	spill.global_position = hit.position
 	spill.cleaned.connect(_on_cleaned)
 	spills_created += 1
+	DayManager.notify_event(self, &"accident")
 	_update_label()
 	return spill
 

@@ -2,6 +2,80 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13.1 — Day 1 Onboarding / Starter Stock / Contextual Interaction
+
+2026-11-19 구현·자동 회귀 완료. Prompt 13 완료 상태에서 시작했으며 초기 Git working tree는 clean이었다. 새 Event/Boss/Weapon, 자동 배송 분류, 저장/경제 확장은 추가하지 않았다. 전체80개 스크립트 / 3,993 PASS / 최종 선택 실행 실패·오류·경고0. 사람의 A~I 수동 체감 검사는 별도 필요하다.
+
+### 시작 재고
+
+- `MartGraybox.initial_fill_ratio = 0.4`. 기존 AutoStock의 안전 슬롯/물리 shape 검사/중복 방지 경로를 그대로 재사용하며 Shelf별 `round(capacity * ratio)`(양수이면 최소1개)까지 채운다. 상품별 시작 목록을 하드코딩하지 않는다.
+- 현재 구성에서 **131 / 318개 = 41.2%**. x 기준 좌측67 / 중앙34 / 우측30개. Bread/Milk/Watermelon 및 light/medium/heavy 상품 모두 존재한다. 각 tier 재고와 131개 실제 RigidBody 안정성을 검사했다.
+- 새 게임 Day1의 PRE_DAY에서 슬롯 등록 → 부분 진열 → real1초 물리 안정화 → 22:00 ACTIVE. Customer/Delivery/Event는 준비 중 시작하지 않는다. 첫 배송을 기다리지 않아도 기존 상품으로 쇼핑/도구/전투 상호작용을 경험할 수 있다.
+- Day2+는 기존 Shelf persistence 유지. 시작 재고를 다시 채우지 않는다. `I`는 여전히 부족한 전체 재고를318까지 보충한다. 장시간 소비 이후 04:00 재고를 보장하는 별도 Rat 상품/무료 보충은 없다.
+- 기존 빈 매장 기반 회귀 fixture는 `Main.starter_stock_enabled=false`로 초기 조건을 명시한다. production 기본값은 true이며 신규 stock/shift 검사는 실제 기본값을 사용한다.
+
+### Day 1 이벤트 정책
+
+| 최초 가능 시간 | 자동 사건 |
+| --- | --- |
+| 22:00~23:00 | Customer / Delivery 업무, 자동 special 없음 |
+| 23:00 이후 | Drunk 1회 |
+| 00:30 이후 | Lost Child 1회 |
+| 02:00 이후 | Thief 1회 |
+| 04:00~05:30 | KING RAT 최대1회, 놓친 소개보다 우선 |
+| 05:30~06:00 | 기존 사건 마무리, 새 자동 사건 없음 |
+
+- Day1 자동 special은 동시에1개만. 기존 active special/화재/버스/Boss가 남아 있으면 새 소개를 기다린다. 성공한 소개 간 real12초 cooldown, 배너/배너 간격 종료도 기다린다. spawn 실패 시 game0.1시간 뒤 재시도한다. J 시간 건너뛰기로 소개가 동시에 쏟아지지 않는다.
+- 이전 사건을 해결하지 않으면 후속 소개와 Boss가 연기되거나 해당 Day에서 생략될 수 있다. 강제 제거/카메라 회전/튜토리얼 정지는 없다. Day2+는 Prompt13 자유 timeline/활성 수 제한을 유지한다.
+- 수동 K/L/O/P/T/B/R은 자동 소개 제한을 우회하여 기존 생성 기능을 유지한다. 이미 생성된 실제 사건은 자동 timeline의 active count에 반영된다. 자동 Boss와 수동 R의 하루 quota/동시1마리 정책 유지.
+
+### 이벤트 알림
+
+각 기존 Manager의 실제 생성 성공 지점에서 `DayManager.event_started(type)`을 발생시킨다. fire/spill은 위험 NPC 생성 시점이 아니라 실제 hazard 생성 시점에 알린다. 실패한 spawn은 알리지 않는다.
+
+| 제목 | 첫 발생 설명 |
+| --- | --- |
+| DRUNK CUSTOMER | 물건을 쓰러뜨리지 않도록 확인하세요. |
+| LOST CHILD | 부모를 찾아 아이를 데려다 주세요. |
+| SPILL | 대걸레를 움직여 바닥의 물기를 닦으세요. |
+| FIRE | 소화기를 찾아 불을 끄세요. |
+| THIEF | 상품을 훔쳐 달아나기 전에 붙잡으세요. |
+| TOURIST BUS | 많은 손님이 한꺼번에 들어옵니다. |
+| KING RAT | 상품을 먹는 거대한 쥐가 나타났습니다. |
+
+- 첫 소개2.8초, 이미 본 사건은 제목만2초, Boss는 금색 제목3초. 동시에 온 서로 다른 종류는 queue, 동일 현재/대기 종류는 합쳐 spam을 막는다. 배너 사이0.5초 간격. session `seen`은 다음 Day에도 유지하지만 저장하지 않는다.
+- 1280×720 상단 중앙 x410~870 / y88~160. Checkout 좌측, Event stats 우측, Clock/Boss HP 위쪽과 분리. ENDING에서 대기 알림 제거. 배너는 simulation/time scale을 바꾸지 않는다.
+
+### Contextual input / UI
+
+- 작은 `InteractionContext` resolver가 현재 조준 대상/held object를 조회하여 표시와 E/F 실행 Callable을 함께 결정한다. 새 입력 framework/PlayerController 분기 사슬은 만들지 않는다. Checkout 기존 검증/결제, WeaponCrate.open_crate, PlayerHealth.use_food, 실제 Sweep/throw는 재사용한다.
+- 기본 입력8그룹: WASD / Space / E / LMB / RMB / F / Q / Esc. E=SCAN/PAY/OPEN CRATE/FEED, F=SPRAY/자기 EAT, LMB=GRAB/SWING, RMB=기존 차지 투척. Q는 무기 swing과 충돌하지 않도록 Drop 유지.
+- 음식+쓰러진 팀원 조준 E=FEED, F는 팀원을 보고 있어도 자기 회복이다. 기존 거리/LOS/소유권/팀/downed 검증을 `can_use_food`로 공유한다. HP full이면 EAT 안내와 소비 모두 없음. G는 예전 consume/feed 우선 정책 호환만 유지하고 기본 HUD 안내에서 제거했다. project.godot/InputMap 변경 없음.
+- Crosshair 아래 상품명/가격/무게/회복량, 그 아래 가능한 핵심 동작 최대2개. 우선순위 E → F → LMB. 무기 HUD는 이름/내구도만 유지하며 상시 키 목록은 제거했다. 대상 변경/삭제/빈 시선/Day 전환/Downed 시 안내를 갱신 또는 숨긴다. RMB/Q는 학습한 공통 조작으로 매번 나열하지 않는다.
+- Debug I/U/R/N/B/T/K/L/O/P/H/J 유지. README Gameplay와 Debug/Prototype 구분. G는 호환 설명으로만 남긴다.
+
+### 검사 및 재검사 이력
+
+- 초기 Main에서 resolver의 Variant 기반 `:=` 타입 추론 parser error 발생 → Customers를 명시적 Node로 선언 → 재실행 정상. `.godot/p131_initial_main.log`, `.godot/p131_main_retry.log` 보존.
+- 신규 event fixture가 Family actor를 직접 queue_free하면서 pair 참조를 남겨 invalid freed instance 오류 발생. 실제 Day cleanup과 동일하게 exception/pairs를 먼저 정리하도록 fixture 수정. production Family 동작 변경 없음. 최초 `.godot/p131_new_prompt13_1_events.log`와 재검사 `.godot/p131_retry_prompt13_1_events.log` 보존.
+- `prompt13_fast_shift`는 기존 자유 timeline 계약을 Day2에서 검사하도록 변경(다음 날3). 새 `prompt13_1_shift`는 기본 starter가 켜진 실제 Day1을60초로 실행한다. 소개 NPC는4초 후 fixture가 해결 상태로 정리하여 자동 gate/cooldown/order를 검사한다. 자동으로 모든 사건이 해결된다는 gameplay 보장은 아니다.
+- 60초 Day1:22:00 시작 → 00:00 Drunk → 02:00 Family까지 → 04:01 Thief/Boss까지 소개 → 06:00 Result → Day2 22:00. Customer/Delivery 진행, 자동 event overlap 없음, Boss1회. failure/Result/cleanup은 기존 Prompt13 검사 유지.
+- 신규 stock198 / events28 / context27 / shift6 = 259 PASS. 기존 Prompt0~13의76개 스크립트 / 3,734 PASS, 기존 assertion 수 전부 동일. 합계80개 스크립트 / 3,993 PASS, 최종 exit 전부0, SCRIPT ERROR/ERROR/FAIL/WARNING0. 선택 결과 `.godot/p131_all_results.csv`, 기존 회귀 `.godot/p131_results.csv`. 최초 실패 로그는 위와 같이 별도로 보존했다.
+- 새 PC Project `C:\Users\JHS\orca\night-shift-mart`, Godot `C:\Program Files\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. Import(`--headless --editor --import --quit`) 정상. 입력 검사는 실제 창에서 `--path . --fixed-fps 60 --script res://tests/<script>.gd --quit-after 24000` 순차 실행.
+- Main `--headless --fixed-fps 60 --quit-after 7200`(120 simulated seconds) 및 실제 창 `--fixed-fps 60 --quit-after 600`(10 simulated seconds) exit0 / errors·warnings0. 로그 `.godot/p131_main_headless.log`, `.godot/p131_main_window.log`. 무조작 Main에서 발생한 patience unpaid loss는 실제 미결제 퇴장 회계이며 오류가 아니다.
+- `git diff --check` 정상. project.godot 변경 없음. Commit/amend/reset/push/stage 수행 없음; 모든 변경 uncommitted.
+- `.godot/p131_context.png`: 실제1280×720 Lost Child 설명 + held Bread 정보 + F EAT 화면을 확인. Korean glyph 정상, 배너/상품 정보/reticle prompt 간 겹침 없음. Control rect 검사도 병행한다. 사람의 첫5분 인지성/입력 기억 부담/20분 pacing은 미검증.
+
+### Future QoL / Progression — 구현하지 않음
+
+상품 종류/매장이 늘수록 배송 상품별 진열 위치를 찾는 비용이 커질 수 있다. Delivery Area Auto Sort, 상품별 staging zone, correct aisle Auto Teleport, Auto Stock assistance, Worker/logistics upgrade를 향후 progression 후보로 기록한다. 이번 Day1은 직접 배송/진열 유지.
+
+### Known Issues / 수동 검사
+
+기존 NPC Knockdown mesh/collider mismatch, Cart contact repeated damage, Monster/Character visual overlap, extreme Cart overload, simple waypoint 한계, KING RAT final contact sound/screen polish, Broom 실제 내구도 밸런스, Checkout PAY usability 유지. Full20-minute Day pacing/재고 잔량 및 Future Delivery logistics assistance는 후속 검토.
+
+수동 A~I: I 없이 첫5분 재고/업무 → 첫 사건 인지 → 순서/겹침 → 상품 조준 → SCAN/PAY → 소화기F → FoodF/동료E → WeaponLMB → README 없이 핵심 입력 기억. 정상이라면13.2에서 Result UX/Day pacing 또는 Round progression 확장을 검토한다.
+
 ## Prompt 13 — Round / Day Progression Foundation
 
 2026-11-15 구현·자동 회귀 완료. Prompt12.10 커밋의 clean working tree에서 시작했다. 기존 업무·이벤트·전투를 DayManager에 연결하며 새 공격/무기/Boss/경제 지출/저장/멀티플레이는 추가하지 않는다. 전체76개 스크립트 / 3,734 PASS / 최종 선택 실행 실패·오류·경고0. 사람의 A~H 수동 손맛 검사는 미수행이다.

@@ -65,6 +65,7 @@ func create_fire(at: Vector3, excluded: Array[RID] = []) -> FireZone:
 		fires_extinguished += 1
 		_update_label())
 	fires.append(fire)
+	DayManager.notify_event(self, &"fire")
 	fires_created += 1
 	_update_label()
 	return fire

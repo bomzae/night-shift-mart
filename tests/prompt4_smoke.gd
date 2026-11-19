@@ -7,6 +7,7 @@ func setup_mart() -> void:
 	if is_instance_valid(main):
 		main.free()
 	main = load("res://scenes/main/main.tscn").instantiate()
+	main.starter_stock_enabled = false # Explicit empty-stock system fixture; onboarding is tested separately.
 	root.add_child(main)
 	current_scene = main
 	mart = main.get_node("MartGraybox")

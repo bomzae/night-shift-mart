@@ -39,7 +39,7 @@ func check_failure() -> void:
 
 func _physics_process(_delta: float) -> void:
 	var hp := players[0] if not players.is_empty() and is_instance_valid(players[0]) else null
-	label.text = "DAY FAILED" if day_failed_active else "HP %.0f / %.0f | ALIVE %d | DAY %d | FOOD $%.0f [G]" % [hp.current_health if hp != null else 0, hp.max_health if hp != null else 100, alive_count(), current_day, consumed_product_value]
+	label.text = "DAY FAILED" if day_failed_active else "HP %.0f / %.0f | ALIVE %d | DAY %d | FOOD $%.0f" % [hp.current_health if hp != null else 0, hp.max_health if hp != null else 100, alive_count(), current_day, consumed_product_value]
 
 func next_day() -> void:
 	var day := get_parent().get_node_or_null("DayManager")
