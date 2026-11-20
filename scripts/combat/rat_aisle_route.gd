@@ -2,13 +2,14 @@ class_name RatAisleRoute
 extends RefCounted
 ## Fixed supermarket aisle intersections, connected only when the boss capsule fits.
 ## Local route planning for pursuit; does not replace customer/food routes.
+## Drunk reuses these intersections with its own narrower physical probe.
 const X := [-34.0, -26.0, -17.0, -10.0, 0.0, 10.0, 17.0, 26.0, 34.0]
 const Z := [1.0, 3.0, 9.0, 15.0, 21.0, 27.0, 33.0]
-var boss: CharacterBody3D
+var boss: PhysicsBody3D
 var exclusions: Array[RID] = []
 var shape := SphereShape3D.new()
 
-func _init(owner_body: CharacterBody3D) -> void:
+func _init(owner_body: PhysicsBody3D) -> void:
 	boss = owner_body
 	shape.radius = 0.63 # Slightly inside the physical 0.65 capsule, allowing departure from contact.
 

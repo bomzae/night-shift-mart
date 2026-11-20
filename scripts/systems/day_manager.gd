@@ -5,6 +5,7 @@ enum State { PRE_DAY, ACTIVE, ENDING, RESULT, RESETTING }
 signal state_changed(state: State)
 signal event_started(type: StringName)
 var event_banner: EventBanner
+var economy_hud: EconomyHud
 var starter_stock_count: int = 0
 var _intro_step: int = 0
 var _intro_retry_hour: float = 1.0
@@ -61,6 +62,9 @@ func _ready() -> void:
 	event_banner = EventBanner.new()
 	add_child(event_banner)
 	event_started.connect(event_banner.announce)
+	economy_hud = EconomyHud.new()
+	economy_hud.day = self
+	add_child(economy_hud)
 	world.get_node("TeamLife").day_failed.connect(func(): end_day(true))
 	world.get_node("Customers").customer_paid.connect(func(_customer): paid_customers += 1)
 	get_tree().node_added.connect(_track_later)

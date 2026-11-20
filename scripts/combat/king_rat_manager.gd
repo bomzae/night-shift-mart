@@ -63,4 +63,4 @@ func _update_ui() -> void:
 	if active:
 		health_bar.max_value = boss.max_health
 		health_bar.value = boss.current_health
-	status.text = "[R] KING RAT | DEFEATED %d | BOSS LOSS $%.0f" % [bosses_defeated, boss_product_loss_value]
+	status.text = "[R] KING RAT | DEFEATED %d" % bosses_defeated

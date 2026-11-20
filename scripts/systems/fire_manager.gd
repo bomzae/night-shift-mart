@@ -162,4 +162,4 @@ func _destroy_feedback(body: GrabbableBody) -> void:
 	tween.parallel().tween_property(mark, "modulate:a", 0.0, 0.65)
 	tween.tween_callback(mark.queue_free)
 func _update_label() -> void:
-	_label.text = "[P] FIRE %d / OUT %d / FIRE LOSS: $%.0f" % [fires_created, fires_extinguished, fire_damage_value]
+	_label.text = "[P] FIRE %d / OUT %d" % [fires_created, fires_extinguished]

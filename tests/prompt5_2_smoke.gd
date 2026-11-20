@@ -118,6 +118,7 @@ func run_checks() -> void:
 	var drunk: DrunkCustomer = mart.get_node("Drunks").spawn_drunk()
 	await place(drunk, shelf.global_position + Vector3(0, 0.76, -2.1))
 	drunk.wander_direction = Vector3.BACK
+	drunk.reset_wander_route()
 	drunk._direction_wait = 20
 	for tick in range(150):
 		await frames(1)

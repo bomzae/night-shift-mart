@@ -158,7 +158,8 @@ func run_checks() -> void:
 	fire.intensity = 1
 	await frames(100)
 	check(not is_instance_valid(product) and fire_manager.fire_damage_value == 5, "threshold destroys product and records exact loss")
-	check(fire_manager._label.text.contains("FIRE LOSS: $5"), "explicit fire loss label")
+	var economy: EconomyHud = mart.get_node("DayManager").economy_hud
+	check(economy.losses == 5 and economy.losses_label.visible and economy.delta_label.text == "-$5 FIRE" and economy.delta_label.visible, "exact fire loss visible in economy summary and delta")
 	await frames(70)
 	check(fire_manager.fire_damage_value == 5, "loss cannot repeat after destruction")
 	print("Prompt 8.1 smoke checks completed; failures: ", failures)

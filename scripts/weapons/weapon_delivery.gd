@@ -15,9 +15,9 @@ func _ready() -> void:
 	canvas.add_child(order_info)
 	order_info.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	order_info.offset_left = -300
-	order_info.offset_top = 65
+	order_info.offset_top = 414
 	order_info.offset_right = -24
-	order_info.offset_bottom = 115
+	order_info.offset_bottom = 464
 	order_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	order_info.hide()
 

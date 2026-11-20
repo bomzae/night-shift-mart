@@ -67,6 +67,7 @@ func run_checks() -> void:
 	var can_start := can.global_position
 	await place(drunk, shelf.global_position + Vector3(0, 0.76, -2.1))
 	drunk.wander_direction = Vector3.BACK
+	drunk.reset_wander_route() # This fixture prescribes a direct collision heading, not autonomous routing.
 	drunk._direction_wait = 20
 	await frames(90)
 	check(is_instance_valid(can), "gentle shelf contact does not destroy product")

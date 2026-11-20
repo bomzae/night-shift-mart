@@ -85,7 +85,7 @@ func use_station(action: String) -> bool:
 func _process(_delta: float) -> void:
 	var customer: BasicCustomer = manager.current_customer()
 	_panel.visible = in_operator_area() and customer != null
-	_money.text = "SALES $%.2f   |   UNPAID LOSS $%.2f" % [manager.sales, manager.unpaid_loss]
+	_money.text = "CHECKOUT READY" if customer != null else "CHECKOUT — WAITING"
 	var ready_to_pay := customer != null and customer.scanned == customer.purchase_types.size() and customer.scan_wait <= 0
 	_pay_material.albedo_color = Color.LIME_GREEN if ready_to_pay else Color.DIM_GRAY
 	if customer != null:

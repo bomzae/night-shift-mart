@@ -141,4 +141,4 @@ func escape_position() -> Vector3:
 	return Vector3(entrance.x, 0.01, entrance.z + 1.75)
 
 func _update_label() -> void:
-	_label.text = "[T] CAUGHT %d / STOLEN $%.0f" % [thieves_caught, stolen_goods_value]
+	_label.text = "[T] CAUGHT %d" % thieves_caught

@@ -2,6 +2,78 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13.2 — Drunk Character Identity / Economy HUD
+
+2026-11-19 구현. Prompt13.1 커밋 기준 clean working tree에서 시작했다. Drunk 이동/진열대 접촉 경로와 경제 정보 표시만 변경했다. 새 Event/Boss/Weapon/Drunk combat·HP/영구 경제/배송 자동화는 추가하지 않았다. 자동 검사와 Main 검증을 완료했으며, 사람의 A~H 손맛 검사는 별도 필요하다.
+
+### Drunk 원인 / 수정 전 재현
+
+- 기존 Drunk는 대형 Store의 aisle/zone을 사용하지 않고 **2초마다 x=-7~7, z=2~10의 임의 목적지**를 새로 선택했다. Entrance에서 해당 범위로 들어간 뒤 목적지가 계속 바뀌어 중앙 통로에 머물렀다. 작은 매장 시절의 범위가 대형 매장의 분산 진열대와 맞지 않았다.
+- speed1.8m/s, acceleration14, 방향 교체2초, heading wobble0.45rad, 시각 mesh roll0.12rad. World/Product/Cart는 실제 layer1 collision을 유지했다. ProductRecovery는 바닥 상품만 처리하며 선반 위 상품을 피하는 로직이 원인은 아니었다. 기존 shelf/product collision callback은 살아 있었으나 접촉 기회가 부족했다.
+- Main 기본 starter131개, 자동 customer/delivery/timeline 비활성, K와 동일 실제 spawn, RNG seed132,30초 관찰: **47.15m 이동 / 선반 앞 통과0 / 상품 직접 접촉0 / 이동·낙하0 / 국소 정체0초**. 이동량만으로는 이벤트의 역할을 확인할 수 없었다. `.godot/p132_before.log`.
+
+### Wander / zone / shelf-adjacent policy
+
+- 기존 `RatAisleRoute`의 고정 Store aisle intersections와 world/cart sweep을 재사용했다. owner 타입만 PhysicsBody3D로 허용하여 Drunk RigidBody에도 사용하며 Boss의 기본0.63 probe/경로 규칙은 그대로다. NavMesh/새 전역 navigation 도입 없음.
+- 재고/가격/상품 id는 목적지 선택에 사용하지 않는다. Shelf definitions 중 중복 upper tier를 제외한 rack의 **local x±1.85, z+1.1** 전면 통로를 후보로 사용한다. 가까운 끝점까지 aisle route → 반대 끝점까지 매대를 스쳐 지나간다. 목적지는 선반 내부가 아니며 실제 full capsule의 유효 위치 검사도 수행했다.
+- 거리 + 작은 random 편차로 가까운 rack을 선택하고 최근5개 rack 재선택을 피한다. 같은 Store 구역에서2개 연속 선택 시 해당 구역에24m 탐색 비용을 더해 다른 구역을 선호한다. 구역은 중앙 통로/동서 wing와 기존 z21 cross aisle의 앞뒤를 기준으로 나누며 Product를 추적하지 않는다.
+- 도착 tolerance0.35m로 모서리를 일찍 잘라먹지 않도록 했다. 자유 이동 speed/acceleration 그대로. heading wobble0.58rad, 매2초 frequency1.8~2.4와 bias±0.12rad 변화. 시각 roll과 wet wobble multiplier1.8, slip 최소속도1.2 유지.
+- 실제 World 접촉에서 경로 probe가 몸과 같은0.32이면 얕은 penetration을 출발 불가능으로 판단했다. Drunk probe만0.30으로 실제 몸보다2cm 안쪽에 두어 접촉에서 이탈 가능하게 했다. 실제 capsule0.32와 collision mask는 변경하지 않는다. World/Cart 통과나 teleport 없음.
+
+### Recovery / physics / Delivery
+
+- 기존 CartRecovery / ProductRecovery / human separation / Carry / cart passive cargo / Spill·Knockdown·Fire reaction 유지.
+- 상위 `NPCProgressWatchdog`은 Drunk route traversal에서5초 window / 최소0.4m progress. 일반 Customer3초보다 느슨하다. carry/cart support/knockdown/fire/airborne/external push 및 명시적 wander_speed=0 대기는 제외. 같은 목표의 첫 두 실패는 경로 재계산, 세 번째는 해당 aisle 목적지를 포기하고 다른 rack을 선택한다. 경로 재계산이 비면 즉시 재선택한다. 실제 recovery 때만 로그.
+- body_entered에 연결된 기존 `_contact → _disturb_product` 경로 유지: 실제 상품 접촉 또는 실제 Shelf 접촉으로2m 이내 실제 상품에2.5 impulse. 기존 mass 기반 응답과 높은 incoming speed2.7 이상의 break/value 처리 그대로. timer/route 도착/stock 감소를 이용한 강제 상품 낙하/삭제는 추가하지 않았다.
+- 기존 직접 충돌 회귀3개는 명시적 heading을 주는 fixture에서 `reset_wander_route()` 후 `_direction_wait`를 고정하도록 조정했다. route가 heading을 덮지 않게 할 뿐 원래 physical contact/receipt/progress assertion은 유지한다.
+
+### 30초 관찰 / 신규 검사
+
+Main starter131개, seed132, 동일 관찰에서 최종:
+
+| 항목 | 수정 전 | 수정 후 |
+| --- | --- | --- |
+| 실제 이동 | 47.15m | 42.92m |
+| 실제 Store 구역 | 중앙 통로 | MAIN → WEST_FRONT → WEST_REAR,3개 |
+| 서로 다른 rack 전면 통과 | 0 | 3 |
+| Shelf 물리 접촉 | 미계측 | 6 |
+| 몸–상품 직접 접촉 | 0 | 0 |
+| 0.3m 이상 이동 상품 | 0 | 9 |
+| 바닥 낙하 상품 | 0 | 9 |
+| 파괴 금액 | $0 | $0 |
+| 최대1초 단위 국소 정체 | 0초 | 1초 |
+
+이번 관찰의 상품 변화는 직접 몸–상품 충돌이 아니라 **물리적 Shelf 접촉에 연결된 기존 충격 처리**에서 발생했다. 최소 파괴/낙하 수를 PASS 조건으로 강제하지 않는다. 다른 물리 배치/seed에서는 결과가 달라질 수 있다. 로그 `.godot/p132_final_prompt13_2_observe.log`.
+
+- 동일 부드러운 실제 충돌의 최대 수평 속도: Can3.134m/s / TV0.683m/s. 두 상품 모두 강제 파괴 없음. 일반 무게 차이 유지.
+- 실제 벽으로 이동 경로를 막으면1회 recovery 후15초 시점에 x6.12m까지 우회. 초기5초에는 벽까지 이동한 정상 progress가 포함되므로 다음5초 window에서 정체를 판별한다. `.godot/p132_final_prompt13_2_drunk.log`.
+- 초기 물리 비교 fixture는 접촉 전에8frame 관찰을 종료하여 양쪽 속도0으로 실패했다. 바닥에 놓은 상품에 실제 접근하고60frame 최대 수평 속도를 측정하도록 수정. `.godot/p132_new_prompt13_2_drunk.log` 보존.
+- 벽 fixture는10초 직전에 두 번째5초 window가 아직 끝나지 않아 감지 검사가 먼저 실패했다.15초 trace로 실제 재계산 시점과 빈 route를 확인한 후 위의 probe 수정. `.godot/p132_world_recovery.log`, `.godot/p132_world_diagnostic.log` 보존.
+
+### Economy HUD / 기존 경제 의미
+
+- DayManager에 작은 read-only `EconomyHud`를 연결한다. `_stats()`와 Day baseline의 차이를 사용하여 **당일 SALES / LOSSES**만 상시 표시한다. 영구 잔고/지출 시스템 아님.
+- LOSSES = unpaid + stolen + fire + boss product + broken product + food consumed value. 기존 Result net의6개 차감 항목과 정확히 같다. Result 계산식/상세 항목은 변경하지 않았다.
+- Clock 우측 상단 y12~60 유지. SALES y64~86, LOSSES y87~109, delta y110~132, right24px. Sale 연녹색/Loss 연붉은색과 shadow. Event stats는 y170부터26px 간격, Weapon order 안내는 y414~464로 이동. Held Weapon HUD는 기존 하단 유지.
+- Checkout의 기존 별도 Sales/Unpaid 금액 줄은 상태 표시로 변경했다. Fire/Thief/Drunk/Boss/Player HUD의 중복 손실·Food 금액은 제거하지만 해당 raw manager stats와 Result 내역은 유지한다. HP/Alive, 사건 처리 인원/횟수는 유지한다.
+- 금액 증가 발생 시1.6초 delta. 단일 손실은 `-$45 STOLEN`, 복합 손실은 `-$33 LOSSES`, 같은 frame의 Sale/Loss는 한 줄로 병합. 새로운 변화가 이전 표시를 교체하여 무한 queue를 만들지 않는다. day baseline 전환에는 가짜 delta가 나오지 않는다. RESULT에서는 gameplay money HUD 숨김.
+- 1280×720 및1920×1080 Control rect 검증과 실제 screenshot `.godot/p132_hud.png` 확인. Clock/Economy/Event banner/Checkout/Weapon order를 동시에 표시해 분리 확인. 기존 Event stats 전체 배열 검사는 회귀로 유지한다.
+
+### 최종 검증 결과
+
+- Prompt0~13.2 최종 **83 scripts / 4,083 PASS / 실패0**, 신규3개는 Drunk17 / 관찰3 / HUD71 PASS. 전체 선택 로그 목록: `.godot/p132_all_results.csv`.
+- 기존80개 회귀는3,992 PASS. 이전3,993 대비1개 차이는 수정/삭제가 아니라 기존12.8 stress의 조건부 late-stall 검사 대상이 이번 실행에서0명이었기 때문이다. 30/60/90초 정체 검사와105초 관찰은 정상 완료했다.
+- 첫 전체 실행에서 `prompt8_1_smoke`의 이전 Fire HUD 문구 위치 검사1개 실패. 실제 연소/정확한$5 손실은 통과했다. 중복 금액 표시를 제거한 요구에 맞춰 새 Economy Summary의 정확한$5와 `-$5 FIRE` 표시/visibility를 검사하도록 이관했다. 재검사62 PASS. 첫 로그 `.godot/p132_suite_prompt8_1_smoke.log` 보존.
+- 의도적 wander_speed=0 대기 제외 후 신규Drunk17, 기존Prompt5 33, Prompt6 40 PASS 재확인. `.godot/p132_verified_results.csv`.
+- Import 종료0, 오류0 (`.godot/p132_final_import.log`). Main headless fixed60FPS 12,000frames=200초 및 window600frames=10초, 두 실행 exit0 / SCRIPT ERROR·ERROR·WARNING 0. `.godot/p132_main_headless.log`, `.godot/p132_main_window.log`, `.godot/p132_main_results.csv`. 200초는 첫 Day1 자동Drunk 이후 활동까지 포함한다. 무조작 Main의 기존 patience unpaid loss는 실제 미결제 퇴장 회계이며 오류가 아니다.
+- Customer/Tourist/Thief/Family/Cart/Spill/Fire/Delivery/Day/Context/Weapon/KING RAT phase·근거리·stuck 검사 유지. project.godot 변경 없음. git diff --check 통과. 모든 변경은 unstaged/uncommitted, commit/amend/reset/push 없음.
+
+### Known Issues / 다음 수동 확인
+
+기존 NPC Knockdown mesh/collider mismatch, Cart contact repeated damage, Monster/Character visual overlap, extreme Cart overload, simple waypoint 한계, KING RAT final contact sound/screen polish, Broom 실제 내구도 밸런스, Checkout PAY usability, full20-minute Day pacing 유지. Drunk 최종 animation/audio polish 추가. Delivery Area Auto Sort/Teleport/logistics assistance는 **Future TODO만 유지하며 구현하지 않음**.
+
+사람의 A~H 확인 필요: starter상태 K후20~30초 관찰 → 매대 접촉/실제 상품 변화 → 대응할 이유의 체감 → Carry/Cart Exit → 우측 상단 경제 정보 → 실제 결제 delta → 도난/화재 delta → Checkout/Event/Clock/Economy/Weapon 동시 가독성. 정상이라면 gameplay-qa Auditor로 Day1과 Event identity 감사 후13.3 또는 다음 Progression 검토.
+
 ## Prompt 13.1 — Day 1 Onboarding / Starter Stock / Contextual Interaction
 
 2026-11-19 구현·자동 회귀 완료. Prompt 13 완료 상태에서 시작했으며 초기 Git working tree는 clean이었다. 새 Event/Boss/Weapon, 자동 배송 분류, 저장/경제 확장은 추가하지 않았다. 전체80개 스크립트 / 3,993 PASS / 최종 선택 실행 실패·오류·경고0. 사람의 A~I 수동 체감 검사는 별도 필요하다.

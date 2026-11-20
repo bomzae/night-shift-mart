@@ -71,4 +71,4 @@ func _remove_drunk(body: Node3D) -> void:
 	_update_label()
 
 func _update_label() -> void:
-	_label.text = "[K] ~_~  | REMOVED %d | BROKEN $%.0f" % [drunks_removed, broken_product_value]
+	_label.text = "[K] ~_~  | REMOVED %d" % drunks_removed
