@@ -22,7 +22,7 @@ func run_checks() -> void:
 	player.health.current_health = 60
 	var food := held_food(&"milk")
 	await frames(3)
-	check(interaction.context_prompt.text == "[F] EAT" and interaction.product_info.text.contains("HP"), "held food displays contextual F Eat and heal value")
+	check(interaction.context_prompt.text == "[F] EAT\n[RMB] THROW" and interaction.product_info.text.contains("HP"), "held food displays contextual F Eat, Throw and heal value")
 	await press("use_tool")
 	check(player.health.current_health == 80 and not is_instance_valid(food), "F consumes actual milk and self heals once")
 	food = held_food(&"bread")

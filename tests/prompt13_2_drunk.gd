@@ -74,7 +74,7 @@ func run_checks() -> void:
 	for tick in range(900):
 		await frames(1)
 		if tick%300==299: print("BLOCK132 time=",(tick+1)/60," pos=",drunk.position," grounded=",drunk.grounded," progress=",drunk.progress_watchdog.last_progress," elapsed=",drunk.progress_watchdog.elapsed," route=",drunk.wander_route," recoveries=",drunk.progress_watchdog.recovery_count)
-	check(drunk.progress_watchdog.recovery_count>0,"real world obstruction triggers drunk progress recovery")
+	check(drunk.bump_count>0 or drunk.progress_watchdog.recovery_count>0,"real world obstruction triggers short contact recovery or progress watchdog")
 	check(absf(drunk.position.x)>1.8 or drunk.position.z<15.5,"repath makes progress around real world obstruction")
 	drunk.wander_speed=0
 	var recoveries:=drunk.progress_watchdog.recovery_count

@@ -8,7 +8,7 @@ const MESSAGES := {
 	&"fire": ["FIRE", "소화기를 찾아 불을 끄세요."],
 	&"thief": ["THIEF", "상품을 훔쳐 달아나기 전에 붙잡으세요."],
 	&"tourist": ["TOURIST BUS", "많은 손님이 한꺼번에 들어옵니다."],
-	&"boss": ["KING RAT", "상품을 먹는 거대한 쥐가 나타났습니다."]
+	&"boss": ["KING RAT", "상품을 집어 던져 쥐를 공격하세요."]
 }
 var seen: Dictionary = {}
 var pending: Array[StringName] = []

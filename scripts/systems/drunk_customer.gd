@@ -23,6 +23,15 @@ var progress_watchdog := NPCProgressWatchdog.new()
 var _planner: RatAisleRoute
 var _wobble_bias: float = 0
 var _wobble_frequency: float = 2.1
+var shelf_contact_time: float = 0
+var bump_remaining: float = 0
+var bump_cooldown: float = 0
+var bump_count: int = 0
+var bump_normal := Vector3.ZERO
+var bump_direction := Vector3.ZERO
+var avoided_shelves: Dictionary = {}
+var _contact_wall: Node
+var _bump_origin := Vector3.ZERO
 
 func _ready() -> void:
 	super._ready()
@@ -34,13 +43,29 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
+	_incoming_speed = Vector2(linear_velocity.x, linear_velocity.z).length()
+	bump_cooldown = maxf(0, bump_cooldown-delta)
+	for key in avoided_shelves.keys():
+		avoided_shelves[key] -= delta
+		if avoided_shelves[key] <= 0: avoided_shelves.erase(key)
 	if knockdown.active() or fire_reaction.active():
+		_cancel_bump()
 		progress_watchdog.observe(global_position, wander_target, "wander", false, delta)
 		return
 	_contact_wait = maxf(0, _contact_wait - delta)
 	if is_instance_valid(holder) or supported_by_cart:
+		_cancel_bump()
 		$Mood.text = "@_@"
 		reset_wander_route()
+		return
+	if bump_remaining > 0:
+		bump_remaining = maxf(0,bump_remaining-delta)
+		progress_watchdog.observe(global_position,wander_target,"bump",false,delta)
+		if bump_remaining == 0:
+			_direction_wait = 0
+			# A failed short escape must yield long enough for the existing 5s watchdog.
+			if Vector2(global_position.x-_bump_origin.x,global_position.z-_bump_origin.z).length()<0.15:
+				bump_cooldown = progress_watchdog.check_window+1.0
 		return
 	_phase += delta
 	$Mesh.rotation.z = sin(_phase * 3.5) * 0.12
@@ -67,7 +92,6 @@ func _physics_process(delta: float) -> void:
 				reset_wander_route()
 				_choose_aisle()
 			print("DRUNK RECOVERY level=",level," pos=",global_position," target=",wander_target)
-	_incoming_speed = Vector2(linear_velocity.x, linear_velocity.z).length()
 
 func reset_wander_route() -> void:
 	wander_route.clear()
@@ -92,7 +116,7 @@ func _choose_aisle() -> void:
 		if store_zone(last.global_position)==store_zone(prior.global_position): repeated_zone=store_zone(last.global_position)
 	var choices: Array[Dictionary] = []
 	for shelf: StockShelf in shelves.get_children():
-		if is_instance_valid(shelf.point_owner) or visited_racks.has(shelf.name): continue
+		if is_instance_valid(shelf.point_owner) or visited_racks.has(shelf.name) or avoided_shelves.has(shelf.name): continue
 		# Front aisle, never rack contents: stocking/food/value do not influence selection.
 		var a := shelf.to_global(Vector3(-1.85,0.01,1.1))
 		var b := shelf.to_global(Vector3(1.85,0.01,1.1))
@@ -120,6 +144,8 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 		return
 	var wobble := 0.58 * (wet_wobble_multiplier if SlipState.wet(self) else 1.0)
 	var desired := wander_direction.rotated(Vector3.UP, sin(_phase * _wobble_frequency) * wobble + _wobble_bias) * wander_speed
+	_update_shelf_contact(state, desired)
+	if bump_remaining > 0: desired = bump_direction * minf(wander_speed,1.5)
 	desired += human_separation.correction(self, desired, separation_multiplier)
 	desired = cart_recovery.steer(desired, state.step, 0.6)
 	desired = product_recovery.steer(desired, state.step, 0.6)
@@ -127,6 +153,63 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 	horizontal = horizontal.move_toward(desired, wander_acceleration * SlipState.control(self) * state.step)
 	state.linear_velocity.x = horizontal.x
 	state.linear_velocity.z = horizontal.z
+
+func _cancel_bump() -> void:
+	bump_remaining = 0
+	shelf_contact_time = 0
+	_contact_wall = null
+
+func begin_carry(controller: Node, player: PhysicsBody3D) -> bool:
+	var accepted := super.begin_carry(controller,player)
+	if accepted: _cancel_bump()
+	return accepted
+
+func _update_shelf_contact(state: PhysicsDirectBodyState3D, desired: Vector3) -> void:
+	# Only fixed horizontal geometry. Products/cart retain their own recovery.
+	if bump_remaining > 0 or bump_cooldown > 0 or wander_speed <= 0.1:
+		shelf_contact_time = 0
+		return
+	var wall: Node = null
+	var normal := Vector3.ZERO
+	for index in range(state.get_contact_count()):
+		var body = state.get_contact_collider_object(index)
+		var n := state.transform.basis * state.get_contact_local_normal(index)
+		if body is StaticBody3D and absf(n.y)<0.4 and desired.dot(n)<-0.1:
+			wall = body
+			normal = Vector3(n.x,0,n.z).normalized()
+			break
+	if wall == null:
+		shelf_contact_time = 0
+		_contact_wall = null
+		return
+	if wall != _contact_wall: shelf_contact_time = 0
+	_contact_wall = wall
+	# Into-wall displacement is constrained even while sliding tangentially.
+	if state.linear_velocity.dot(normal) > 0.2:
+		shelf_contact_time = 0
+		return
+	shelf_contact_time += state.step
+	if shelf_contact_time < 0.35: return
+	bump_normal = normal
+	var tangent := desired.slide(normal).normalized()
+	if tangent.length_squared()<0.1:
+		tangent = normal.cross(Vector3.UP) * (-1 if _rng.randf()<0.5 else 1)
+	bump_direction = (normal*0.8+tangent*0.6).normalized()
+	if _planner != null:
+		_planner.refresh_exclusions()
+		if not _planner.clear_segment(global_position,global_position+bump_direction*0.9):
+			bump_direction = (normal*0.8-tangent*0.6).normalized()
+			if not _planner.clear_segment(global_position,global_position+bump_direction*0.9): bump_direction = normal
+	if wall.get_parent() is StockShelf:
+		avoided_shelves[wall.get_parent().name] = 5.0
+	reset_wander_route()
+	wander_target = global_position+bump_direction*0.9
+	wander_direction = bump_direction
+	bump_remaining = 0.6
+	_bump_origin = global_position
+	bump_cooldown = 1.3
+	bump_count += 1
+	shelf_contact_time = 0
 
 func _contact(body: Node) -> void:
 	if knockdown.active() or is_instance_valid(holder) or supported_by_cart or _contact_wait > 0:
