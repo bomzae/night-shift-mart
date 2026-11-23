@@ -95,10 +95,10 @@ func try_reunion(child: LostChild) -> bool:
 
 func _physics_process(delta: float) -> void:
 	for pair in pairs.duplicate():
-		var child: LostChild = pair.child
-		var parent: LostParent = pair.parent
+		var child = pair.child
+		var parent = pair.parent
 		if not is_instance_valid(child) or not is_instance_valid(parent):
-			_release_exceptions(child, parent)
+			_release_exceptions(child if is_instance_valid(child) else null, parent if is_instance_valid(parent) else null)
 			if is_instance_valid(child): child.queue_free()
 			if is_instance_valid(parent): parent.queue_free()
 			pairs.erase(pair)
@@ -109,7 +109,7 @@ func _physics_process(delta: float) -> void:
 			if pair.reunion_left < 0:
 				parent.start_exit()
 		if parent.exit_arrived:
-			_release_exceptions(child, parent)
+			_release_exceptions(child if is_instance_valid(child) else null, parent if is_instance_valid(parent) else null)
 			child.queue_free()
 			parent.queue_free()
 			pairs.erase(pair)
@@ -117,13 +117,30 @@ func _physics_process(delta: float) -> void:
 func _update_label() -> void:
 	_label.text = "[L] ?  | FOUND %d" % lost_children_found
 
+func _live_body(body: Variant) -> bool:
+	return is_instance_valid(body) and body is PhysicsBody3D and body.is_inside_tree() and body.is_node_ready() and not body.is_queued_for_deletion()
+
 func _ignore_pair(a: PhysicsBody3D, b: PhysicsBody3D) -> void:
-	if a == b or not is_instance_valid(a) or not is_instance_valid(b):
-		return
+	if a == b or not _live_body(a) or not _live_body(b): return
+	for body in [a, b]:
+		var cleanup := _release_body.bind(body)
+		if not body.tree_exiting.is_connected(cleanup):
+			body.tree_exiting.connect(cleanup, CONNECT_ONE_SHOT)
 	for direction in [[a, b], [b, a]]:
+		# Preserve exception ownership: do not claim a pair another system installed.
 		if not direction[0].get_collision_exceptions().has(direction[1]):
 			direction[0].add_collision_exception_with(direction[1])
 			_npc_exceptions.append([weakref(direction[0]), weakref(direction[1])])
+
+func _release_body(body: PhysicsBody3D) -> void:
+	# Remove both directions while the departing RID still exists. Weak references
+	# alone cannot remove a freed body's RID from the surviving physics body.
+	for record in _npc_exceptions.duplicate():
+		var a: PhysicsBody3D = record[0].get_ref()
+		var b: PhysicsBody3D = record[1].get_ref()
+		if a == body or b == body or not is_instance_valid(a) or not is_instance_valid(b):
+			if is_instance_valid(a) and is_instance_valid(b): a.remove_collision_exception_with(b)
+			_npc_exceptions.erase(record)
 
 func _refresh_departing_exceptions() -> void:
 	var departing: Array[PhysicsBody3D] = []
@@ -140,12 +157,20 @@ func _refresh_departing_exceptions() -> void:
 				_ignore_pair(body, customer)
 
 func _on_node_added(node: Node) -> void:
-	# Covers customers spawned after reunion, before their first movement tick.
 	if node is BasicCustomer and not node is LostParent:
-		for pair in pairs:
-			if is_instance_valid(pair.child) and is_instance_valid(pair.parent) and pair.child.reunited:
-				_ignore_pair(pair.child, node)
-				_ignore_pair(pair.parent, node)
+		if node.is_node_ready():
+			_apply_customer_exceptions(weakref(node))
+		else:
+			# Ready runs before add_child returns, preserving the first movement tick.
+			node.ready.connect(_apply_customer_exceptions.bind(weakref(node)), CONNECT_ONE_SHOT)
+
+func _apply_customer_exceptions(reference: WeakRef) -> void:
+	var node := reference.get_ref() as PhysicsBody3D
+	if not _live_body(node): return
+	for pair in pairs:
+		if _live_body(pair.child) and _live_body(pair.parent) and pair.child.reunited:
+			_ignore_pair(pair.child, node)
+			_ignore_pair(pair.parent, node)
 
 func _release_exceptions(child: LostChild, parent: LostParent, all_pairs: bool = false) -> void:
 	for record in _npc_exceptions.duplicate():

@@ -2,6 +2,52 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13.4 — Cart Combat / Event Progression / Family Collision Safety
+
+2026-11-23. 기준 HEAD `85b2420` (develop), 시작 working tree clean. 요청된 세 QA 문제만 수정. Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`, Project `C:\Users\user\orca\workspaces\ProjectA\develop`. Git commit/amend/reset/push 없음. 구현·자동/회귀 검사 완료. 수동 A~G와 targeted re-audit 대기.
+
+### QA-M133-COMBAT-001 — 재현 / 원인 / 수정
+- 실제 Main의 Cart `(0,0.02,20)`, Rat `(0,0.01,14)`, Player cart deck. Player 실제 physics/gravity 활성, 입력 없음, 90초 관찰을 위해 HP만10000으로 높였다. 수정 전30/60/90초 모두 Rat `(0.3253,0.00043,15.0445)`, 수평거리4.966m, Telegraph0/Charge0/피해0. PURSUIT/REPOSITION 각각66회 진입, 비활동 재평가59회, 최대 무위협90초. `.godot/p134_before_prompt13_4_cart.log`.
+- Target 자체는 유효했고 거리도 이미 horizontal이었다. `clear_combat_lane()`이 Player에서0.8m 앞까지 radius0.63 boss sweep의 통과를 요구했다. Cart 내부 Player는 그 끝점이 Cart 벽과 겹쳐 계속 lane=false. 기존 고정 aisle planner는 도달 불가능한 내부 목표 대신 z15 주변을 고르고, lateral/repath가 같은 판단을 반복했다. 이동량 watchdog은 왕복을 정상 진행으로 봤고,1.5초 inactivity도 동일한 불가능 조건만 재검사했다.
+- 카트 위 Player를 판별할 때 cart-local 발 위치와 실제 아래 방향 support ray를 함께 검사한다. 실제로 지지하는 Cart만 **공격 계획 검사**에서 제외해 돌진 대상으로 허용한다. World/다른 Cart는 그대로 swept obstruction이며, 일반 이동 경로에서는 해당 Cart도 계속 장애물이다. 물리 mask/pair exception/move_and_slide는 변경하지 않았다. 공중에 떠 있거나 카트 뒤 바닥의 Player는 rider로 취급하지 않는다.
+- 첫 수정은20회 Charge를 만들었지만 카트 벽이 보스 몸을 막아 탑승자 피해가 여전히0이었다(`p134_first`). 따라서 실제 Charge slide collision이 Cart를 때린 순간에만, 그 Cart가 발을 지지하고 LOS가 열린 Player에게 기존 `_charge_hit`을 전달한다. 기존30HP/Knockdown/Push/attack-instance당1회 중복 방지를 재사용한다. 일반 Contact 범위·10HP·cooldown 확대 없음. 카트 근처에 있다는 이유로 피해를 주지 않으며 새로운 공격 종류는 없다.
+- Cart 이동은 기존60×delta collision impulse만 사용한다. 위치 대입/순간이동/Cart 충돌 해제/강제 displacement 없음. 기존1.5초 combat inactivity 재평가에서는 hold/lane뿐 아니라 path cache/detour도 비워 현재 목표로 다시 판단한다. cooldown/reaction/Telegraph는 기존 제외 규칙 유지.
+
+| 수정 후 관찰 | Telegraph | Charge | 누적 HP 피해 | 최대 무위협 구간 | Cart 변위 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 30초 | 7 | 7 | 210 | 3.85초 | 1.05m |
+| 60초 | 14 | 14 | 420 | 3.85초 | 2.10m |
+| 90초 | 20 | 20 | 600 | 3.85초 | 3.00m |
+
+- 상태 순환은 TELEGRAPH→CHARGE→CHARGE_RECOVERY→HOLD, 각20회. 최대 무위협3.85초는 정상 charge cooldown 대기를 포함한다. 경로 재평가 강제복구0회. 실제 지지 중 피해, 연속 위치 변화, 이동 Cart, World wall/두 번째 Cart 차단, 바닥 Player behind-cart와 공중 Player 제외 검사 포함. 위 수치는 고정60FPS fixture 결과이며 임의 적재/전복/geometry 조합 전체를 보장하지 않는다.
+- APPROACH 피격 intent 유지, TELEGRAPH 동일 instance/timer, CHARGE 피격 interrupt, Held Weapon shield 방지, close1.243m/contact/hold-ground 규칙은 수정하지 않았다.
+
+### QA-M133-EVENT-001 — 스케줄링과 실제 해결 분리
+- 이전 `_tick_introduction()`은 `active_event_count()>0`이면 무조건 종료했다. Drunk entity가 남아 있으면 늦은 Boss 분기까지 진입할 수 없었다. 수정 전120초 단축 Day 실제 진행:23:00 Drunk만 등장,06:00 Result까지 Family/Thief/Boss 없음. `.godot/p134_before_lifecycle_prompt13_4_events.log`.
+- Day1 Drunk exclusive lease는 등장 후 **게임 시간75분** (`drunk_exclusive_hours=1.25`). 기본20분 shift에서 실제187.5초. Debug 생성도 같은 유예 시간을 가진다. 그동안 기존 단일 소개 정책을 유지한다.
+- 만료 뒤 Drunk는 world/event count에는 남고 introduction scheduler의 독점 count에서만 빠진다. Physics/Carry/Cart/Spill/Exit 그대로. removed/success/경제 보상 증가 없음. 기존12초 real minimum spacing, banner gap, 다른 활성 사건 제한은 유지한다. Day2 기존 자유 timeline은 그대로이며 다음 Day에서 lease/counter를 초기화한다.
+- 최초 문구: **`취객을 직접 들거나 카트로 출구까지 옮기세요.`** 기존3초 첫 안내/반복 제목만 정책 재사용.
+- 일반 방치와 Cart에 실제로 지지시켜 주차한 조건을 각각120초 Day로 실행했다. 둘 다 Drunk23:00→slot release00:15→Family00:30→Thief02:13→Boss04:00→06:00 종료/실제122초 Result. removed0 유지. Family는 생성 후 실제 reunion을 성공시키고 자연 퇴장시키며, Thief는 기존 동작으로 진행했다. **모든 후속 사건까지 일부러 미해결로 둔 시험은 아니다.** 미해결 Drunk만의 차단 효과를 분리했다.
+- 만료 전 독점 유지, 만료 후 살아 있는 actor, 한 번만 release, 실제 늦은 Exit 후 removed1, Day2 lease 초기화 검사 포함. 새 사건을 몰아서 생성하거나 취객을 자동 성공/삭제하지 않는다.
+
+### QA-M133-AI-001 — 물리 RID 수명주기
+- 첫 reunion 후 한 Customer 생성만으로는 오류가 없었다. 재회 중 Customer spawn→먼저 free→새 spawn을 반복하자 기존 `_ignore_pair().get_collision_exceptions()`에서 `Parameter "body" is null`30회 재현. `.godot/p134_before_lifecycle_prompt13_4_family.log`.
+- 원인은 신규 Customer의 존재 자체가 아니라 **먼저 삭제된 Customer의 RID가 생존 Family의 예외 목록에 잔류**한 것. weakref 목록은 있었지만 family가 퇴장할 때만 정리했고 Customer의 먼저 퇴장은 처리하지 않았다.
+- 각 참여 body의 `tree_exiting`에서 RID가 살아 있을 때 양방향 예외를 제거한다. node validity/inside-tree/ready/queued-for-deletion 검사 추가. 신규 Customer는 ready 신호에서 적용하여 `add_child` 반환 전 및 첫 movement tick의 기존 양방향 제외를 유지한다. ready callback은 weakref로 전달하고 실행 시 생존/삭제 예약 상태를 다시 확인한다. 다른 시스템이 이미 설치한 예외는 소유하지 않는 기존 정책을 유지한다.
+- 최초 다음-frame defer 구현은 기존 Prompt6.1의 즉시 양방향 검사1개를 깨뜨렸다. assertion을 약화하지 않고 ready 신호 시점으로 수정했다. 반복3가족/18Customer 생성·삭제, 실제 reunion/퇴장, 모든 tracked reference 유효, 엔진 exception 조회에 stale/null 없음, 최종 empty 확인. 추가로 가족 한 명의 외부 queue_free와 동시 Customer 생성도 검사했다. 해제된 객체를 typed 변수/인자로 변환하기 전에 validity를 확인하여 남은 가족과 pair를 안전하게 정리한다.
+
+### 검사 / 문서 / 수동 확인
+- 신규5개: `prompt13_4_cart`, `prompt13_4_boundaries`, `prompt13_4_events`, `prompt13_4_family`, `prompt13_4_slots`. 기존 `run_headless.ps1`의 OS 독립 test copy/실제 물리·입력 방식을 유지했다. runner나 기존 assertion 변경 없음.
+- 초기 실행 인자의 중복 `.gd`, 존재하지 않는 `prompt12_7_smoke` 이름을 실제 phase/sources/held/lifecycle로 바로잡았다. 신규 cart 계측의 inferred `last_hp` parse error는 float 타입 명시로 수정. 이 실행을 PASS로 집계하지 않는다. `p134_before*`, `p134_first*`, `p134_second*`, `p134_expanded*`, `p134_family_final*` 실패 로그 보존.
+- 최종 **92개 실행 / 4,296 PASS / 실패·엔진 오류·경고0 / 정상 완료92개**. 기존 Prompt0~13.3의87개와 신규5개(171 PASS). 전체 `p134_all_results.csv` 실행 후 Family 최종 변경의 영향4개를 `p134_lifecycle_final_results.csv`로 재검사했다. 중복 없이 최종 로그를 선택한 `.godot/p134_verified_results.csv` 참조. 최초 전체 실행의6.1 timing 실패1개는 원본 로그에 보존하며 최종35 PASS로 복구했다. 기존 assertion/테스트 목록을 삭제하거나 완화하지 않았다.
+- 원본 import/check-only exit0, 최종 Main200초 headless exit0 / SCRIPT ERROR·ERROR·WARNING0 (`p134_import.log`, `p134_visual_parse.log`, `p134_main_final.log`). 창 smoke도 exit0/오류·경고0 (`p134_visual.log`). 창 smoke는 `visual13_4.gd` 사전 parse 확인 뒤 **한 번** 실행했다. 1280×720/1920×1080 실제 screenshot에서 취객 Goal 문구·Clock/Economy·Context Throw 분리 확인. OS mouse/focus는 판정에 사용하지 않았다. 실제 UI smoke와 사람이 조작한 수동 테스트를 구분한다.
+- README는 미해결 취객 유예 및 Cart 탑승자도 돌진 충격을 받는 플레이 규칙만 갱신했다. 새 Event/Weapon/Boss/Progression, res:// 경로 및 project.godot 변경 없음. 최종 git diff --check 통과, HEAD85b2420 유지, 수정6파일+신규검사/시각fixture6파일(각uid 포함) 모두 uncommitted/unstaged.
+- 수동 A~G는 사용자 확인 필요: A Cart 내부 정지 전투, B Cart 주변 물리 전투, C 취객 방치, D Cart 주차, E 늦은 Exit 해결, F 안내 이해, G Family 재회 중 Customer spawn. 자동 검사로 손맛/최종 Foundation Readiness를 확정하지 않는다.
+
+### 남은 Known TODO / 다음 판단
+기존11개 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Monster/Character visual overlap, Extreme Cart overload, Simple waypoint limitations, KING RAT contact sound/screen polish, Broom balance manual verification, Checkout PAY usability, Full20-minute pacing, Delivery Auto Sort/logistics assistance, Drunk final animation/audio polish. 이번 수정은 카트 탑승 목표와 물리 lifecycle/Day1 독점 슬롯을 좁게 개선했으며 Full Navigation/영구 경제/자동 물류/최종 연출을 구현하지 않았다.
+수동 확인이 정상이라면 gameplay-qa에서 세 P1/P3 문제를 targeted re-audit하고 Foundation Readiness를 다시 판단한다.
+
 ## Prompt 13.3 — Drunk Collision / KING RAT Guidance
 
 2026-11-22. 구현 및 headless 자동 검사 완료. 최종 창 렌더링 확인은 아래 이유로 미완료. 시작 시 이전 사용자 요청의 Godot 경로 변경 두 문서가 modified 상태였으며 보존했다. 현재 Project `C:\Users\user\orca\workspaces\ProjectA\develop`, Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. res:// 및 project.godot 변경 없음.

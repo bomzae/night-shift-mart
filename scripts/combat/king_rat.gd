@@ -472,6 +472,14 @@ func _physics_process(delta: float) -> void:
 		mood.text = "✓" if is_defeated else ("COMBAT_APPROACH" if state == State.PURSUIT else State.keys()[state])
 
 func _charge_hit(body: Node) -> void:
+	# A real charge collision transfers its existing impact to a rider on the
+	# struck cart. No proximity damage, extra reach, cart translation or noclip.
+	if body is ShoppingCart and state == State.CHARGE:
+		for health in get_tree().get_nodes_in_group("player_health"):
+			var rider := health.get_parent() as CharacterBody3D
+			if valid_attacker(rider) and cart_supports(body, rider) and can_see(rider):
+				_charge_hit(rider)
+		return
 	if _hit_targets.has(body.get_instance_id()): return
 	var knockdown := body.get_node_or_null("Knockdown") as KnockdownState
 	if knockdown == null: return
@@ -916,13 +924,34 @@ func advance_committed_attack(delta: float) -> void:
 	state = State.CHARGE
 	_left = charge_duration
 
+func cart_supports(cart: ShoppingCart, rider: CharacterBody3D) -> bool:
+	var local := cart.to_local(rider.global_position)
+	if absf(local.x) > 0.95 or absf(local.z) > 1.05 or local.y < 0.2 or local.y > 1.5: return false
+	var ray := PhysicsRayQueryParameters3D.create(rider.global_position + Vector3.UP * 0.08, rider.global_position - Vector3.UP * 0.25, 1)
+	ray.exclude = [rider.get_rid(), get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
+	return not hit.is_empty() and hit.collider == cart
+
 func clear_combat_lane(destination: Vector3) -> bool:
 	# The existing 1m CharacterHitArea reaches the player before body centres meet.
 	# Do not demand a 0.63m boss sphere fit at a player standing beside a cart.
 	var offset := destination-global_position
 	offset.y = 0
 	var endpoint := destination-offset.normalized()*minf(0.8,offset.length()*0.5)
-	return pursuit_planner.clear_segment(global_position,endpoint)
+	if pursuit_planner.clear_segment(global_position,endpoint): return true
+	# A low cart carrying the target is a chargeable physical obstacle, not a
+	# walkable destination. Only planning may omit that cart; move_and_slide and
+	# existing collision impulses still stop/push it. Walls/other carts stay solid.
+	if not valid_attacker(aggro_target): return false
+	for cart in get_tree().get_nodes_in_group("shopping_cart"):
+		if not cart is ShoppingCart or cart.is_queued_for_deletion(): continue
+		if not cart_supports(cart, aggro_target): continue
+		var saved := pursuit_planner.exclusions.duplicate()
+		pursuit_planner.exclusions.append(cart.get_rid())
+		var lane := pursuit_planner.clear_segment(global_position,endpoint)
+		pursuit_planner.exclusions.assign(saved)
+		if lane: return true
+	return false
 
 func observe_combat_inactivity(delta: float) -> void:
 	var contact_happened := contact_damage_count != _observed_contact_count
@@ -938,6 +967,9 @@ func observe_combat_inactivity(delta: float) -> void:
 	combat_inactive_time = 0
 	_hold_decision_left = 0
 	_lane_wait = 0
+	_route_wait = 0
+	_pursuit_detour_left = 0
+	pursuit_route.clear()
 	combat_move(0) # Keep target and use the same attack/path policy as normal ticks.
 
 func observe_combat_progress(delta: float) -> void:

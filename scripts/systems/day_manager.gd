@@ -10,6 +10,9 @@ var starter_stock_count: int = 0
 var _intro_step: int = 0
 var _intro_retry_hour: float = 1.0
 var _intro_cooldown: float = 0
+@export var drunk_exclusive_hours: float = 1.25
+var drunk_slot_release_count: int = 0
+var _drunk_slots: Dictionary = {}
 @export var shift_duration_seconds: float = 1200.0
 @export var ending_duration: float = 2.0
 @export var timeline_enabled: bool = true
@@ -84,6 +87,8 @@ func _prepare_first_day() -> void:
 
 func _track_later(node: Node) -> void:
 	if node is RigidBody3D: _remember_home.call_deferred(node)
+	if node is DrunkCustomer:
+		_drunk_slots[node.get_instance_id()] = {"body": weakref(node), "hour": elapsed_hours(), "released": false}
 
 func _remember_home(node: Node) -> void:
 	if not is_instance_valid(node) or not world.is_ancestor_of(node): return
@@ -120,6 +125,8 @@ func start_day() -> void:
 	_boss_retry_hour = 6.0
 	_event_cursor = 0
 	_intro_step = 0
+	_drunk_slots.clear()
+	drunk_slot_release_count = 0
 	_intro_retry_hour = 1.0
 	_intro_cooldown = 0
 	event_banner.clear_pending()
@@ -232,10 +239,27 @@ func _tick_timeline() -> void:
 	var spawned = world.get_node(choice[0]).call(choice[1])
 	if (typeof(spawned) == TYPE_BOOL and spawned) or (typeof(spawned) == TYPE_OBJECT and is_instance_valid(spawned)): automatic_events += 1
 
+func introduction_event_count() -> int:
+	# A scheduling lease is not a world-actor lifetime or an event success.
+	var count := active_event_count()
+	for id in _drunk_slots.keys():
+		var slot: Dictionary = _drunk_slots[id]
+		var drunk: Node = slot.body.get_ref()
+		if not is_instance_valid(drunk) or drunk.is_queued_for_deletion():
+			_drunk_slots.erase(id)
+			continue
+		if elapsed_hours() - float(slot.hour) >= drunk_exclusive_hours:
+			count -= 1
+			if not slot.released:
+				slot.released = true
+				drunk_slot_release_count += 1
+				print("DRUNK SCHEDULER SLOT RELEASED id=", id, " clock=", clock_text())
+	return maxi(0, count)
+
 func _tick_introduction() -> void:
 	var hour := elapsed_hours()
 	if hour >= 7.5 or hour < _intro_retry_hour or _intro_cooldown > 0 or event_banner.busy(): return
-	if active_event_count() > 0 or max_active_events <= 0: return
+	if introduction_event_count() > 0 or max_active_events <= 0: return
 	if is_instance_valid(world.get_node("Bosses").boss): return
 	# One automatic special event at a time. A late boss has priority over missed introductions.
 	if hour >= 6:

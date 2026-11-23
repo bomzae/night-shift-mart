@@ -2,7 +2,7 @@ class_name EventBanner
 extends CanvasLayer
 ## Session-local introductions; queued messages never stop the simulation.
 const MESSAGES := {
-	&"drunk": ["DRUNK CUSTOMER", "물건을 쓰러뜨리지 않도록 확인하세요."],
+	&"drunk": ["DRUNK CUSTOMER", "취객을 직접 들거나 카트로 출구까지 옮기세요."],
 	&"family": ["LOST CHILD", "부모를 찾아 아이를 데려다 주세요."],
 	&"accident": ["SPILL", "대걸레를 움직여 바닥의 물기를 닦으세요."],
 	&"fire": ["FIRE", "소화기를 찾아 불을 끄세요."],
