@@ -71,6 +71,7 @@ func release_shopping_point(customer: Node) -> void:
 			_shopping_reserved_frame.erase(i)
 
 func _ready() -> void:
+	add_to_group("stock_shelves")
 	var definition := ProductCatalog.find(accepted_type)
 	if definition != null and use_catalog_tier:
 		tier_height = definition.shelf_tier_height
@@ -128,3 +129,51 @@ func slot_position(slot: Vector3) -> Vector3:
 	if tier_height > 0: slot.z = slot.z * (5.0 / 6.0) - 0.25
 	slot.y += tier_height
 	return slot
+
+func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, reach: float) -> Dictionary:
+	# Opening selection; the carry spring and shape sweeps still move the body.
+	var local_origin := to_local(origin)
+	var local_direction := global_basis.inverse() * direction
+	var front := 0.2 if tier_height > 0 else 0.7
+	if local_origin.z <= front or local_direction.z >= -0.01 or stock_count >= max_stock: return {}
+	var distance := (front-local_origin.z)/local_direction.z
+	if distance < 0 or distance > reach: return {}
+	var entry := local_origin + local_direction * distance
+	var floor_y := 0.65 + tier_height
+	if absf(entry.x) > 1.35 or entry.y < floor_y or entry.y > floor_y+tier_clearance: return {}
+	var ray := PhysicsRayQueryParameters3D.create(origin,to_global(entry),1,[body.get_rid()])
+	if is_instance_valid(body._ignored_player): ray.exclude.append(body._ignored_player.get_rid())
+	var space := get_world_3d().direct_space_state
+	if not space.intersect_ray(ray).is_empty(): return {}
+	# A tilted recovered box may fit upright. Rotate with angular velocity first,
+	# outside the opening, never teleport its basis or relax the occupancy test.
+	var upright := Basis.from_euler(Vector3(0,body.global_rotation.y,0))
+	for orientation: Basis in [body.global_basis,upright]:
+		var bounds := AABB()
+		var first := true
+		for child in body.get_children():
+			if not child is CollisionShape3D or child.disabled: continue
+			var relative: Transform3D = Transform3D(global_basis.inverse()*orientation,Vector3.ZERO)*child.transform
+			var shape_bounds: AABB = relative * child.shape.get_debug_mesh().get_aabb()
+			bounds = shape_bounds if first else bounds.merge(shape_bounds)
+			first = false
+		if first or bounds.size.y > tier_clearance-0.03 or bounds.size.z > (0.9 if tier_height > 0 else 1.4)-0.08 or bounds.size.x > 2.5: continue
+		var point := Vector3(clampf(entry.x,-1.27-bounds.position.x,1.27-bounds.end.x),floor_y-bounds.position.y+0.025,front-bounds.end.z-0.035)
+		var world_point := to_global(point)
+		if origin.distance_to(world_point) > reach: continue
+		var clear := true
+		for child in body.get_children():
+			if not child is CollisionShape3D or child.disabled: continue
+			var query := PhysicsShapeQueryParameters3D.new()
+			query.shape = child.shape
+			query.transform = Transform3D(orientation,world_point)*child.transform
+			query.exclude = ray.exclude
+			query.margin = 0.005
+			if not space.intersect_shape(query,1).is_empty():
+				clear = false
+				break
+		if not clear: continue
+		if not orientation.is_equal_approx(body.global_basis):
+			return {"shelf":self,"position":body.global_position,"distance":distance,"align":orientation}
+		return {"shelf":self,"position":world_point,"distance":distance}
+	return {}

@@ -10,6 +10,12 @@ var starter_stock_count: int = 0
 var _intro_step: int = 0
 var _intro_retry_hour: float = 1.0
 var _intro_cooldown: float = 0
+const INTRO_HOURS := {"drunk":1.0,"family":2.5,"thief":4.0,"boss":6.0}
+var intro_states: Dictionary = {}
+var _intro_actors: Dictionary = {}
+var intro_last_event: String = ""
+var intro_last_end: String = ""
+var intro_spawn_failure: String = ""
 @export var drunk_exclusive_hours: float = 1.25
 var drunk_slot_release_count: int = 0
 var _drunk_slots: Dictionary = {}
@@ -125,6 +131,11 @@ func start_day() -> void:
 	_boss_retry_hour = 6.0
 	_event_cursor = 0
 	_intro_step = 0
+	intro_states = {"drunk":"NOT_STARTED","family":"NOT_STARTED","thief":"NOT_STARTED","boss":"NOT_STARTED"}
+	_intro_actors.clear()
+	intro_last_event = ""
+	intro_last_end = ""
+	intro_spawn_failure = ""
 	_drunk_slots.clear()
 	drunk_slot_release_count = 0
 	_intro_retry_hour = 1.0
@@ -137,6 +148,7 @@ func start_day() -> void:
 	for health in team.players:
 		if not is_instance_valid(health): continue
 		health.reset_for_day()
+		if health.get_parent().has_method("reset_stance"): health.get_parent().reset_stance()
 		var body: Node = health.get_parent()
 		if _player_modes.has(body.get_instance_id()): body.process_mode = _player_modes[body.get_instance_id()]
 		if body.get("external_velocity") != null:
@@ -242,6 +254,8 @@ func _tick_timeline() -> void:
 func introduction_event_count() -> int:
 	# A scheduling lease is not a world-actor lifetime or an event success.
 	var count := active_event_count()
+	for pair in world.get_node("LostFamilies").pairs:
+		if is_instance_valid(pair.child) and not pair.child.is_queued_for_deletion() and pair.child.reunited: count -= 1
 	for id in _drunk_slots.keys():
 		var slot: Dictionary = _drunk_slots[id]
 		var drunk: Node = slot.body.get_ref()
@@ -257,6 +271,7 @@ func introduction_event_count() -> int:
 	return maxi(0, count)
 
 func _tick_introduction() -> void:
+	_refresh_intro_states()
 	var hour := elapsed_hours()
 	if hour >= 7.5 or hour < _intro_retry_hour or _intro_cooldown > 0 or event_banner.busy(): return
 	if introduction_event_count() > 0 or max_active_events <= 0: return
@@ -264,18 +279,73 @@ func _tick_introduction() -> void:
 	# One automatic special event at a time. A late boss has priority over missed introductions.
 	if hour >= 6:
 		_intro_retry_hour = hour + 0.1
-		if not boss_spawned_today and world.get_node("Bosses").spawn_boss() != null:
+		if not boss_spawned_today:
+			var spawned = world.get_node("Bosses").spawn_boss()
+			_record_intro_attempt("boss",spawned,world.get_node("Bosses").last_spawn_failure)
+			if spawned == null: return
 			boss_spawned_today = true
 			automatic_bosses += 1
+			for kind in ["drunk", "family", "thief"]:
+				if intro_states[kind] in ["NOT_STARTED", "ELIGIBLE", "FAILED_TO_SPAWN"]:
+					intro_states[kind] = "SKIPPED_LATE_WINDOW"
+					print("INTRO SKIPPED late window: ", kind)
 		return
 	var schedule := [[1.0, "Drunks", "spawn_drunk"], [2.5, "LostFamilies", "spawn_pair"], [4.0, "Thieves", "spawn_thief"]]
 	if _intro_step >= schedule.size() or hour < float(schedule[_intro_step][0]): return
 	var event: Array = schedule[_intro_step]
 	_intro_retry_hour = hour + 0.1
-	if world.get_node(event[1]).call(event[2]) != null:
+	var spawned = world.get_node(event[1]).call(event[2])
+	var kind: String = ["drunk","family","thief"][_intro_step]
+	_record_intro_attempt(kind,spawned,world.get_node("Thieves").last_spawn_failure if kind == "thief" else "spawn_unavailable")
+	if spawned != null:
 		automatic_events += 1
 		_intro_step += 1
 		_intro_cooldown = 12.0 # Real seconds: debug time skips cannot stack introductions.
+
+func _record_intro_attempt(kind: String, actor: Node, failure: String) -> void:
+	if not is_instance_valid(actor):
+		intro_states[kind] = "FAILED_TO_SPAWN"
+		intro_spawn_failure = kind+":"+failure
+		return # The schedule cursor/quota is consumed only after successful spawn.
+	intro_states[kind] = "ACTIVE"
+	_intro_actors[kind] = weakref(actor)
+	intro_last_event = kind
+	intro_spawn_failure = ""
+
+func _refresh_intro_states() -> void:
+	for kind in INTRO_HOURS:
+		var status: String = intro_states.get(kind,"NOT_STARTED")
+		if status == "NOT_STARTED" and elapsed_hours() >= INTRO_HOURS[kind]: intro_states[kind] = "ELIGIBLE"
+		if status != "ACTIVE" or not _intro_actors.has(kind): continue
+		var actor: Node = _intro_actors[kind].get_ref()
+		var resolved := not is_instance_valid(actor) or actor.is_queued_for_deletion()
+		if not resolved and actor is LostChild: resolved = actor.reunited
+		if not resolved and actor is KingRat: resolved = actor.is_defeated
+		if resolved:
+			intro_states[kind] = "RESOLVED"
+			intro_last_end = clock_text()
+			print("INTRO RESOLVED ",kind," at=",intro_last_end)
+
+func introduction_status() -> Dictionary:
+	var owners: Array[String] = []
+	for node in world.find_children("*","Node3D",true,false):
+		if node.is_queued_for_deletion(): continue
+		if node is LostChild and not node.reunited: owners.append("family:"+str(node.family_id))
+		elif node is ThiefCustomer: owners.append("thief:"+str(node.get_instance_id()))
+		elif node is DrunkCustomer:
+			var lease: Dictionary = _drunk_slots.get(node.get_instance_id(),{})
+			if lease.is_empty() or elapsed_hours()-float(lease.hour) < drunk_exclusive_hours: owners.append("drunk:"+str(node.get_instance_id()))
+	var next: String = "boss" if elapsed_hours() >= 6 else (["drunk","family","thief"][_intro_step] if _intro_step < 3 else "boss")
+	var blocked := "ready"
+	if state != State.ACTIVE: blocked = "shift_inactive"
+	elif max_active_events <= 0: blocked = "events_disabled"
+	elif introduction_event_count() > 0: blocked = "exclusive_event"
+	elif is_instance_valid(world.get_node("Bosses").boss): blocked = "boss_present"
+	elif _intro_cooldown > 0: blocked = "minimum_spacing"
+	elif event_banner.busy(): blocked = "notification"
+	elif elapsed_hours() < _intro_retry_hour: blocked = "retry_wait"
+	elif elapsed_hours() < INTRO_HOURS[next]: blocked = "before_schedule"
+	return {"clock":clock_text(),"states":intro_states.duplicate(),"owners":owners,"blocked":blocked,"next":next,"last_event":intro_last_event,"last_end":intro_last_end,"spacing":_intro_cooldown,"failure":intro_spawn_failure,"entities":active_event_count(),"exclusive":introduction_event_count(),"thief_eligible":elapsed_hours()>=4 and _intro_step==2,"boss_eligible":elapsed_hours()>=6 and not boss_spawned_today}
 
 func _stats() -> Dictionary:
 	return {"sales": world.get_node("Customers").sales, "unpaid": world.get_node("Customers").unpaid_loss,

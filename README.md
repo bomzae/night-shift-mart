@@ -301,6 +301,7 @@ Downed 상태에서는 혼자 일어날 수 없습니다.
 | --- | --- |
 | `WASD` | Move |
 | `Space` | Jump |
+| `Left Ctrl` (Hold) | Crouch |
 | `E` | 상황별 상호작용: SCAN / PAY / 무기 상자 열기 / 음식으로 쓰러진 동료 회복 |
 | `LMB` | Grab / Weapon Swing |
 | `RMB Hold → Release` | Charge Throw |

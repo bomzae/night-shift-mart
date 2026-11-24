@@ -51,7 +51,7 @@ static func resolve(interaction: Node) -> Dictionary:
 	elif held is FireExtinguisher and held.capacity > 0 and not interaction.is_charging:
 		context.secondary = "[F] SPRAY"
 	elif held is GrabbableBody and not interaction.is_charging:
-		context.mouse = "[RMB] THROW"
+		context.mouse = "[LMB] PLACE" if is_instance_valid(interaction.placement_shelf) else "[RMB] THROW"
 	elif not is_instance_valid(held):
 		var candidate: PhysicsBody3D = interaction.find_candidate()
 		if candidate != null: context.mouse = "[LMB] CAPTURE" if candidate is ThiefCustomer else "[LMB] GRAB"

@@ -9,6 +9,12 @@ extends CharacterBody3D
 @export var max_player_push_impulse: float = 3.0
 @export var push_weight_penalty: float = 0.12
 @export var minimum_push_speed: float = 0.2
+@export var crouch_height: float = 0.85
+@export var crouch_camera_height: float = 0.58
+@export var crouch_speed_multiplier: float = 0.65
+var crouched: bool = false
+var _standing_height: float = 1.8
+var _standing_camera_height: float = 1.6
 
 @onready var head: Node3D = $Head
 var external_velocity := Vector3.ZERO
@@ -25,6 +31,10 @@ var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravi
 func _ready() -> void:
 	collision_mask |= HumanSeparation.HUMAN_LAYER | HumanSeparation.MONSTER_LAYER
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_standing_height = ($CollisionShape3D.shape as CapsuleShape3D).height
+	_standing_camera_height = head.position.y
+	$CollisionShape3D.shape = $CollisionShape3D.shape.duplicate()
+	$Body.mesh = $Body.mesh.duplicate()
 	knockdown.setup(self, head, true)
 	fire_reaction.setup(self, true)
 	knockdown.started.connect(func(): $Interaction.drop_held())
@@ -63,6 +73,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y = 0 if is_on_floor() else velocity.y - gravity * delta
 		move_and_slide()
 		return
+	update_stance()
 	var input_direction := Vector2.ZERO
 	var controls_active := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if controls_active:
@@ -74,7 +85,7 @@ func _physics_process(delta: float) -> void:
 		cart = interaction.held_object
 	var speed_multiplier: float = interaction.held_object.carrier_speed_multiplier if interaction != null and is_instance_valid(interaction.held_object) and interaction.held_object is CarryableCharacter else 1.0
 	var movement_acceleration := acceleration if cart == null else cart.push_acceleration()
-	speed_multiplier *= body_control_multiplier()
+	speed_multiplier *= body_control_multiplier() * (crouch_speed_multiplier if crouched else 1.0)
 	movement_acceleration *= body_control_multiplier()
 	if is_on_floor():
 		movement_acceleration *= SlipState.control(self)
@@ -157,3 +168,41 @@ func receive_body_bump(impulse: Vector3) -> void:
 func body_control_multiplier() -> float:
 	# 0.16 seconds of reduced control, then a quick 0.08 second recovery.
 	return lerpf(1.0, 0.35, clampf(body_bump_left / 0.08, 0, 1))
+
+func can_stand() -> bool:
+	var shape := CapsuleShape3D.new()
+	shape.radius = ($CollisionShape3D.shape as CapsuleShape3D).radius
+	shape.height = _standing_height - 0.01 # Retain floor clearance, never expand through a ceiling.
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = global_transform
+	query.transform.origin += Vector3.UP * (_standing_height / 2)
+	query.collision_mask = collision_mask
+	query.margin = 0.001
+	query.exclude = [get_rid()]
+	var held: Node = $Interaction.held_object
+	if is_instance_valid(held) and held is PhysicsBody3D: query.exclude.append(held.get_rid())
+	for other in get_collision_exceptions():
+		if is_instance_valid(other): query.exclude.append(other.get_rid())
+	return get_world_3d().direct_space_state.intersect_shape(query,1).is_empty()
+
+func update_stance() -> void:
+	if knockdown.active(): return
+	var requested := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and Input.is_action_pressed("crouch")
+	if not requested and crouched and not can_stand(): requested = true
+	_set_stance(requested)
+
+func _set_stance(value: bool) -> void:
+	var camera_height := crouch_camera_height if value else _standing_camera_height
+	if crouched == value and is_equal_approx(head.position.y, camera_height): return
+	crouched = value
+	var height := crouch_height if crouched else _standing_height
+	($CollisionShape3D.shape as CapsuleShape3D).height = height
+	$CollisionShape3D.position.y = height / 2
+	($Body.mesh as CapsuleMesh).height = height
+	$Body.position.y = height / 2
+	head.position.y = camera_height
+	knockdown._rest_position.y = head.position.y
+
+func reset_stance() -> void:
+	_set_stance(false)

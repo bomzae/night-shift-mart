@@ -55,6 +55,14 @@ func aimed_action() -> String:
 	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
 	if hit.is_empty() or not is_ancestor_of(hit.collider):
 		return ""
+	# The operator-side counter face remains reachable from the low stance;
+	# a crouched camera cannot see the top-mounted buttons through the counter.
+	if player.crouched and hit.collider.name == "Counter":
+		var local := to_local(hit.position)
+		var normal: Vector3 = global_basis.inverse() * hit.normal
+		if normal.z > 0.5 and local.y > 0.45:
+			if absf(local.x + 0.55) < 0.35: return "scan"
+			if absf(local.x - 0.6) < 0.35: return "pay"
 	return str(hit.collider.get_meta("checkout_action", ""))
 
 func available_action() -> String:

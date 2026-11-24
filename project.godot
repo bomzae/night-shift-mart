@@ -142,6 +142,11 @@ drop_item={
 ]
 }
 
+crouch={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194326,"location":1)]
+}
+
 [layer_names]
 
 3d_physics/layer_1="World Player Physics"

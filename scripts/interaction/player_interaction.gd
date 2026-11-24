@@ -51,6 +51,7 @@ var _probe := SphereShape3D.new()
 var desired_hold_position: Vector3
 var safe_hold_position: Vector3
 var hold_obstructed: bool = false
+var placement_shelf: StockShelf
 var break_timer: float = 0.0
 var _stalled_timer: float = 0.0
 var _tracked_hold: RigidBody3D
@@ -327,6 +328,7 @@ func _notification(what: int) -> void:
 
 
 func _reset_hold_tracking() -> void:
+	placement_shelf = null
 	_tracked_hold = null
 	break_timer = 0.0
 	_stalled_timer = 0.0
@@ -389,7 +391,27 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 		available = maxf(0, hold_distance * sweep[0] - hold_obstruction_margin)
 		hold_obstructed = sweep[0] < 1.0
 	_active_hold_distance = minf(available, move_toward(_active_hold_distance, available, hold_distance_return_speed * delta))
-	var candidate := _hold_goal.move_toward(origin + forward * _active_hold_distance, hold_target_speed * delta)
+	var destination := origin + forward * _active_hold_distance
+	placement_shelf = null
+	if held_object is GrabbableBody and held_object.product_type != &"" and not is_charging:
+		var nearest := INF
+		var alignment: Dictionary = {}
+		for shelf in get_tree().get_nodes_in_group("stock_shelves"):
+			var placement: Dictionary = shelf.placement_point(camera.global_position,forward,held_object,grab_distance)
+			if not placement.is_empty() and placement.distance < nearest:
+				nearest = placement.distance
+				placement_shelf = shelf
+				destination = placement.position
+				alignment = placement
+		if placement_shelf != null:
+			desired_hold_position = destination
+			hold_obstructed = false
+		if alignment.has("align"):
+			var turn: Quaternion = (alignment.align * held_object.global_basis.inverse()).get_rotation_quaternion()
+			if turn.w < 0: turn = -turn
+			held_object.angular_velocity = (turn.get_axis() * turn.get_angle() * 6.0).limit_length(3.0)
+			placement_shelf = null # PLACE is advertised only once the real orientation fits.
+	var candidate := _hold_goal.move_toward(destination, hold_target_speed * delta)
 	# Also test the path from the body's CURRENT position: a turn can sweep across
 	# a shelf corner even when the camera-to-target ray itself is unobstructed.
 	query.motion = candidate - held_object.global_position
@@ -400,6 +422,7 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 			query.transform = shape.global_transform
 			safe_fraction = minf(safe_fraction, space.cast_motion(query)[0])
 	if safe_fraction < 1.0:
+		placement_shelf = null
 		hold_obstructed = true
 		candidate = held_object.global_position + query.motion * safe_fraction
 	_hold_goal = candidate

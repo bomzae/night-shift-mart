@@ -1,5 +1,6 @@
 class_name KingRatManager
 extends Node3D
+var last_spawn_failure: String = ""
 var boss: KingRat
 var bosses_defeated: int = 0
 var boss_product_loss_value: float = 0
@@ -29,10 +30,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func spawn_boss() -> KingRat:
+	last_spawn_failure = "shift_inactive"
 	if not DayManager.allows_activity(self): return null
+	last_spawn_failure = "boss_present"
 	if is_instance_valid(boss): return null
 	var player: CharacterBody3D = get_tree().get_first_node_in_group("player")
 	if player == null: player = get_parent().get_node("Player")
+	last_spawn_failure = "spawn_positions_blocked_or_player_near"
 	for at in [Vector3(0, 0.02, 2), Vector3(-4, 0.02, 2), Vector3(4, 0.02, 2)]:
 		if at.distance_to(player.global_position) < 3: continue
 		var query := PhysicsShapeQueryParameters3D.new()
@@ -49,6 +53,7 @@ func spawn_boss() -> KingRat:
 		add_child(boss)
 		boss.defeated.connect(func(): bosses_defeated += 1; _update_ui())
 		_update_ui()
+		last_spawn_failure = ""
 		DayManager.notify_event(self, &"boss")
 		return boss
 	return null

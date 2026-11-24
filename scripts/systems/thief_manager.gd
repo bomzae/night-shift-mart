@@ -5,6 +5,7 @@ extends Node3D
 @export var max_active_thieves: int = 2
 @export var high_value_bias: float = 0.25
 var thieves_caught: int = 0
+var last_spawn_failure: String = ""
 var stolen_goods_value: float = 0
 var last_recovered: GrabbableBody
 var recovery_abort_count: int = 0
@@ -33,8 +34,10 @@ func stock_candidates() -> Array[Dictionary]:
 	return result
 
 func spawn_thief() -> ThiefCustomer:
+	last_spawn_failure = "shift_inactive"
 	if not DayManager.allows_activity(self): return null
 	var count := get_children().filter(func(n): return n is ThiefCustomer and not n.is_queued_for_deletion()).size()
+	last_spawn_failure = "active_cap"
 	if count >= max_active_thieves: return null
 	var customers: CustomerManager = get_parent().get_node("Customers")
 	var at := customers.exit_position()
@@ -43,6 +46,7 @@ func spawn_thief() -> ThiefCustomer:
 	bounds.radius = 0.4
 	query.shape = bounds
 	query.transform.origin = at + Vector3.UP * 0.85
+	last_spawn_failure = "entrance_blocked"
 	if not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty(): return null
 	var thief: ThiefCustomer = preload("res://scenes/interactables/thief_customer.tscn").instantiate()
 	thief.manager = customers
@@ -67,6 +71,7 @@ func spawn_thief() -> ThiefCustomer:
 			thief.waypoints = StoreRoutes.via_main(at, destination)
 	add_child(thief)
 	if thief.waypoints.is_empty(): thief.leave_empty()
+	last_spawn_failure = ""
 	DayManager.notify_event(self, &"thief")
 	return thief
 

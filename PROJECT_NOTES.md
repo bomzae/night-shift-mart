@@ -2,6 +2,62 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13.5 — Shelf Accessibility / Crouch / Day Event Progression
+
+2026-11-24. 기준 develop HEAD `c575216` (`fix: prompt 13.4 cart combat exploit`), 시작 working tree clean. Project `C:\Users\user\orca\workspaces\ProjectA\develop`, Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 요청된 세 항목 구현·자동/회귀 검사 완료. Git commit/amend/reset/push 없음. 자동 검사 최종 집계는 아래에 기록하며 수동 A~G와 targeted audit는 별도다.
+
+### Recessed shelf 재현 / 수정
+- 실제 `Shelves/InstantNoodlesShelf`: tier_height=0.55m, 선언 clearance=0.35m. 기존에는 별도 placement/snap이 없고 카메라 앞1.7m 운반 목표 + 보수적인 carry_radius0.18m sphere sweep을 사용했다. 지름0.36m 구형 여유가 좁은 입구를 막았다. 상품 크기0.30×0.18×0.25m는 실제로 들어갈 수 있다.
+- 수정 전 실제 물리 회수/반환 검사: shelf-local camera(-0.9375,1.61,1.6), product(-0.9375,1.3365,0.3650), desired z=-0.0598, safe z=0.3650, hold_obstructed=true. 같은 tier 반환 FAIL (`p135_before_prompt13_5_shelf.log`).
+- 각 StockShelf가 실제 front plane(하단 z0.7 / recessed upper z0.2)과 tier의 높이 영역을 제공한다. 개구부 ray +2.8m reach + World LOS로 tier를 선택하고, 실제 상품 collision shape를 shelf 좌표계의 bounds로 변환해 내부 위치를 계산한다. 용량, 크기, endpoint occupancy를 검사한다. 기존 current-body→target shape sweep과 carry spring으로 이동한다. 위치/basis 순간 대입, collider 예외, inventory 자동 증가 없음.
+- 바닥 회수 후 기울어진 상품은 실제 bounds가 늘어나 다음 deck 아래에 걸릴 수 있다. 현재 자세가 안 맞아도 upright 자세가 실제 공간/크기 검사에 통과하는 경우에만 우선 기존 위치에서 angular velocity(최대3rad/s)로 자세를 바로잡는다. 그 뒤 실제 자세가 들어갈 때 carry로 이동한다. 큰 상품/점유 위치는 여전히 거부하고 기울어진 상태로 억지 삽입하지 않는다.
+- 실제로 들어갈 때 `[LMB] PLACE`를 기존 Context Prompt에 표시한다. Drop/LMB 후 실제 settle 판정으로 재고가 된다. wrong stock은 물리 배치 가능하되 해당 shelf 재고로 계산하지 않는다. 기존 상/중/하단, oversized appliance, 점유, capacity 검사 포함.
+- 최종 실제 반환 위치 예: local(-0.9375,1.3150,0.0400), hold_obstructed=false. 바닥 회수→자세 복구→같은 Instant Noodles middle tier 진열도 통과했다. 연속 frame 변위를 검사해 position snap을 배제했다.
+
+### Crouch / low reach
+- **Left Ctrl hold**. standing camera1.6m/capsule1.8m → crouch camera0.58m/capsule0.85m. 반지름0.35m 유지, 발 위치 유지. 이동 속도5m/s의65%=3.25m/s. Body mesh도 capsule에 맞춰 축소한다. prone/slide/새 movement framework 없음.
+- Ctrl release 때 실제 standing capsule query로 위 공간을 검사한다. World/Cart/상품/캐릭터가 막으면 계속 crouched; 공간 확보 뒤 자동 stand. 바닥 허용오차를 제외하고 실제 collision mask를 사용한다. 들고 있는 본인 물체/기존 collision exceptions는 기존 정책대로 제외한다.
+- Knockdown이 camera/움직임을 우선 소유한다. 회복 뒤 Ctrl/clearance를 재평가하며 다음 Day에서 stance도 초기화한다.
+- 실제 선반 하단 product: standing ray는 deck에 막힘, crouch ray는 Grab 성공, 물리 carry로 외부 회수, stand 후 재진열 성공. 실제 cart 바닥 아래도 약2.65m 조준 거리에서 시야/Grab/물리 회수 성공. 회수 과정의 collider는 제거하지 않았다.
+- Crouch 상태 Food/Feed/소화기/Swing/Throw/Cart/Mop 검사 포함. 낮은 카메라에서 Checkout top button이 Counter에 가려지는 것을 확인해, Crouch+operator area에서 SCAN/PAY 바로 아래의 전면 구역만 같은 interaction으로 사용하게 했다. 벽 뒤/반대편/원거리 상호작용 허용 없음. 기존 결제/가격/cooldown/가용성 정책 유지.
+- README는 Controls에 `Left Ctrl (Hold) — Crouch` 한 줄만 추가했다.
+
+### Lost Child 이후 progression — 증거와 한계
+- **수동 보고를 자동 PASS로 반박하지 않았다.** 수정 전에도 기본1200초 Main(Starter Stock/Customers/Delivery 활성, Engine.time_scale=1,60Hz) 한 실행에서는 Drunk23:00→Family00:30→Thief02:00→Boss04:00→Result06:00이 정상 발생했다. 따라서 사용자 플레이 전체를 정확히 동일하게 재현했다고 주장하지 않는다 (`p135_day_before`).
+- 반면 실제 carried-child Drop→reunion 후 parent 이동만 막은 controlled slow-exit fixture에서는 기존 `introduction_event_count()`가 reunited LostChild까지 active entity로 세어 Thief/Boss를 차단했다 (`p135_before_prompt13_5_event_reproduce.log`). **확인된 원인은 gameplay goal completion과 physical family lifetime의 결합**이다. 특정 사용자 세션에서 가족이 실제 어느 장애물에 걸렸는지까지 확정한 것은 아니다.
+- 이전13.4 테스트는120초 단축 Day/빈 재고/자동 Customer off에서 생성 직후 reunion 후 자연 퇴장했다. 정상 실제 시간/재고/고객 혼잡과 느린 physical exit를 검증하지 못했다. 그 결과의02:13은 고정 spawn 시각이 아니라 당시 gate 해제 시각이었다. 실제 Thief eligibility는02:00이다.
+- 재회 성공(`child.reunited`)은 introduction 독점 count에서 제외한다. 가족 NPC/충돌 예외/exit/성공 count는 기존 lifecycle을 그대로 진행한다. 미해결 가족은 계속 독점한다. Drunk75 game-minute lease는 그대로이고 만료 취객이 다시 blocker로 돌아오지 않는다.
+- `intro_states`는 NOT_STARTED/ELIGIBLE/ACTIVE/RESOLVED/FAILED_TO_SPAWN을 구분한다. 실패 시 cursor/quota를 소비하지 않고 기존6game-minute retry를 유지한다. 기존04:00 boss 우선 창에서 미시작 사건을 넘기는 경우에는 SKIPPED_LATE_WINDOW로 명시한다. 실제 미해결 사건/spacing/banner gate를 무조건 무시하지 않는다.
+- `introduction_status()`로 clock, 상태, owner, blocked reason, next, last end, minimum spacing, 실패 이유, world/exclusive counts, Thief/Boss eligibility를 조회 가능하다. Thief entrance collision와 Boss spawn gate 원인도 manager가 제공한다. 매 frame 로그는 없고 실제 상태 전환만 기록한다. Day2에서 상태/WeakRef/lease를 초기화한다.
+- 실제 entrance collider로 Thief spawn failure→원인 제거→retry 성공, slow reunited family 유지→Thief 자연 퇴장→Boss spawn을 검사했다. 기존12real-second minimum spacing, 1개 소개 이벤트 정책, Debug 입력, Day2 자유 timeline 유지.
+
+### 기본1200초 Day 세 흐름 (수정 후)
+
+모두 Main 실제 Starter Stock/Customer/Delivery/physics 활성, shift_duration=1200, Engine.time_scale=1,60Hz fixed FPS. 시간을 직접 대입/skip하거나 scheduler flag를 완료 처리하지 않는다. 테스트 실행 속도는 렌더링을 생략해 wall-clock20분보다 빠르지만 scheduler delta는 실제1200초다. Player HP만10000으로 올려 생존시키고, 운반 완료는 carried actor를 실제 Exit/부모 위치로 옮긴 뒤 기존 Drop/Area/reunion을 실행한다. 사람의 이동/시점 조작 전체를 자동 재현한 것은 아니다. Thief는 자연 행동/escape로 진행한다.
+
+| Flow | Drunk | Drunk 해결/lease | Family | Reunion/slot 반환 | Thief | Thief exit | KING RAT | Result / Day2 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A 정상 해결 | 23:00 | Exit23:12 | 00:30 | 00:42 | 02:00 | 02:13 | 04:00 | 06:00 /22:00 |
+| B Drunk 미해결 | 23:00 | lease00:15,removed0 | 00:30 | 00:42 | 02:00 | 02:15 | 04:00 | 06:00 /22:00 |
+| C Family slow exit | 23:00 | Exit23:12 | 00:30 | 00:42,parent 이동 정지 | 02:00 | 02:18 | 04:00 | 06:00 /22:00 |
+
+- `p135_day_after_results.csv`, `p135_day_variants_results.csv`: 세 실행16PASS/오류0. C는 reunion 뒤 parent physics를 명시적으로 막아 최악의 physical exit 지연을 분리한다. B는 실제 취객이 world에 남고 lease만 한 번 반환되며 fake removed/success 없음.
+- 정상 full shift에서도 Player가 Checkout을 수행하지 않으므로 patience unpaid loss 로그가 생긴다. 이는 scheduler 테스트 실패/엔진 오류가 아니며 경제 정책을 변경하지 않았다.
+
+### 검사 이력 / 최종 집계
+- 초기 StockShelf relative/day diagnostic next 타입 추론 parse 오류를 명시 타입으로 수정. `p135_shelf_first`/`p135_fix_first`의 cascade 오류와 timeout은 PASS가 아니다.
+- 초기 slow-family fixture는 방금 생성한 아직 활성 Thief를 해결하지 않고 Boss를 요구하여 실패했다. 실제 empty-stock thief의 exit route를30초 기다린 뒤 다음 단계로 진행하도록 fixture를 수정했다. 활성 사건을 bypass하도록 gameplay gate를 약화하지 않았다.
+- 낮은 cart ray 첫 조건2.1m에서는 cart floor가 실제 LOS를 막았다.2.65m에서 낮은 시야로 접근/추출을 검증했다. Crouch Checkout은 실제 Counter 가림 문제를 전면 interaction으로 수정했다. Mop fixture의 typed Array 오류는 AccidentManager 정적 타입으로 수정했다. floor product 기울어짐으로 인한 restock 실패는 물리 자세 복구로 해결했다. 모든 초기 실패 로그는 `.godot/p135_*`에 보존한다.
+- 최종 **101개 실행 / 4,399 PASS / 실패·엔진 오류·경고0 / 정상 완료101개**. 기존 Prompt0~13.4의92개4,296PASS + 신규9개103PASS. 전체 `p135_regression_results.csv`의96개와 자세 복구 최종 변경의 영향11개 재검사 `p135_final_affected_results.csv`, 기본 Day3개 결과를 합쳐 중복 없이 최신 성공 검사를 선택한 `.godot/p135_verified_results.csv` 참조. 전체 첫 실행에는 수정 전 새 crouch restock 실패1개가 포함되었으며 삭제하지 않고 최종20PASS로 대체 집계했다. 기존 assertion/테스트 목록/runner는 변경하지 않았다.
+- 원본 import/check-only 통과. 원본 Main200초 headless exit0 / SCRIPT ERROR·ERROR·WARNING0 (`p135_main_final.log`). window-mode는 `visual13_5.gd` 사전검사 후 한 번 실행(exit0);1280×720 low shelf camera / recessed opening과 Context/Clock/Economy의 실제 렌더링 확인. 이 visual fixture의 Context 문구는 layout 확인용으로 지정했으며 기능 성공은 별도 실제 ray/input/physics headless 검사로 판정했다. OS mouse/focus를 성공 기준으로 사용하지 않았다.
+
+### 수동 A~G / Known TODO
+수동 확인 필요: A Instant Noodles2층 꺼냄→반환, B 일반/상/중/하단·큰 상품/점유 공간 거부, C 선반/Cart 아래 상품 Crouch 회수, D 낮은 천장 아래 Ctrl release→외부 stand, E Crouch Grab/Throw/Tool/Weapon/Checkout, F 기본 Day에서 Drunk/Family 해결 후 Thief/Boss, G 종료 event banner/active 상태. 자동 검사는 실제 체감과 사용자의 특정 재현 상태를 완전히 대체하지 않는다.
+
+기존11개 유지: NPC Knockdown Mesh/Collider mismatch, Cart Contact Repeated Damage, Monster/Character visual overlap, Extreme Cart overload, Simple waypoint limitations, KING RAT final contact sound/screen polish, Broom balance manual verification, Checkout PAY usability, Full20-minute pacing, Delivery Auto Sort/logistics assistance, Drunk final animation/audio polish. Shelf Accessibility/Crouch는 구현/검사 대상으로 처리했으며 미래 TODO로 넘기지 않았다. 새 Event/Weapon/Boss/Progression/prone/auto stocking/최종 연출은 구현하지 않았다.
+
+수동 확인이 정상이라면 gameplay-qa에서 Shelf accessibility / Crouch recovery / Event progression을 targeted audit하여 Foundation Readiness를 다시 판단한다.
+
 ## Prompt 13.4 — Cart Combat / Event Progression / Family Collision Safety
 
 2026-11-23. 기준 HEAD `85b2420` (develop), 시작 working tree clean. 요청된 세 QA 문제만 수정. Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`, Project `C:\Users\user\orca\workspaces\ProjectA\develop`. Git commit/amend/reset/push 없음. 구현·자동/회귀 검사 완료. 수동 A~G와 targeted re-audit 대기.
