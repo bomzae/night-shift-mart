@@ -6,6 +6,7 @@ signal product_broken(value: float)
 @export var wander_acceleration: float = 14.0
 @export var direction_interval: float = 2.0
 @export var product_push_impulse: float = 2.5
+@export var low_shelf_impulse_multiplier: float = 1.25
 @export var contact_cooldown: float = 1.0
 @export var break_min_speed: float = 2.7
 @export var wet_wobble_multiplier: float = 1.8
@@ -32,6 +33,8 @@ var bump_direction := Vector3.ZERO
 var avoided_shelves: Dictionary = {}
 var _contact_wall: Node
 var _bump_origin := Vector3.ZERO
+var low_shelf_impacts: int = 0
+var last_shelf_impact: Dictionary = {}
 
 func _ready() -> void:
 	super._ready()
@@ -219,10 +222,40 @@ func _contact(body: Node) -> void:
 		_disturb_product(body)
 	elif body.get_parent() is StockShelf:
 		_contact_wait = contact_cooldown
+		if _jolt_low_shelf(body.get_parent(),body): return
 		# Jolt only nearby real goods; Shelf remains the sole stock authority.
 		for product in body.get_parent().zone.get_overlapping_bodies():
 			if product is GrabbableBody and product.global_position.distance_to(global_position) < 2.0:
 				_disturb_product(product)
+
+func _jolt_low_shelf(shelf: StockShelf, collider: PhysicsBody3D) -> bool:
+	# A single low deck shields its stock from the capsule. An inward-only jolt
+	# pins goods against its back. Use the actual impact face and nearby stock,
+	# with a capped low-deck impulse; multi-tier behavior stays unchanged.
+	if shelf.tier_height > 0: return false
+	for other in get_tree().get_nodes_in_group("stock_shelves"):
+		if other != shelf and other.global_position.distance_squared_to(shelf.global_position)<0.001 and other.tier_height>0: return false
+	if _incoming_speed<0.45: return true
+	var state := PhysicsServer3D.body_get_direct_state(get_rid())
+	for index in range(state.get_contact_count()):
+		if state.get_contact_collider_object(index)!=collider: continue
+		var normal := state.get_contact_local_normal(index)
+		if absf(normal.y)>0.4: continue
+		var point := state.get_contact_local_position(index)
+		var affected := 0
+		var impulse_size := product_push_impulse*clampf(low_shelf_impulse_multiplier,1.0,1.25)*clampf(_incoming_speed/maxf(0.1,wander_speed),0.4,1.0)
+		for product in shelf.zone.get_overlapping_bodies():
+			if not product is GrabbableBody or is_instance_valid(product.holder) or product.is_queued_for_deletion() or product.get_meta("sold",false) or product.get_meta("broken",false): continue
+			if product.global_position.distance_to(point)>1.25: continue
+			var tangent := normal.cross(Vector3.UP)
+			if tangent.dot(product.global_position-point)<0: tangent=-tangent
+			var impulse := (normal*0.75+tangent*0.65+Vector3.UP*0.12).normalized()*impulse_size
+			product.apply_impulse(impulse,Vector3.UP*0.025)
+			affected+=1
+		low_shelf_impacts+=1
+		last_shelf_impact={"shelf":shelf.name,"point":point,"normal":normal,"speed":_incoming_speed,"impulse":impulse_size,"products":affected}
+		return true
+	return true
 
 func _disturb_product(product: GrabbableBody) -> void:
 	if is_instance_valid(product.holder) or product.is_queued_for_deletion() or product.get_meta("broken", false) or product.get_meta("sold", false):

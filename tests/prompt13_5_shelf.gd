@@ -28,7 +28,10 @@ func run_checks() -> void:
 	probe.freeze = true
 	var origin := shelf.to_global(Vector3(-0.9375,1.61,1.6))
 	var direction := (shelf.to_global(Vector3(-0.9375,1.3,0.2))-origin).normalized()
-	check(shelf.placement_point(origin,direction,probe,2.8).is_empty(),"occupied opening rejects overlap placement")
+	# 13.6 searches another clear point in the SAME tier rather than rejecting
+	# its entire opening. It still cannot place onto the occupied product.
+	var alternate := shelf.placement_point(origin,direction,probe,2.8)
+	check(alternate.is_empty() or (alternate.shelf==shelf and alternate.position.distance_to(product.global_position)>0.3),"occupied point rejected; alternate remains clear in same tier")
 	product.queue_free()
 	await frames(3)
 	var point := shelf.placement_point(origin,direction,probe,2.8)

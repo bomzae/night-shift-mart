@@ -52,6 +52,7 @@ var desired_hold_position: Vector3
 var safe_hold_position: Vector3
 var hold_obstructed: bool = false
 var placement_shelf: StockShelf
+var placement_intent: StockShelf
 var break_timer: float = 0.0
 var _stalled_timer: float = 0.0
 var _tracked_hold: RigidBody3D
@@ -328,6 +329,7 @@ func _notification(what: int) -> void:
 
 
 func _reset_hold_tracking() -> void:
+	placement_intent = null
 	placement_shelf = null
 	_tracked_hold = null
 	break_timer = 0.0
@@ -393,16 +395,22 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 	_active_hold_distance = minf(available, move_toward(_active_hold_distance, available, hold_distance_return_speed * delta))
 	var destination := origin + forward * _active_hold_distance
 	placement_shelf = null
+	placement_intent = null
 	if held_object is GrabbableBody and held_object.product_type != &"" and not is_charging:
 		var nearest := INF
+		var intended: StockShelf
 		var alignment: Dictionary = {}
 		for shelf in get_tree().get_nodes_in_group("stock_shelves"):
-			var placement: Dictionary = shelf.placement_point(camera.global_position,forward,held_object,grab_distance)
-			if not placement.is_empty() and placement.distance < nearest:
-				nearest = placement.distance
-				placement_shelf = shelf
-				destination = placement.position
-				alignment = placement
+			var region: Dictionary = shelf.aim_region(camera.global_position,forward,grab_distance)
+			if not region.is_empty() and region.distance<nearest:
+				nearest = region.distance
+				intended = shelf
+		if intended != null:
+			placement_intent = intended
+			alignment = intended.placement_point(camera.global_position,forward,held_object,grab_distance)
+			if not alignment.is_empty():
+				placement_shelf = intended
+				destination = alignment.position
 		if placement_shelf != null:
 			desired_hold_position = destination
 			hold_obstructed = false

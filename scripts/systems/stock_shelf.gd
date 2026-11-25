@@ -14,6 +14,7 @@ var point_owner: StockShelf
 var stock_count: int = 0
 var stocked_objects: Array[GrabbableBody] = []
 var _settled: Dictionary = {}
+var placement_reason: String = ""
 var zone: Area3D
 var _label: Label3D
 @export_range(2, 4) var shopping_point_count: int = 3
@@ -130,23 +131,43 @@ func slot_position(slot: Vector3) -> Vector3:
 	slot.y += tier_height
 	return slot
 
-func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, reach: float) -> Dictionary:
-	# Opening selection; the carry spring and shape sweeps still move the body.
+func opening_clearance() -> float:
+	var clearance := tier_clearance
+	for other in get_tree().get_nodes_in_group("stock_shelves"):
+		if other == self or other.global_position.distance_squared_to(global_position)>0.001: continue
+		if other.tier_height > tier_height:
+			clearance = minf(clearance,other.tier_height-tier_height-0.14)
+	return clearance
+
+func aim_region(origin: Vector3, direction: Vector3, reach: float) -> Dictionary:
+	# Geometric intent is selected before occupancy or product fit. Lower decks
+	# cannot claim the volume belonging to an actual deck above them.
 	var local_origin := to_local(origin)
-	var local_direction := global_basis.inverse() * direction
-	var front := 0.2 if tier_height > 0 else 0.7
-	if local_origin.z <= front or local_direction.z >= -0.01 or stock_count >= max_stock: return {}
+	var local_direction := global_basis.inverse()*direction
+	var front := 0.2 if tier_height>0 else 0.7
+	if local_origin.z<=front or local_direction.z>=-0.01: return {}
 	var distance := (front-local_origin.z)/local_direction.z
-	if distance < 0 or distance > reach: return {}
-	var entry := local_origin + local_direction * distance
-	var floor_y := 0.65 + tier_height
-	if absf(entry.x) > 1.35 or entry.y < floor_y or entry.y > floor_y+tier_clearance: return {}
+	if distance<0 or distance>reach: return {}
+	var entry := local_origin+local_direction*distance
+	var floor_y := 0.65+tier_height
+	if absf(entry.x)>1.35 or entry.y<floor_y or entry.y>floor_y+opening_clearance(): return {}
+	return {"entry":entry,"distance":distance}
+
+func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, reach: float) -> Dictionary:
+	var region := aim_region(origin,direction,reach)
+	placement_reason = "outside_opening"
+	if region.is_empty(): return {}
+	placement_reason = "capacity"
+	if stock_count>=max_stock: return {}
+	var entry: Vector3 = region.entry
+	var front := 0.2 if tier_height>0 else 0.7
+	var floor_y := 0.65+tier_height
 	var ray := PhysicsRayQueryParameters3D.create(origin,to_global(entry),1,[body.get_rid()])
 	if is_instance_valid(body._ignored_player): ray.exclude.append(body._ignored_player.get_rid())
 	var space := get_world_3d().direct_space_state
+	placement_reason = "opening_occluded"
 	if not space.intersect_ray(ray).is_empty(): return {}
-	# A tilted recovered box may fit upright. Rotate with angular velocity first,
-	# outside the opening, never teleport its basis or relax the occupancy test.
+	placement_reason = "size_or_occupied"
 	var upright := Basis.from_euler(Vector3(0,body.global_rotation.y,0))
 	for orientation: Basis in [body.global_basis,upright]:
 		var bounds := AABB()
@@ -157,23 +178,27 @@ func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, r
 			var shape_bounds: AABB = relative * child.shape.get_debug_mesh().get_aabb()
 			bounds = shape_bounds if first else bounds.merge(shape_bounds)
 			first = false
-		if first or bounds.size.y > tier_clearance-0.03 or bounds.size.z > (0.9 if tier_height > 0 else 1.4)-0.08 or bounds.size.x > 2.5: continue
-		var point := Vector3(clampf(entry.x,-1.27-bounds.position.x,1.27-bounds.end.x),floor_y-bounds.position.y+0.025,front-bounds.end.z-0.035)
-		var world_point := to_global(point)
-		if origin.distance_to(world_point) > reach: continue
-		var clear := true
-		for child in body.get_children():
-			if not child is CollisionShape3D or child.disabled: continue
-			var query := PhysicsShapeQueryParameters3D.new()
-			query.shape = child.shape
-			query.transform = Transform3D(orientation,world_point)*child.transform
-			query.exclude = ray.exclude
-			query.margin = 0.005
-			if not space.intersect_shape(query,1).is_empty():
-				clear = false
-				break
-		if not clear: continue
-		if not orientation.is_equal_approx(body.global_basis):
-			return {"shelf":self,"position":body.global_position,"distance":distance,"align":orientation}
-		return {"shelf":self,"position":world_point,"distance":distance}
+		if first or bounds.size.y>opening_clearance()-0.03 or bounds.size.z>(0.9 if tier_height>0 else 1.4)-0.08 or bounds.size.x>2.5: continue
+		# Search only this tier, nearest to the aimed opening first.
+		for offset in [0.0,-0.35,0.35,-0.7,0.7,-1.05,1.05,-1.4,1.4]:
+			var point := Vector3(clampf(entry.x+offset,-1.27-bounds.position.x,1.27-bounds.end.x),floor_y-bounds.position.y+0.025,front-bounds.end.z-0.035)
+			var world_point := to_global(point)
+			if origin.distance_to(world_point)>reach: continue
+			var clear := true
+			for child in body.get_children():
+				if not child is CollisionShape3D or child.disabled: continue
+				var query := PhysicsShapeQueryParameters3D.new()
+				query.shape = child.shape
+				query.transform = Transform3D(orientation,world_point)*child.transform
+				query.exclude = ray.exclude
+				query.margin = 0.005
+				if not space.intersect_shape(query,1).is_empty():
+					clear = false
+					break
+			if not clear: continue
+			if not orientation.is_equal_approx(body.global_basis):
+				placement_reason = "aligning"
+				return {"shelf":self,"position":body.global_position,"distance":region.distance,"align":orientation}
+			placement_reason = "valid"
+			return {"shelf":self,"position":world_point,"distance":region.distance}
 	return {}

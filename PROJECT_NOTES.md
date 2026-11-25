@@ -2,6 +2,90 @@
 
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
+## Prompt 13.6 — Shelf Tier Targeting / Drunk Impact / Unresolved Event Progression
+
+2026-11-25. 기준 HEAD `5777887` (`feat: prompt 13.5 add crouching`). Project `C:\Users\user\orca\workspaces\ProjectA\develop`, Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 요청한 세 문제만 수정했다. Crouch/Combat/물리 상품의 기존 동작을 다시 작성하지 않았다. 시작 시 `project.godot`의 Crouch InputEventKey 직렬화 변경이 이미 있었으며 사용자 변경으로 보존했다. Git commit/amend/reset/push 없음. README 조작 변경 없음.
+
+### Shelf 재현: 실제 Starter Stock vs I
+- I를 누르기 전 Main Day 1의 실제 starter 상품 131개에서 시작했다. 시리얼은 `Shelves/ZoneSection0_3_cereal`(tier_height 0.55m), 같은 rack의 Bread 하단과 Chips 상단 사이에 있다. Instant Noodles middle도 별도 검사했다.
+- **확인한 원인:** Bread 하단의 `tier_clearance=1.2m`가 위에 있는 실제 deck을 고려하지 않아, 하단의 조준 영역이 중단 영역과 겹쳤다. 기존 selector는 fit/occupancy를 통과한 후보 중 ray-front 거리가 짧은 후보를 선택했다. 하단 front z=0.7, 중단 z=0.2이므로 2단을 조준해도 앞에 있는 1단이 승리했다. 실제 실패 거리 lower=1.00975m, middle=1.51463m; 반환 위치는 local y=0.892m의 하단이었다.
+- Starter와 I는 같은 AutoStock.top_up factory, ProductDefinition/scene/basis를 쓴다. 실제 starter 시리얼의 scale=(1,1,1), rotation≈(0,-PI,0), freeze=false, sleeping=true, 별도 stocking metadata/exception 없음. **상품 자체의 다른 숨은 상태는 발견하지 못했다.** 차이는 starter 42%와 I full fill의 점유 분포였다. 처음 I 비교는 다른 x 위치에서 성공했으나, 동일 Player x=0.3125/동일 ray로 고정한 재검사에서는 I 상품도 원하는 지점이 막혀 실패했다. I가 언제나 성공한다는 결론은 내리지 않는다.
+- 수정 전 `p136_before_shelf`:20PASS/2FAIL, 동일 ray 비교 `p136_same_ray`:14PASS/8FAIL. 실제 Starter Stock cereal wrong-tier 문제를 확인했다. 기존 13.5 Instant Noodles fixture는 하단 Can clearance=0.5m인 구조여서 이 겹침을 잡지 못했다.
+
+### Tier targeting 수정 / 물리 보존
+- `opening_clearance()`가 같은 rack의 다음 deck까지 높이에서 실제 deck 두께0.14m를 제외한다. `aim_region()`으로 **상품 적합성/점유와 독립적으로 조준 tier를 먼저 확정**한다. 그 tier가 막혀도 다른 tier로 fallback하지 않는다.
+- 선택한 tier 안에서 조준 x에 가까운 위치부터 좌우0.35m 간격의 후보를 검사한다. 실제 shape/basis, opening/depth/width, reach, World LOS, capacity, endpoint collision을 모두 유지한다. 후보가 없으면 PLACE 불가이고 기존 free Drop은 가능하다. 정렬/이동은 기존 angular velocity와 carry spring/current-body shape sweep으로 진행하며 위치를 순간 설정하지 않는다.
+- actual starter cereal 반환 local(0.3125,1.425,0.065), noodles(0.3125,1.315,0.04). I full stock에서는 점유를 피해 같은 middle의 x=0.6625로 반환. 동일 상품 반복3회, 동일종류 신규 상품, crouched/standing, 전체 opening 차단 시 wrong-tier 금지 확인.
+- `prompt13_6_shelf`:34PASS. 기존 `prompt13_5_shelf`의 단일 occupied-point assertion만 새 요구에 맞게 변경했다: 전체 tier 거부 대신 **동일 tier의 충돌 없는 대체 위치 또는 거부**를 검사한다. 단순 약화가 아니라 새13.6의 전체 opening 차단/다른 tier 금지 검사로 보완했다. 그 외 기존 assertion은 유지했다. `p136_tiers_first`의 이전 assertion 실패 로그 보존, 수정 후18PASS.
+
+### Drunk impact root cause / 수정
+- 1단 shelf도 실제 collision은 인식됐다. 낮고 깊은 deck이 Drunk capsule과 상품의 직접 접촉을 가리고, 기존 Shelf contact jolt는 Drunk에서 상품 쪽으로(대개 선반 안쪽/Back 쪽) impulse2.5를 전달했다. 여러 방향의 실제 접촉 normal/point/speed를 기록하여 확인했다. 단순히 모든 상품의 힘을 키우지 않았다.
+- **실제 단일 low deck collision에만** contact point 반경1.25m 내 그 shelf StockZone의 실제 상품을 대상으로 outward normal0.75 + lateral tangent0.65 + vertical0.12 방향으로 impulse를 준다. 속도 비례, 배율 상한1.25, 최대3.125, 작은 torque lever0.025m. 같은 위치에 상단 deck이 있으면 기존 multi-tier 반응 그대로. 실제 contact가 없거나 incoming speed<0.45이면 새로운 jolt 없음. held/sold/broken 상품 제외, mass 기반 response 유지.
+- 기존 `.35s` 지속 충돌 감지 / `.6s` tangent escape / `1.3s` cooldown / `5s` 같은 shelf 회피, ProductRecovery/watchdog, Carry/Cart/Spill은 변경하지 않았다. position 변경/상품 삭제/강제 파괴/낙하 개수 보장 없음.
+
+### Drunk 비교 관찰
+실제 rack 3종 × seed136/236/336의 전면 좌우·후면 진입, 각6초. 동일 상품3개, 실제 settle/physics, 접촉 전 속도 약1.8m/s. 아래 이동은 >0.15m, 낙하는 y<0.5m이며 강제 성공 기준이 아닌 측정값이다.
+
+| 구조/조건 | 접촉 횟수 전→후 | 평균/최대 접촉 초 전→후 | 이동 전→후 | 낙하 전→후 | peak 상품 속도 전→후 |
+| --- | --- | --- | --- | --- | --- |
+| 다단 Can /136 | 1→1 | 0.433/0.433 동일 | 2→2 | 0→0 | 2.500→2.500 |
+| 다단 Can /236 | 1→1 | 0.433/0.433 동일 | 3→3 | 0→0 | 2.515→2.515 |
+| 다단 Can /336 | 2→2 | 0.425/0.433 동일 | 0→0 | 0→0 | 0.047→0.047 |
+| low Can /136 | 2→2 | 0.317/0.433 동일 | 2→1 | 0→0 | 2.501→2.819 |
+| low Can /236 | 1→1 | 0.433/0.433 동일 | 3→2 | 0→0 | 2.478→3.108 |
+| low Can /336 | 1→1 | 0.433/0.433 동일 | 3→3 | 0→2 | 2.494→3.298 |
+| low TV 10kg /136 | 2→2 | 0.317/0.433 동일 | 0→0 | 0→0 | 0.130→0.200 |
+
+- Recessed middle에만 상품을 놓은 비교는 하단 deck에 몸이 부딪혀 상단 상품 이동0/낙하0으로 전후 동일했다. 충돌하지 않은 위층을 임의로 흔들지 않았다. low 전면의 움직인 개수가 줄기도 한다: 넓은 기존 반경 대신 실제 접촉 근처만 흔들기 때문이다. 모든 충돌에서 낙하가 늘었다고 주장하지 않는다.
+- **Starter Stock 실제 자유 이동180초 ×2 seed**:
+
+| seed | 방문 zone | shelf contacts | 평균/최대 접촉 초 | 이동 전→후 | 낙하 전→후 | 파괴 전→후 | 이동거리 / shelf passes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+|136|4|25→25|0.395/0.433 동일|6→7|3→4|0→0|263.40m /16|
+|236|5|39→39|0.413/0.533 동일|12→17|5→7|0→0|262.42m /19|
+
+- 합계 이동18→24, 낙하8→11. 장기 shelf rubbing 재도입 없이 접촉 방향에 따른 물리적 혼란 가능성이 증가했다. 로그 `p136_before_directions`, `p136_drunk_final`, `p136_before_long`.
+- 처음 direction-only impulse2.5 조정은 controlled fall 증가가 없었다. 이를 숨기지 않고 low 전용1.25 상한을 검증했다. 신규180초 fixture의 기존30초용 “마지막 위치가 중앙 밖”/“모든 wall bump는 shelf avoidance 생성” 조건은 각각 **전체 zone 방문 이력**/실제 collider가Shelf일 때만회피 검증으로 수정했다. 외벽 접촉과 중앙 재방문은 정체가 아니다. 원본13.3 assertion은 바꾸지 않았다. 실패 로그 보존 후 두 seed71PASS씩 확인.
+
+### Event 실패 정확 재현 / 13.5 누락
+- 수정 전 **새 Main 기본1200초, Engine.time_scale=1, fixed60Hz**, Starter Stock/Customers/Delivery 활성. Debug spawn·completion 없이 Drunk와 Lost Child 모두 미해결로 뒀다. Drunk23:00→lease00:15→LostChild00:30까지 진행했으나02:00/04:00에도 `exclusive=1`, owner=`family:1`, blocked=`exclusive_event`, child.reunited=false. Thief/Boss 시간 조건은 충족했지만 spawn attempt가 없었다.06:00까지 두 후속 Event 없음. `p136_before_day`5PASS/1FAIL로 **사용자 조건을 실제 재현했다**.
+- 13.5 A/B/C는 모두 Lost Child를 재회시켰다. 재회 이후 느린 퇴장과 **재회 자체를 하지 않는 상태**는 다르다. 기존 Drunk 전용 유예와 재회 예외만으로는 미해결 Family가 영구 독점했다.
+
+### Common Event Blocking Policy
+- Day1 Drunk/LostChild/Thief를 같은 weak-reference lease 경로로 관리한다. 각각 **75 game minutes(기본 Day187.5 real/simulation seconds)**의 독점 해결 기회. 해결되거나 배우가 실제 exit/free되면 차단 종료. 미해결로 만료하면 scheduler blocking만1회 해제한다.
+- World state는 그대로: 취객/미아/부모/도둑이 자동 삭제·성공·재회·체포되지 않는다. removed/found/caught/reward/loss를 lease가 변경하지 않는다. 늦은 실제 Exit/Drop/reunion은 원래 lifecycle을 실행한다. `_drunk_slots`는 기존 테스트/관찰 호환을 위한 동일 record의 view이며 별도 blocker가 아니다.
+- 기존23:00/00:30/02:00/04:00 일정, 최소12real-second spacing, banner gate, spawn validity, 종류별/일별 제한, 성공 시에만 cursor/quota 소비,6game-minute spawn retry 유지. unresolved World는 누적될 수 있으나 새 독점 소개는 순서대로 진행한다. Day2의 기존 자유 timeline은 유지하며 Day전환 때 lease/flags/actors를 정리한다.
+- diagnostics는 World count와 exclusive count, lease kind/age/resolved/released/blocks, spawn attempts, next/eligibility/blocked reason을 구분한다. 장기 미해결 Thief도 같은 유예로 Boss를 막지 않는다. 기존 늦은 window 우선순위/명시적 SKIPPED_LATE_WINDOW는 변경하지 않았다.
+
+### 기본1200초 Full Day A~D
+모든 실행은 Main 실제 scheduler/physics delta1200초, time_scale1,60Hz. Headless fixed-FPS는 wall-clock 실행을 빠르게 할 뿐 Day duration이나 시간 변환을 바꾸지 않는다. Player HP만10000으로 올려 failure 종료를 방지했다. 해결 조건은 출현30초 후 carried actor를 실제 Exit/부모 근처로 통제 배치하고 기존 Drop/Area/reunion을 실행했다. 미해결 조건은 해당 완료 경로를 호출하지 않았다. 자연 Thief 행동/퇴장은 유지했다. 사람의 전체 시점·조작 재현은 아니다.
+
+| Flow | Drunk spawn | 해결/slot | Lost Child spawn | 해결/slot | Thief | KING RAT | Result / Day2 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A 둘 다 해결 |23:00|Exit23:12|00:30|Reunion00:42|02:00|04:00|06:00 /22:00|
+| B Drunk 미해결 |23:00|lease00:15,removed0|00:30|Reunion00:42|02:00|04:00|06:00 /22:00|
+| C Family 미해결 |23:00|Exit23:12|00:30|lease01:45,found0|02:00|04:00|06:00 /22:00|
+| D 둘 다 미해결 |23:00|lease00:15,removed0|00:30|lease01:45,found0|02:00|04:00|06:00 /22:00|
+
+- A6/B8/C7/D9PASS, errors0 (`p136_day_ab`, `p136_day_cd`). 미해결 배우가05:00에도 실제로 존재하며 가짜 완료0임을 검사했다. 최종 low-shelf impulse까지 반영한 `p136_final_days` 재실행도 동일 시각/30PASS/오류0으로 완료했다.
+- 추가 E/F/G는 허용된120초 controlledDay. E 실제Cart support로 취객 주차+미아 미해결→Thief/Boss→실제 늦은 Exit/reunion 각각1회. F 재회 후 parent physics 정지로 퇴장 지연→후속 진행. G 실제 자동Thief의 이동만 정지시켜 미해결 유지→lease1회만료→Boss. 각각 자동4종1회, spacing>=12초, Result/Day2 cleanup 검사. 별도75분 경계 검사도 추가했다. `p136_expanded`27PASS에서 경계3검사를 추가한 최종본은 전체 회귀에 포함.
+
+- E/F/G 모두 자동 spawn 시각23:00/00:30/02:00/04:00, Result06:00. G의 미해결 Thief lease는03:15에 반환됐다. 최종 p136_regression_prompt13_6_event_leases.log30PASS. E의 늦은 실제 Exit/reunion은 각각1회 집계됐고 parked Cart support도 실제로 확인했다.
+
+### 최종 자동 검사 / 실패 이력
+- 최종 **110개 스크립트 / 4,660 PASS / 실패·엔진 오류·경고0 / 정상 완료110개**. Prompt0~13.5 기존101개4,399PASS + 신규9개261PASS. `.godot/p136_verified_results.csv`에 중복 없이 집계했다. 원본 import 및 Main200초 headless도 exit0/오류·경고0. window 실행0회, OS mouse/focus 판정 없음.
+- 일반 회귀 `p136_regression_results.csv`:100개4,469PASS. 긴 추가 검사 `p136_extended_results.csv`:기존13.5 기본Day3개/slow-family재현1개 + 신규180초Drunk2개, 총6개161PASS. 최종 기본1200초 A~D `p136_final_days_results.csv`:4개30PASS. 각 실행은 `.godot/headless_<tag>`와 독립 로그를 사용했다. 기본 Day duration/time_scale 변경 없음.
+- Shelf 신규34, Drunk 비교25, Drunk180초71+71, 공통lease/E~G30, Day A/B/C/D6+8+7+9PASS. 이전 Shelf/stock/wrong-stock/size/occupancy, Crouch/clearance/low recovery, Drunk bump/Carry/Cart/Spill, Family collision/reunion, Thief, KING RAT Cart/phase/held weapon, Checkout/Economy/Result/Day2 회귀 통과.
+- 원본 테스트 runner/기존 검사 목록은 유지했다. 정책 충돌로 변경한 기존 assertion은 위에 설명한13.5 occupied-point1개이며, 대체검증까지 통과했다. 수정 전 실제 실패와 신규 fixture 조건 오류를 모두 위에 기록했고 삭제하지 않았다. `.godot/p136_*` 로그 보존. 실제 기본 Main에서 고객결제를 수행하지 않아 생긴 `UNPAID LOSS`는 기존 patience 정책의 정상 결과로, 엔진 오류나 새 recovery 경제 손실이 아니다.
+- 재현/실행 예: `tests/run_headless.ps1` 내용을 ScriptBlock으로 호출해 `-Tag p136_regression` 실행. 기본1200초 검사는 runner의 프로세스 안전 한도 `--quit-after 24000`만 메모리에서75000으로 확장하고 `-Tests`에 위 Day 스크립트를 명시했다. 이는 scheduler/Day 시간 배율 변경이 아니다. 모든 실패·비교 로그는 보존했으며 자동 PASS만으로 사용자 수동 체감 해결을 확정하지 않는다.
+
+### Manual A~H / Known TODO / Readiness
+수동 확인은 별도: A I사용전 starter cereal2단 반환, B I상품비교, C recessed 여러각도, D lowDrunk물리체감, E multiDrunk과도반응없음, F 두Event미해결기본Day, G 늦은완료/중복없음, H Crouch하단회수. 자동화는 실제 물리/입력경로와 상태를 검증했지만 사용자 조작체감을 대신하지 않는다.
+
+기존11TODO유지: NPC Knockdown Mesh/Collider mismatch; Cart Contact Repeated Damage; Monster/Character visual overlap; Extreme Cart overload; Simple waypoint limitations; KING RAT final contact sound/screen polish; Broom balance manual verification; Checkout PAY usability; Full20-minute Day pacing; Delivery Auto Sort/logistics assistance; Drunk final animation/audio polish. 기존 Future shelf leaning/휘청 animation과 Delivery QoL은 기록만 유지하며 구현하지 않았다. 이번 세 항목을 TODO로 넘겨 완료 처리하지 않는다.
+
+사용자 수동 확인 뒤 Shelf tier targeting / Drunk low-shelf impact / 두 Event 모두 미해결 Day flow를 targeted gameplay-qa로 감사할 준비 상태인지 최종 검사와 함께 보고한다. 자동 PASS만으로 Foundation Readiness를 READY로 확정하지 않는다.
+
 ## Prompt 13.5 — Shelf Accessibility / Crouch / Day Event Progression
 
 2026-11-24. 기준 develop HEAD `c575216` (`fix: prompt 13.4 cart combat exploit`), 시작 working tree clean. Project `C:\Users\user\orca\workspaces\ProjectA\develop`, Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 요청된 세 항목 구현·자동/회귀 검사 완료. Git commit/amend/reset/push 없음. 자동 검사 최종 집계는 아래에 기록하며 수동 A~G와 targeted audit는 별도다.
