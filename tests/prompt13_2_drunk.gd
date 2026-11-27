@@ -11,7 +11,7 @@ func run_checks() -> void:
 	for name in drunk.visited_racks:
 		var shelf: StockShelf=mart.get_node("Shelves").get_node(NodePath(name))
 		var local:=shelf.to_local(drunk.wander_target)
-		check(local.z>0.7 and absf(local.x)>1.4,"wander destination is beside rack front not inside shelf")
+		check((local.z>0.7 or (DrunkCustomer.single_low_deck(shelf) and local.z< -0.9)) and absf(local.x)>1.4,"wander destination is beside a valid front/rear aisle, not inside shelf")
 		var query:=PhysicsShapeQueryParameters3D.new()
 		query.shape=drunk.get_node("CollisionShape3D").shape
 		query.transform.origin=drunk.wander_target+Vector3.UP*0.75
@@ -71,11 +71,19 @@ func run_checks() -> void:
 	drunk.wander_route=[drunk.wander_target]
 	drunk._direction_wait=100
 	Graybox.box(mart,"DrunkRouteBlock",Vector3(3,2.5,0.3),Vector3(0,1.25,16),Color.GRAY)
+	var escaped_block:=false
+	var traveled:=0.0
+	var previous:=drunk.position
 	for tick in range(900):
 		await frames(1)
+		traveled+=drunk.position.distance_to(previous)
+		previous=drunk.position
+		if drunk.bump_count>0 and (absf(drunk.position.x)>1.8 or drunk.position.z<15.5): escaped_block=true
 		if tick%300==299: print("BLOCK132 time=",(tick+1)/60," pos=",drunk.position," grounded=",drunk.grounded," progress=",drunk.progress_watchdog.last_progress," elapsed=",drunk.progress_watchdog.elapsed," route=",drunk.wander_route," recoveries=",drunk.progress_watchdog.recovery_count)
 	check(drunk.bump_count>0 or drunk.progress_watchdog.recovery_count>0,"real world obstruction triggers short contact recovery or progress watchdog")
-	check(absf(drunk.position.x)>1.8 or drunk.position.z<15.5,"repath makes progress around real world obstruction")
+	# A later valid aisle can return across x=0 after escaping. Observe the full path,
+	# preserving the old escape boundary and also requiring sustained travel.
+	check(escaped_block and traveled>5,"repath crosses the obstruction boundary and continues traveling")
 	drunk.wander_speed=0
 	var recoveries:=drunk.progress_watchdog.recovery_count
 	await frames(330)

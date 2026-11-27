@@ -13,7 +13,14 @@ func observe_day(parked: bool) -> void:
 	var supported := false
 	var released_alive := false
 	var drunk: DrunkCustomer
+	# Scheduler tests count entry; the theft banner is checked separately in 13.7.
 	day.event_started.connect(func(kind):
+		if kind==&"thief": return
+		stamps[kind] = day.clock_text()
+		times.append(day.shift_elapsed_seconds)
+		print("EVENT134 ",kind," clock=",day.clock_text()," elapsed=",day.shift_elapsed_seconds))
+	mart.get_node("Thieves").thief_entered.connect(func(_actor):
+		var kind:=&"thief"
 		stamps[kind] = day.clock_text()
 		times.append(day.shift_elapsed_seconds)
 		print("EVENT134 ",kind," clock=",day.clock_text()," elapsed=",day.shift_elapsed_seconds))

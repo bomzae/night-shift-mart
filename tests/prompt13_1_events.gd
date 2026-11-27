@@ -56,7 +56,7 @@ func run_checks() -> void:
 	check(fire != null and banner.current == &"fire" and banner.description.text.contains("소화기"), "actual fire emits extinguishing instruction")
 	banner.clear_pending()
 	await press("debug_spawn_thief")
-	check(banner.current == &"thief" and banner.description.text.contains("붙잡"), "debug thief gets capture instruction")
+	check(banner.current != &"thief", "debug thief entry remains anonymous; actual theft announcement covered by 13.7")
 	await clear_specials()
 	banner.clear_pending()
 	await press("debug_tourist_bus")

@@ -58,7 +58,12 @@ func trial(rack: String, goods: StringName, seed_value: int, angle: float) -> Di
 	check(mart.get_node("Drunks").broken_product_value==0,"ordinary shelf bump never scripts product destruction")
 	check(contact_times.is_empty() or contact_times.max()<1.2,"short shelf escape preserved "+rack)
 	if rack == "ZoneSection1_0":
-		check(drunk.low_shelf_impacts>0 and float(drunk.last_shelf_impact.get("impulse",0))<=3.125,"real low shelf contact uses bounded local impulse")
+		# 13.7 changes only genuine rear impacts. The old front cap remains exact.
+		var impact:=drunk.last_shelf_impact
+		var cap:=minf(12.0*sqrt(data.weight),data.weight*4.8) if impact.get("rear",false) else 3.125
+		check(drunk.low_shelf_impacts>0 and float(impact.get("impulse",0))<=cap+0.00001,"real low shelf contact uses direction-specific bounded local impulse")
+		if impact.get("rear",false):
+			for item in impact.impulses: check(item.impulse.dot(shelf.global_basis.z)>0,"rear impact points toward the shelf front")
 		print("LOCAL136 ",drunk.last_shelf_impact)
 	return {"peak":peak,"moved":moved,"fallen":fallen}
 

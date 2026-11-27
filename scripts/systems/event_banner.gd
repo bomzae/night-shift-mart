@@ -6,7 +6,7 @@ const MESSAGES := {
 	&"family": ["LOST CHILD", "부모를 찾아 아이를 데려다 주세요."],
 	&"accident": ["SPILL", "대걸레를 움직여 바닥의 물기를 닦으세요."],
 	&"fire": ["FIRE", "소화기를 찾아 불을 끄세요."],
-	&"thief": ["THIEF", "상품을 훔쳐 달아나기 전에 붙잡으세요."],
+	&"thief": ["THIEF", "상품을 훔쳐 달아나고 있습니다. 붙잡아 회수하세요."],
 	&"tourist": ["TOURIST BUS", "많은 손님이 한꺼번에 들어옵니다."],
 	&"boss": ["KING RAT", "상품을 집어 던져 쥐를 공격하세요."]
 }

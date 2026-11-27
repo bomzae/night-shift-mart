@@ -169,19 +169,29 @@ func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, r
 	if not space.intersect_ray(ray).is_empty(): return {}
 	placement_reason = "size_or_occupied"
 	var upright := Basis.from_euler(Vector3(0,body.global_rotation.y,0))
-	for orientation: Basis in [body.global_basis,upright]:
-		var bounds := AABB()
-		var first := true
-		for child in body.get_children():
-			if not child is CollisionShape3D or child.disabled: continue
-			var relative: Transform3D = Transform3D(global_basis.inverse()*orientation,Vector3.ZERO)*child.transform
-			var shape_bounds: AABB = relative * child.shape.get_debug_mesh().get_aabb()
-			bounds = shape_bounds if first else bounds.merge(shape_bounds)
-			first = false
-		if first or bounds.size.y>opening_clearance()-0.03 or bounds.size.z>(0.9 if tier_height>0 else 1.4)-0.08 or bounds.size.x>2.5: continue
-		# Search only this tier, nearest to the aimed opening first.
+	var aim_bounds:=placement_bounds(body,upright)
+	var aim_height:=floor_y-aim_bounds.position.y+0.025
+	var orientations: Array[Basis]=[body.global_basis,upright]
+	if body.global_basis.y.dot(Vector3.UP)<0.999 and aim_bounds.size.y<opening_clearance()-0.03 and aim_bounds.size.z<(0.9 if tier_height>0 else 1.4)-0.08 and aim_bounds.size.x<2.5:
+		orientations=[upright] # Stable restocking when it fits; preserve valid sideways goods otherwise.
+	for orientation: Basis in orientations:
+		var bounds:=placement_bounds(body,orientation)
+		if bounds.size==Vector3.ZERO or bounds.size.y>opening_clearance()-0.03 or bounds.size.z>(0.9 if tier_height>0 else 1.4)-0.08 or bounds.size.x>2.5: continue
+		# The opening chooses the tier; intersect the sight ray with the product's
+		# resting center plane to choose depth inside that tier.
+		var local_origin := to_local(origin)
+		var local_direction := global_basis.inverse()*direction
+		var center_y := floor_y-bounds.position.y+0.025
+		var aimed := entry
+		if absf(local_direction.y)>0.001:
+			var t := (aim_height-local_origin.y)/local_direction.y
+			if t>0: aimed=local_origin+local_direction*t
+		var rear := -0.64-bounds.position.z+0.035
+		var front_limit := front-bounds.end.z-0.035
+		var depth := clampf(aimed.z,rear,front_limit)
+		# Preserve depth intent: occupied spots may move laterally, never to another tier.
 		for offset in [0.0,-0.35,0.35,-0.7,0.7,-1.05,1.05,-1.4,1.4]:
-			var point := Vector3(clampf(entry.x+offset,-1.27-bounds.position.x,1.27-bounds.end.x),floor_y-bounds.position.y+0.025,front-bounds.end.z-0.035)
+			var point := Vector3(clampf(aimed.x+offset,-1.27-bounds.position.x,1.27-bounds.end.x),center_y,depth)
 			var world_point := to_global(point)
 			if origin.distance_to(world_point)>reach: continue
 			var clear := true
@@ -196,9 +206,41 @@ func placement_point(origin: Vector3, direction: Vector3, body: GrabbableBody, r
 					clear = false
 					break
 			if not clear: continue
+			# Check the entire opening-to-slot corridor as well as the current body path.
+			var entry_point:=to_global(Vector3(point.x,center_y,front-bounds.position.z+0.08))
+			var direct:=true
+			for child in body.get_children():
+				if not child is CollisionShape3D or child.disabled: continue
+				var path:=PhysicsShapeQueryParameters3D.new()
+				path.shape=child.shape
+				path.transform=Transform3D(orientation,entry_point)*child.transform
+				path.exclude=ray.exclude
+				path.motion=world_point-entry_point
+				if not space.intersect_shape(path,1).is_empty() or space.cast_motion(path)[0]<0.999:
+					clear=false
+					placement_reason="path_blocked"
+					break
+				path.transform=child.global_transform
+				path.motion=world_point-body.global_position
+				if space.cast_motion(path)[0]<0.999: direct=false
+			if not clear: continue
 			if not orientation.is_equal_approx(body.global_basis):
 				placement_reason = "aligning"
 				return {"shelf":self,"position":body.global_position,"distance":region.distance,"align":orientation}
+			if not direct:
+				placement_reason="approaching_opening"
+				return {"shelf":self,"position":world_point,"approach":entry_point,"distance":region.distance,"staging":true}
 			placement_reason = "valid"
 			return {"shelf":self,"position":world_point,"distance":region.distance}
 	return {}
+
+func placement_bounds(body: GrabbableBody, orientation: Basis) -> AABB:
+	var result:=AABB()
+	var first:=true
+	for child in body.get_children():
+		if not child is CollisionShape3D or child.disabled: continue
+		var relative: Transform3D=Transform3D(global_basis.inverse()*orientation,Vector3.ZERO)*child.transform
+		var bounds: AABB=relative*child.shape.get_debug_mesh().get_aabb()
+		result=bounds if first else result.merge(bounds)
+		first=false
+	return result

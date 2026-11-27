@@ -1,7 +1,7 @@
 class_name ThiefCustomer
 extends BasicCustomer
 
-enum TheftState { APPROACH, STEAL, ESCAPING, CAPTURED, LEAVING }
+enum TheftState { APPROACH, STEAL, ESCAPING, CAPTURED, LEAVING, ENTRY, BROWSING }
 @export var escape_speed: float = 3.8
 @export var steal_time: float = 0.6
 @export var capture_distance: float = 1.8
@@ -14,12 +14,14 @@ var stolen_item: Dictionary = {}
 var _steal_left: float = 0
 var _capture_left: float = 0
 var loot_icon: MeshInstance3D
+var browse_point := Vector3.ZERO
+var browsing_visits: int = 0
+var target_retries: int = 0
 
 func _ready() -> void:
 	separation_multiplier = 0.4
 	state = State.EXIT # Reuse waypoint walking without purchase/queue logic.
 	super._ready()
-	_mesh.material_override.albedo_color = Color(0.42, 0.46, 0.53)
 	add_to_group("thieves")
 	update_mood()
 
@@ -51,7 +53,13 @@ func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 
 func finish_exit() -> void:
-	if theft_state == TheftState.APPROACH:
+	if theft_state == TheftState.ENTRY:
+		theft_state = TheftState.BROWSING
+		waypoints = StoreRoutes.via_main(global_position,browse_point)
+	elif theft_state == TheftState.BROWSING:
+		browsing_visits += 1
+		approach_target()
+	elif theft_state == TheftState.APPROACH:
 		theft_state = TheftState.STEAL
 		state = State.EVENT_WAIT
 		_steal_left = steal_time
@@ -59,7 +67,7 @@ func finish_exit() -> void:
 		theft_manager.finish_escape(self)
 
 func recover_progress(level: int) -> void:
-	if level == 6 and theft_state in [TheftState.APPROACH,TheftState.STEAL]:
+	if level == 6 and theft_state in [TheftState.ENTRY,TheftState.BROWSING,TheftState.APPROACH,TheftState.STEAL]:
 		recovery_last_action = "abort_theft"
 		leave_empty() # Never steal remotely because an approach timed out.
 	elif level == 6:
@@ -67,6 +75,20 @@ func recover_progress(level: int) -> void:
 		theft_manager.abort_escape(self)
 	else:
 		super.recover_progress(level)
+
+func approach_target() -> void:
+	if not is_instance_valid(target_product) or not is_instance_valid(target_shelf) or not target_shelf.has_stock(target_product):
+		if target_retries >= 2 or not theft_manager.select_target(self):
+			leave_empty()
+			return
+		target_retries += 1
+	var point: int=target_shelf.reserve_shopping_point(self,target_product.global_position)
+	if point<0:
+		leave_empty()
+		return
+	theft_state=TheftState.APPROACH
+	state=State.EXIT
+	waypoints=StoreRoutes.via_main(global_position,target_shelf.shopping_point(point))
 
 func steal() -> void:
 	if theft_state != TheftState.STEAL: return
@@ -89,6 +111,9 @@ func steal() -> void:
 	target_shelf.refresh_stock(0)
 	target_shelf.release_shopping_point(self)
 	theft_state = TheftState.ESCAPING
+	_mesh.material_override.albedo_color = Color(0.42, 0.46, 0.53)
+	update_mood()
+	DayManager.notify_event(self, &"thief") # Only a successful physical pickup reveals the event.
 	move_speed = escape_speed
 	start_exit()
 
@@ -126,7 +151,7 @@ func capture(player_body: CharacterBody3D) -> bool:
 
 func update_mood() -> void:
 	if not is_instance_valid(_mood): return
-	_mood.text = "✓" if theft_state == TheftState.CAPTURED else ("!!" if theft_state == TheftState.ESCAPING else ":|")
+	_mood.text = "✓" if theft_state == TheftState.CAPTURED else ("!!" if theft_state == TheftState.ESCAPING else ":)")
 	_mood.modulate = Color.LIME_GREEN if theft_state == TheftState.CAPTURED else (Color.ORANGE_RED if theft_state == TheftState.ESCAPING else Color.WHITE)
 
 func _exit_tree() -> void:

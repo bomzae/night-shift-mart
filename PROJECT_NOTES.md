@@ -1,5 +1,113 @@
 # NIGHT SHIFT MART — 개발 메모
 
+## Prompt 13.7 — Drunk Rear Impact / Thief Browsing / Shelf Depth
+
+2026-11-27. 기준 HEAD `fffee3e` (`fix: prompt 13.6 balancing drunk customer`), 시작 작업 트리 clean. Project `C:\Users\user\orca\workspaces\ProjectA\develop`, Godot `D:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`. 세 요청 범위만 수정. Crouch, DayManager의 공통 75분 lease, KING RAT 전투 코드는 변경하지 않았다. Git commit/amend/reset/push 없음. 구현 및 자동 검증 완료. 사용자 조작감/수동 A~H 확인은 별도이며 Foundation Readiness를 자동 PASS만으로 확정하지 않는다.
+
+### Drunk: 실제 geometry와 이전 반응의 한계
+
+- TVShelf `(14,0,15.6)`, MicrowaveShelf `(14,0,9.3)`는 yaw -90°, ZoneSection0_6 TV는 `(21,0,24)` yaw 180°. 모두 **선반 local +Z가 전면**이다. 단일 deck의 상면 y0.65, z±0.7, Back 중심 z-0.7/두께0.12. 상품은 starter에서 local z≈0에 놓인다. TV mass10/size(1.05,.75,.25), Microwave mass7/size(.68,.5,.45). 질량/마찰/geometry는 변경하지 않았다.
+- 13.6 route는 항상 local z+1.1의 전면을 지나갔다. 후면에 통제 배치해도 contact point→상품 **중심** 1.25m 검사에서 starter heavy 상품이 제외될 수 있었다. old impulse는 collider outward normal을 사용하므로 후면에서는 원하는 전면과 반대이고, 최대3.125는 mass7/10에 약했다.
+- `single_low_deck()`로 상부 tier가 없는 실제 구조만 분류한다. 45% 후보 선택 기회에 후면 z-1.13, x±1.85 통과를 검토한다. 기존 aisle planner의 swept sphere(.30m)와 실제 World/Cart/**Product** 장애물을 검사해 열린 rear만 선택한다. 재고/가격/상품명을 route 선정에 사용하지 않는다. 최근5개 rack 및5초 avoidance 유지.
+- 실제 후면 contact(local z<-.6, normal·front<-.7, 실제 movement intent·front>.1)에서만 강화한다. 접촉점에서 상품 collision shape의 가까운 점까지1.2m 이내 상품만 대상으로 한다. 방향은 `(shelf.front + UP*.16).normalized()`, 세기는 `min(12*sqrt(mass),4.8*mass)*speed_ratio`. TV≈37.947, Microwave≈31.749, can4.8; 질량당 초기 가속은 heavy가 더 작다. 위치 변경/삭제/강제 낙하/파괴 없음. 전면 기존3.125 상한과 다단 반응은 유지.
+- .35초 지속접촉, .6초 이탈,1.3초 cooldown,5초 같은 shelf 회피 및 Carry/Cart/Knockdown 우선권 유지. `last_shelf_impact`는 실제 적용 impulse 배열/상품ID/질량/방향/rear 여부를 기록한다.
+
+### Drunk 비교 결과
+
+실제 Main starter131개, Debug I 없이 동일 위치/방향/seed137/접근속도1.8m/s, 각6초. `p137_before`와 `p137_natural` 로그. 아래 낙하는 보장된 scripted 결과가 아닌 실제 물리 관찰이다.
+
+| 실제 rack / 접근 | 전 이동/낙하 | 후 이동/낙하 | 후 최대 접촉 | 후 상품 이동 / 최고속도 |
+|---|---:|---:|---:|---|
+| TV 전면 | 0/0 | 0/0 | .400s | .002m / .196m/s |
+| TV 후면 | 0/0 | 1/1 | .417s | 2.030m / 4.468m/s |
+| Microwave 전면 | 0/0 | 0/0 | .400s | .011m / .353m/s |
+| Microwave 후면 | 0/0 | 1/1 | .417s | 2.659m / 4.500m/s |
+| yaw180° TV 후면 | 0/0 | 1/1 | .417s | 2.029m / 4.468m/s |
+| 다단 Can 전면 | 3/0 | 3/0 | .400s | 최고2.489m/s (기존과 동일) |
+| 다단 Can 후면 | 0/0 | 0/0 | .417s | 최고.052m/s (기존과 동일) |
+
+통제 비교의 접촉은 각 한 구간이므로 평균=최대. 실제 starter heavy rack에는 각1개가 있었다. 별도 기존 13.6 can3개 fixture의 rear에서는3개 낙하가 실제 발생한다. 모든 충돌에서 낙하 수를 보장하지 않는다.
+
+자율 Main 경로는 seed137/237 각각 **300초** 관찰했다. 처음 spawn 이후 route/target/position을 강제하지 않았다.
+
+| seed | store zones | 이동거리 | shelf passes / body contacts | 평균/최대 접촉 | rear route / impact | 이동/낙하 | 최장 정체 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+|137|4|442.43m|17 /45|.388/.450s|10 /2|28 /18|1s|
+|237|5|439.85m|22 /50|.383/.917s|6 /8|15 /12|0s|
+
+실제 후면 충격을 받은 상품ID를 추적했으며 seed137에서 watermelon/rice_bag, seed237에서 frying_pan/watermelon/cooking_oil/detergent/**Microwave**가 선반 local +Z 바깥 바닥으로 떨어졌다. TV 낙하는 통제 시험에서 확인했고 두 자율 seed에서 TV 낙하까지 확인한 것은 아니다. Broken value는 두 실행 모두0.0.
+
+### Thief: 입장과 절도 공개 분리
+
+- 이전에는 spawn에서 `notify_event(thief)`를 호출하고 즉시 상품 shopping point로 향했다. 이제 manager의 `thief_entered`는 입장만 알리며, ENTRY(기존 입구→main aisle z27)→BROWSING(실제 내부 cross aisle z21, 좌/우 x8~12)→기존 APPROACH/STEAL→ESCAPING 순서다. 정상 Customer의 `StoreRoutes.via_main`/보행 속도/회피를 사용한다. 일반 고객과 같은 색/`:)` 표정이며 절도 전 loot/강조 marker는 없다.
+- 안쪽 진열 재고(z≤21, 출구에서12m 초과)가 있으면 기존 weighted target 선택을 그 후보에 적용한다. 없으면 실제 남은 재고를 선택하고 내부 탐색 후 접근한다. 대상 상실 재선택 최대2회, point 없음/재고 없음/최종 movement recovery 실패는 기존 empty exit. 가짜 pickup/banner/loss 없음.
+- 첫 실험의 임의 내부 z12~18 이동은 일부 seed에서 매대를 가로질러 막혔다. 실제 열린 cross aisle z21로 수정했다. 단순 대기시간을 추가하지 않았다.
+- 실제 snapshot 및 물리 상품 제거 성공 후 ESCAPING 전환 시에만 기존 THIEF banner: **“상품을 훔쳐 달아나고 있습니다. 붙잡아 회수하세요.”**. escape/capture/return/상품ID/실제 outside loss/중복 방지 유지. Scheduler lease는 actor 입장부터 시작하며 theft에서 재설정하지 않는다.
+
+동일 Main starter seed별 비교. 알림 전에는 손실0. 이전 알림은 전부 입장0초였다.
+
+|seed|절도 전 거리 전→후|입장→절도 전→후|후 절도/알림 시각|후 절도 위치|후 도주 거리/시간|
+|---|---|---|---|---|---|
+|137|55.45→72.39m|26.22→34.13s|34.13/34.12s|(23.26,0,10.66)|57.48m/23.20s|
+|237|20.49→79.90m|17.73→37.55s|37.55/37.53s|(24.07,0,4.67)|62.69m/23.20s|
+|337|38.89→50.83m|18.60→24.28s|24.28/24.27s|(-12.39,0,15.60)|36.61m/17.17s|
+
+이전 절도 위치(x,z)는 seed137=(23.26,10.66),237=(-11.79,28.65),337=(-5.79,4.66)였다. 이후137은 같은 안쪽 매대,237/337은 위 표의 다른 실제 재고로 이동했다. 이전 도주 거리/시간은137=57.48m/23.20s,237=22.95m/14.15s,337=40.96m/17.17s였다.
+
+동일 tick의 성공 signal과 다음 physics 관측 때문에 시각 차이≤1tick. 137/237은 MAIN/EAST_FRONT/EAST_REAR,337은 MAIN/WEST_REAR 방문. 절도 위치는 실제 재고/seed에 따라 다르다. 소량 재고, 실패 후 empty exit, debug entry, 실제 capture/return/escape는 별도 신규+Prompt9 회귀로 검사한다.
+
+### Shelf: 깊이 선택 / 물리 운반
+
+- 이전 `placement_point()`의 z는 매번 `front - bounds.end.z - .035`로 고정됐다. MouseLook이 바뀌어도 앞쪽 경계만 선택되었다. 조준 tier 우선 선택은13.6대로 유지한다.
+- opening ray로 tier를 정한 뒤 ray와 **upright 상품의 정착 중심 높이 평면** 교점에서 x/z를 얻는다. 실제 형상에 맞춰 back inner face(-.64)~front(.2 recessed/.7 lower) 안으로 clamp한다. 점유 fallback은 같은 깊이의 좌우 후보만 검사하며 다른 tier로 보내지 않는다. 별도 MouseWheel/키 없음.
+- 최종 shape overlap뿐 아니라 opening→rear 전체 shape sweep을 검사한다. 앞 상품이 뒤 공간을 막으면 거부한다. 현재 몸체에서 목표까지 직선이 막혔지만 opening 경로가 열리면 먼저 opening으로 기존 carry motor가 이동하고 들어간다. 기존 실제 sweep/spring/속도 제한 그대로이며 transform snap/상품 관통 없음.
+- 바닥에서 회수한 기울어진 상품은 실제 angular velocity로 upright 정렬한다. 최종 위치 .06m 이내, 속도/회전속도 각각 .12 이하이며 경로가 열렸을 때만 PLACE를 표시한다. 표시 전에도 일반 Drop은 가능하다. 기존 들고 있는 실제 상품/조준점/Context Prompt를 재사용한다.
+- 처음에는 기울어진 상품의 현재 높이로 aim 평면을 만들었으나 회전에 따라 깊이가 바뀌었다. Upright 형상 기준으로 고정했다. 단순 endpoint 검사 대신 corridor와 opening 경유를 추가했고, 물리 안정 전 안내로 발생하던 drop 후 rolling도 확인 후 수정했다. 실제 front 상품 행 검사에서 정렬 후보를 경로 검사보다 먼저 반환하던 순서도 수정해, 유효한 endpoint/corridor가 있을 때만 정렬한다. Upright가 크기상 불가능하면 기존 유효한 sideways 형상은 보존한다.
+
+### 실제 반복 재진열
+
+Main starter의 Cereal3 / Instant Noodles3 / Can3 / Chips(box)3에 실제 impulse를 주어 바닥에 떨어뜨린 뒤, 카메라 ray+Grab/Place InputEvent로12개 반환. Player 위치/시선은 fixture가 제어하고 운반 중 위치는 연속 이동, 상품은 위치를 직접 바꾸지 않는다. Can 하단은 Crouch, 나머지는 standing. Debug I 없음.
+
+- 최종12/12 재고 반환, 앞4/뒤8, wrong tier0, preview 목표와 물리 정착 위치 최대 차이 **.04212m**. 신규50assert PASS (`p137_final_targeted_prompt13_7_stocking.log`).
+- 별도 depth fixture8assert: 같은 opening의 front/rear ray 선택, tier 고정, 앞쪽 solid row 및 실제 Can 상품 행으로 뒤 빈 공간 접근 차단/거부, blocker 제거 후 복구, query가 상품 위치를 바꾸지 않음. 기존13.5 shelf18/13.6 shelf34에서 Starter/I 비교·반복 반환·oversize·점유·wrong stock을 유지한다. Crouch20 및 도구/무기/throw 회귀는 별도.
+
+### Event 진행 / 검증 이력
+
+- 13.6 사용자가 확인한 공통 lease를 재작성하지 않았다. Drunk/Family/Thief 각각75 game minutes. Thief 입장02:00, 실제 절도는 이후, Boss04:00 조건 그대로.
+- 기존 scheduler 검사는 THIEF banner를 spawn timestamp로 쓰고 있었다. 입장 관측을 `thief_entered`로 바꾸고 기존 순서/간격/배우 생존 assertion은 유지했다. 새 검사는 실제 theft 성공 시 banner, 실패 시 무알림, lease 비갱신을 추가했다. Prompt9의 contact-only fixture는 명시적으로 approach 단계로 진입하며 정상 전체 입장/실제 theft 검사는 별도로 유지한다. 늘어난 실제 동선에 맞춰 wait_theft 한도를1400→3600frames로 조정했고 실제 pickup/상품ID/경제/회수 assertion은 유지했다.
+- 실패 이력 보존: `p137_before` 기존 thief immediate-banner3FAIL은 의도한 재현. 초기 StockShelf Transform3D 타입 추론 오류로 일부 검사 무효, callback 괄호 누락으로 일부 Day/lease script parse 실패. 수정 후 재검사했다. 최초 Day 관측 hook이 부모 fixture의 임시 Main에 연결돼 실제 Day banner를 놓쳤으므로 새 테스트 자체의 Main에 직접 연결했다. 구버전 Day B 실행은 중단하고 최종 A/B를 독립 실행한다.
+- Stocking 최초33PASS/13FAIL: 기울어진 상품의 aim/depth/rolling 및 fixture의 낮은 중단 시점, floor Grab 가림. 물리 정렬·속도 기반 PLACE, 안정된 aim 평면과 올바른 시점/가시 ray로 수정. 다음46PASS/4FAIL은 멀리 떨어진 상품을 든 Player를 한 번에 옮겨 기존 break-distance가 발동한 fixture 문제였다. 실제 carry 거리 제한을 바꾸지 않고 operator를 연속 이동하여 최종50PASS.
+- 기존13.2 장애물 검사의 마지막15초 좌표 assertion이 실패했다. 실제 로그는5초 x-1.90 /10초 x-5.03으로 기존 탈출 경계를 통과하고15초에는 새 통로를 따라 x-.32,z22.85로 돌아온 정상 이동이었다. 단일 마지막 좌표 대신 **같은 경계를 bump 후 실제로 통과했는지 + 총5m 초과 이동**을 확인하도록 수정(17PASS 재검사). 전면만 허용하던 route assertion도 실제 single-low-deck의 열린 rear를 허용하되 full capsule geometry 검사는 유지했다.
+- Drunk rear radius1.05 첫 실험은 Microwave에 닿지 않아 실패했고 실제 shape/contact 측정 후1.2로 조정했다. 13.6 비교 검사의 모든 방향3.125 상한은 새 rear policy와 충돌했다. 전면 상한은 그대로 검사하고 rear는 질량별 상한+전면 방향 assertion으로 대체한다.
+
+### 최종 실행 집계 / Day timeline
+
+기본 **shift_duration_seconds=1200 / Engine.time_scale=1 / fixed60Hz**. 실제 Main Customers/Delivery/Starter Stock 활성. Runner의 종료 안전 한도만75000frames로 확장했다. 독립 복사본/로그 `p137_day_a_final`, `p137_day_b_final`.
+
+|Flow|Drunk 등장/해결|Family 등장/재회|Thief 입장|실제 절도/알림|KING RAT|Result/Day2|
+|---|---|---|---|---|---|---|
+|A 모두 해결|23:00 /23:12|00:30 /00:42|02:00|02:14 (입장36.55s 후)|04:00|06:00 /22:00|
+|B 모두 미해결|23:00 /미해결|00:30 /미해결|02:00|02:14 (입장35.50s 후)|04:00|06:00 /22:00|
+
+A는 등장30초 후 실제 Carry→Exit Drop, Family Carry→부모 근처 Drop/reunion 경로를 자동화했다(위치 배치 허용 fixture). B는 완료 함수/강제삭제/debug spawn 없이 둘 다 미해결 유지. Drunk lease00:15,Family01:45에 scheduler 차단만 해제. 각 actual theft1회와 유효 loot, Day2 reset 포함 A8/B11assert PASS. Thief 탐색을 물리적으로 멈춘13.6 flowG도 lease75분 후 Boss 진행을 유지한다.
+
+원본 import/200초 Main headless 오류·경고0. 창 실행은 **1회**만 사용했다. `visual13_7.gd`를 먼저 headless check-only 검증하고1280×720에서 실제 carry body/Context와 실제 pickup 후 THIEF banner를 렌더했다. Rear z-.4에서 PLACE, 점유된 front 접근에서는 PLACE가 나오지 않음을 확인했다. Banner와 Context rect는 분리. `.godot/p137_visual_rear.png`, `p137_visual_theft.png`. OS mouse/focus 조건은 assertion에 사용하지 않았다. World 선반 표지가 화면 HUD 위에 투영될 수 있는 기존 graybox 시각 한계는 그대로이며 HUD 레이아웃을 재설계하지 않았다.
+
+최종 **121개 headless 스크립트 /4,982 PASS /실패·SCRIPT ERROR·ERROR·WARNING 0 /정상 완료121개**. 기존 Prompt0~13.6 **110개/4,657PASS**, 신규13.7 **11개/325PASS**. 기존 `p136_verified_results.csv`의110개와 대조해 누락0. 중복 없는 최종 `.godot/p137_verified_results.csv` 참조. 창 smoke는 별도1회/1PASS, 원본 import 및 최종 Main200초도 exit0/오류·경고0. HEAD는 `fffee3e` 그대로, 모든 변경 uncommitted.
+
+- 일반 회귀 `p137_regression`:103개. 그 중13.2 마지막좌표 검사1FAIL은 위 원인 분석 후 `p137_drunk_regression`17PASS로 대체 집계했다. 실패 로그는 보존한다.
+- 긴 기존 회귀 `p137_extended135`4개(기본Day3+slow-family재현), `p137_extended136`6개(기본Day A~D+Drunk180초2seed) 전부 통과.
+- 새 기본Day `p137_day_a_final`8PASS / `p137_day_b_final`11PASS. 새300초 Drunk2seed 및 통제heavy rear `p137_natural`(기존13.6 비교의 실패 행은 이후 일반 회귀28PASS로 교체).
+- 최종 shape/실제 front product obstruction/12개 bulk/기존tier는 `p137_final_shape`에서 재검사. Thief entry/실제theft/lease/empty/sparse/fallback는 `p137_final_targeted`, `p137_fallback` 및 전체 Prompt9 62PASS. 일반 회귀 이후의 변경은 blocked alignment 순서와 sideways fit 보존이며 영향받는 shape/shelf를 재검사했다.
+- 기존4,660 대비4,657인 이유: 관찰 중 실제 bump마다3assert를 실행하는13.3 observe14→11,13.6 natural71→65/71→74의 경로 차이와 rear방향 assertion3개 추가(25→28). assertion 삭제가 아니다. 고정 검사 계약은 유지하거나 새 정책에 맞는 대체 검증을 위에 명시했다.
+- 실행 재현: `tests/run_headless.ps1`를 ScriptBlock으로 호출하여 `-Tests`/`-Tag` 사용. 기본1200초 관찰은 메모리의 `--quit-after` 안전 한도만24000→75000으로 확장. 실제 Day/scheduler/time_scale은 변경하지 않는다. 모든 실행의 복사본과 로그 분리.
+
+### 수동 확인 / Known TODO
+
+자동 검사로 사용자 조작감을 확정하지 않는다. A TV/Microwave rear 충돌, B 다단 chaos/짧은 bump, C anonymous entry, D 실제 theft 알림, E capture/return, F 앞뒤 조준, G 대량 재진열, H 두 event 미해결 Day를 사용자 수동 확인 후 targeted gameplay-qa 대상에 포함한다.
+
+기존11개 유지: NPC Knockdown mesh/collider mismatch; Cart contact repeated damage; Monster/Character visual overlap; Extreme Cart overload; Simple waypoint limitations; KING RAT final contact sound/screen polish; Broom balance manual verification; Checkout PAY usability; Full20-minute pacing; Delivery Auto Sort/logistics assistance(Future만); Drunk final animation/audio polish. 새 Event/Boss/Weapon/Progression/자동진열/Save는 구현하지 않았다.
+
 후속 Codex/Astra 작업은 루트 AGENTS.md → 이 문서 → 관련 Skill 순으로 읽고 현재 단계와 범위를 확인한다.
 
 ## Prompt 13.6 — Shelf Tier Targeting / Drunk Impact / Unresolved Event Progression

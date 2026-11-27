@@ -11,7 +11,14 @@ func run_flow(flow: String) -> void:
 	player.health.current_health=10000
 	var events: Dictionary={}
 	var times: Array[float]=[]
+	# Scheduler tests count entry; the theft banner is checked separately in 13.7.
 	day.event_started.connect(func(kind):
+		if kind==&"thief": return
+		events[kind]=int(events.get(kind,0))+1
+		times.append(day.shift_elapsed_seconds)
+		print("LEASE136 FLOW ",flow," ",kind," at=",day.clock_text()))
+	mart.get_node("Thieves").thief_entered.connect(func(_actor):
+		var kind:=&"thief"
 		events[kind]=int(events.get(kind,0))+1
 		times.append(day.shift_elapsed_seconds)
 		print("LEASE136 FLOW ",flow," ",kind," at=",day.clock_text()))

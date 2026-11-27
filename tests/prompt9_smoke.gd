@@ -7,7 +7,7 @@ func setup_thief() -> void:
 	player.global_position = station.global_position + Vector3(0, 0.01, 1.25)
 
 func wait_theft(thief: ThiefCustomer) -> void:
-	for tick in range(1400):
+	for tick in range(3600):
 		await frames(1)
 		if not is_instance_valid(thief) or thief.theft_state == ThiefCustomer.TheftState.ESCAPING: break
 	check(is_instance_valid(thief) and thief.theft_state == ThiefCustomer.TheftState.ESCAPING, "thief walks to real shelf and steals")
@@ -18,6 +18,7 @@ func contact_fixture() -> ThiefCustomer:
 	await place(mart.get_node("Cart"), Vector3(6, 0.05, -3))
 	var thief := thieves.spawn_thief()
 	# The full entrance route is tested above; isolate contacts after a real pickup.
+	thief.approach_target() # Contact/ownership fixture isolates the actual pickup phase.
 	thief.global_position = thief.waypoints.back()
 	thief.waypoints.clear()
 	await frames(45)
@@ -116,6 +117,7 @@ func run_checks() -> void:
 	thief = thieves.spawn_thief()
 	product.queue_free()
 	await frames(3)
+	thief.approach_target()
 	check(thief.theft_state == ThiefCustomer.TheftState.LEAVING and thief.stolen_item.is_empty(), "missing target exits without fake loot")
 	check(thieves.stolen_goods_value == 0, "target lost before theft has no stolen loss")
 
@@ -219,10 +221,12 @@ func run_checks() -> void:
 	await frames(3)
 	second = thieves.spawn_thief()
 	check(second != null and thief.target_product == second.target_product, "two thieves may target the same real stock")
+	thief.approach_target() # Contact/ownership fixture isolates the actual pickup phase.
 	thief.global_position = thief.waypoints.back()
 	thief.waypoints.clear()
 	await frames(45)
 	await frames(2)
+	second.approach_target()
 	check(thief.stolen_item.size() > 0 and second.stolen_item.is_empty() and second.theft_state == ThiefCustomer.TheftState.LEAVING, "only first thief owns stock and second aborts without duplication")
 	var families = mart.get_node("LostFamilies")
 	var child: LostChild = families.spawn_pair()

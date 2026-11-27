@@ -1,5 +1,6 @@
 class_name ThiefManager
 extends Node3D
+signal thief_entered(thief: ThiefCustomer)
 
 @export var enable_thief_test_spawn: bool = true
 @export var max_active_thieves: int = 2
@@ -52,29 +53,34 @@ func spawn_thief() -> ThiefCustomer:
 	thief.manager = customers
 	thief.theft_manager = self
 	thief.position = at
-	var candidates := stock_candidates()
-	if not candidates.is_empty():
-		var total := 0.0
-		for entry in candidates: total += 1 + high_value_bias * log(1 + maxf(0, entry.product.price))
-		var draw := randf() * total
-		var chosen: Dictionary = candidates.back()
-		for entry in candidates:
-			draw -= 1 + high_value_bias * log(1 + maxf(0, entry.product.price))
-			if draw <= 0:
-				chosen = entry
-				break
-		thief.target_product = chosen.product
-		thief.target_shelf = chosen.shelf
-		var point: int = chosen.shelf.reserve_shopping_point(thief, chosen.product.global_position)
-		if point >= 0:
-			var destination: Vector3 = chosen.shelf.shopping_point(point)
-			thief.waypoints = StoreRoutes.via_main(at, destination)
+	var has_target := select_target(thief)
+	if has_target:
+		thief.theft_state=ThiefCustomer.TheftState.ENTRY
+		thief.waypoints=StoreRoutes.via_main(at,Vector3(0,0.01,27))
+		# The full-width cross aisle is walkable; arbitrary z values cut through racks.
+		thief.browse_point=Vector3((-1 if thief.target_shelf.position.x<0 else 1)*randf_range(8,12),0.01,21)
 	add_child(thief)
-	if thief.waypoints.is_empty(): thief.leave_empty()
+	if not has_target: thief.leave_empty()
 	last_spawn_failure = ""
-	DayManager.notify_event(self, &"thief")
+	thief_entered.emit(thief) # Scheduler registration is still at entry, not at theft.
 	return thief
 
+func select_target(thief: ThiefCustomer) -> bool:
+	if is_instance_valid(thief.target_shelf): thief.target_shelf.release_shopping_point(thief)
+	var candidates := stock_candidates()
+	if candidates.is_empty(): return false
+	var deep := candidates.filter(func(entry):return entry.shelf.global_position.z<=21 and entry.shelf.global_position.distance_to(escape_position())>12)
+	if not deep.is_empty(): candidates.assign(deep)
+	var total := 0.0
+	for entry in candidates: total += 1 + high_value_bias * log(1 + maxf(0, entry.product.price))
+	var draw := randf() * total
+	for entry in candidates:
+		draw -= 1 + high_value_bias * log(1 + maxf(0, entry.product.price))
+		if draw>0 and entry!=candidates.back(): continue
+		thief.target_product=entry.product
+		thief.target_shelf=entry.shelf
+		return true
+	return false
 func snapshot(product: GrabbableBody) -> Dictionary:
 	if product.scene_file_path.is_empty(): return {}
 	var settings := {}

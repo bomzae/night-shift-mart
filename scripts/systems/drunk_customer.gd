@@ -16,6 +16,7 @@ var _direction_wait: float = 0
 var _contact_wait: float = 0
 var _phase: float = 0
 var _incoming_speed: float = 0
+var _motion_intent := Vector3.ZERO
 var _rng := RandomNumberGenerator.new()
 var wander_route: Array[Vector3] = []
 var wander_target := Vector3.ZERO
@@ -34,6 +35,8 @@ var avoided_shelves: Dictionary = {}
 var _contact_wall: Node
 var _bump_origin := Vector3.ZERO
 var low_shelf_impacts: int = 0
+var rear_routes_selected: int = 0
+var rear_shelf_impacts: int = 0
 var last_shelf_impact: Dictionary = {}
 
 func _ready() -> void:
@@ -120,22 +123,29 @@ func _choose_aisle() -> void:
 	var choices: Array[Dictionary] = []
 	for shelf: StockShelf in shelves.get_children():
 		if is_instance_valid(shelf.point_owner) or visited_racks.has(shelf.name) or avoided_shelves.has(shelf.name): continue
-		# Front aisle, never rack contents: stocking/food/value do not influence selection.
-		var a := shelf.to_global(Vector3(-1.85,0.01,1.1))
-		var b := shelf.to_global(Vector3(1.85,0.01,1.1))
-		if not _planner.clear_segment(a,b): continue
-		if global_position.distance_squared_to(b)<global_position.distance_squared_to(a):
-			var swap := a
-			a = b
-			b = swap
-		var repeat_cost := 24.0 if store_zone(shelf.global_position)==repeated_zone else 0.0
-		choices.append({"name":shelf.name,"a":a,"b":b,"score":global_position.distance_to(a)+repeat_cost+_rng.randf_range(0,4)})
+		# Occasionally pass an accessible rear aisle of a single low deck.
+		# Selection never reads product stock, price or type.
+		var sides: Array[float]=[1.1]
+		if single_low_deck(shelf) and _rng.randf()<0.45: sides.push_front(-1.13)
+		for side in sides:
+			var a := shelf.to_global(Vector3(-1.85,0.01,side))
+			var b := shelf.to_global(Vector3(1.85,0.01,side))
+			_planner.refresh_exclusions(side<0)
+			if not _planner.clear_segment(a,b): continue
+			if global_position.distance_squared_to(b)<global_position.distance_squared_to(a):
+				var swap := a
+				a = b
+				b = swap
+			var repeat_cost := 24.0 if store_zone(shelf.global_position)==repeated_zone else 0.0
+			choices.append({"name":shelf.name,"a":a,"b":b,"rear":side<0,"score":global_position.distance_to(a)+repeat_cost+_rng.randf_range(0,4)})
+			break
 	choices.sort_custom(func(a,b): return a.score<b.score)
 	for choice in choices:
-		var route := _planner.build(global_position,choice.a)
+		var route := _planner.build(global_position,choice.a,choice.rear)
 		if route.is_empty() or route.back().distance_to(choice.a)>0.1: continue
 		route.append(choice.b)
 		wander_route = route
+		if choice.rear: rear_routes_selected+=1
 		wander_target = choice.b
 		visited_racks.append(choice.name)
 		if visited_racks.size()>5: visited_racks.pop_front()
@@ -147,6 +157,7 @@ func _free_motion(state: PhysicsDirectBodyState3D) -> void:
 		return
 	var wobble := 0.58 * (wet_wobble_multiplier if SlipState.wet(self) else 1.0)
 	var desired := wander_direction.rotated(Vector3.UP, sin(_phase * _wobble_frequency) * wobble + _wobble_bias) * wander_speed
+	_motion_intent=desired
 	_update_shelf_contact(state, desired)
 	if bump_remaining > 0: desired = bump_direction * minf(wander_speed,1.5)
 	desired += human_separation.correction(self, desired, separation_multiplier)
@@ -228,13 +239,14 @@ func _contact(body: Node) -> void:
 			if product is GrabbableBody and product.global_position.distance_to(global_position) < 2.0:
 				_disturb_product(product)
 
+static func single_low_deck(shelf: StockShelf) -> bool:
+	if shelf.tier_height>0: return false
+	for other in shelf.get_tree().get_nodes_in_group("stock_shelves"):
+		if other!=shelf and other.global_position.distance_squared_to(shelf.global_position)<0.001 and other.tier_height>0: return false
+	return true
+
 func _jolt_low_shelf(shelf: StockShelf, collider: PhysicsBody3D) -> bool:
-	# A single low deck shields its stock from the capsule. An inward-only jolt
-	# pins goods against its back. Use the actual impact face and nearby stock,
-	# with a capped low-deck impulse; multi-tier behavior stays unchanged.
-	if shelf.tier_height > 0: return false
-	for other in get_tree().get_nodes_in_group("stock_shelves"):
-		if other != shelf and other.global_position.distance_squared_to(shelf.global_position)<0.001 and other.tier_height>0: return false
+	if not single_low_deck(shelf): return false
 	if _incoming_speed<0.45: return true
 	var state := PhysicsServer3D.body_get_direct_state(get_rid())
 	for index in range(state.get_contact_count()):
@@ -243,17 +255,31 @@ func _jolt_low_shelf(shelf: StockShelf, collider: PhysicsBody3D) -> bool:
 		if absf(normal.y)>0.4: continue
 		var point := state.get_contact_local_position(index)
 		var affected := 0
+		var front := shelf.global_basis.z.normalized()
+		var rear := shelf.to_local(point).z < -0.6 and normal.dot(front)<-0.7 and _motion_intent.dot(front)>0.1
+		var impulses:=[]
 		var impulse_size := product_push_impulse*clampf(low_shelf_impulse_multiplier,1.0,1.25)*clampf(_incoming_speed/maxf(0.1,wander_speed),0.4,1.0)
 		for product in shelf.zone.get_overlapping_bodies():
 			if not product is GrabbableBody or is_instance_valid(product.holder) or product.is_queued_for_deletion() or product.get_meta("sold",false) or product.get_meta("broken",false): continue
-			if product.global_position.distance_to(point)>1.25: continue
+			# Distance to the real product shape, not only its center: large goods can
+			# be close to the impact face even with their center outside the old radius.
+			var shape: CollisionShape3D=product.get_node("CollisionShape3D")
+			var bounds: AABB=shape.shape.get_debug_mesh().get_aabb()
+			var local_point:=shape.to_local(point)
+			var closest:=Vector3(clampf(local_point.x,bounds.position.x,bounds.end.x),clampf(local_point.y,bounds.position.y,bounds.end.y),clampf(local_point.z,bounds.position.z,bounds.end.z))
+			if (shape.to_global(closest).distance_to(point)>1.2 if rear else product.global_position.distance_to(point)>1.25): continue
 			var tangent := normal.cross(Vector3.UP)
 			if tangent.dot(product.global_position-point)<0: tangent=-tangent
 			var impulse := (normal*0.75+tangent*0.65+Vector3.UP*0.12).normalized()*impulse_size
+			if rear:
+				var strength:=minf(12.0*sqrt(product.mass),product.mass*4.8)*clampf(_incoming_speed/maxf(0.1,wander_speed),0.0,1.0)
+				impulse=(front+Vector3.UP*0.16).normalized()*strength
 			product.apply_impulse(impulse,Vector3.UP*0.025)
+			impulses.append({"id":product.get_instance_id(),"mass":product.mass,"impulse":impulse})
 			affected+=1
 		low_shelf_impacts+=1
-		last_shelf_impact={"shelf":shelf.name,"point":point,"normal":normal,"speed":_incoming_speed,"impulse":impulse_size,"products":affected}
+		if rear: rear_shelf_impacts+=1
+		last_shelf_impact={"shelf":shelf.name,"point":point,"normal":normal,"speed":_incoming_speed,"impulse":impulses.reduce(func(value,item):return maxf(value,item.impulse.length()),0.0),"products":affected,"rear":rear,"impulses":impulses}
 		return true
 	return true
 

@@ -15,7 +15,9 @@ func run_checks() -> void:
 	player.health.max_health = 10000
 	player.health.current_health = 10000
 	var starts: Array[StringName] = []
-	day.event_started.connect(func(type: StringName): starts.append(type))
+	day.event_started.connect(func(type: StringName):
+		if type!=&"thief": starts.append(type))
+	mart.get_node("Thieves").thief_entered.connect(func(_actor): starts.append(&"thief"))
 	var event_age := 0.0
 	var observed_customers := 0
 	var observed_delivery := false

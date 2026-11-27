@@ -410,10 +410,12 @@ func _update_hold_target(delta: float = 1.0 / 60.0) -> void:
 			alignment = intended.placement_point(camera.global_position,forward,held_object,grab_distance)
 			if not alignment.is_empty():
 				placement_shelf = intended
-				destination = alignment.position
+				destination = alignment.get("approach",alignment.position)
 		if placement_shelf != null:
 			desired_hold_position = destination
 			hold_obstructed = false
+		if alignment.get("staging",false) or held_object.global_position.distance_to(destination)>0.06 or held_object.linear_velocity.length()>0.12 or held_object.angular_velocity.length()>0.12:
+			placement_shelf=null
 		if alignment.has("align"):
 			var turn: Quaternion = (alignment.align * held_object.global_basis.inverse()).get_rotation_quaternion()
 			if turn.w < 0: turn = -turn
